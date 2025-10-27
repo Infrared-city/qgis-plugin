@@ -1,0 +1,76 @@
+# -----------------------------
+# Python általános
+# -----------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+*.spec
+
+# -----------------------------
+# QGIS plugin specifikus
+# -----------------------------
+# QGIS runtime adatbázisok, előzmények
+*.db
+*.sqlite
+user-history.db
+symbology-style.db
+
+# Ideiglenes / exportált fájlok
+temp.json
+*.tmp
+*.log
+*.bak
+*.swp
+
+# QGIS config fájlok
+.qgis2/
+.qgis3/
+.qgis/
+.qgis_settings/
+.qgis_cache/
+
+# UI generált / cache fájlok
+*.ui~
+*.qrc~
+*.qrc.py
+resources_rc.py
+
+# -----------------------------
+# Projekt-specifikus
+# -----------------------------
+# Lokális tesztadatok
+test/
+scripts/
+help/
+i18n/
+
+# Lokális konfigurációk
+Makefile
+pb_tool.cfg
+metadata.txt
+temp.*
+infrared_city_gis/__pycache__/
+
+# -----------------------------
+# IDE / fejlesztői környezet
+# -----------------------------
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Virtuális környezet
+# -----------------------------
+.venv/
+venv/
+ENV/
+env/
