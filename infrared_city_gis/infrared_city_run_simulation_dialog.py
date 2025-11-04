@@ -26,34 +26,109 @@ import os
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QMessageBox
-from .client import process_run_analysis, process_ogc
+from .client import process_run_analysis, process_ogc, get_windspeed_payload, get_pwc_payload_ogc
 from .infrared_logger import logger
 from .visualization.display import add_geojson_then_raster
+import json
+from qgis.core import QgsApplication
+from .models.analysis import AnalysisType, PedestrianWindComfortType
+from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig, validate_weather_filename
+
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'infrared_city_run_simulation_dialog.ui'))
 
 
+
+
 class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
-    def __init__(self, parent=None, dotbim_path=None, geojson_path=None ,bbox=None):
+    def __init__(self, parent=None, dotbim_path=None, geojson_path=None ,bbox=None,crs=None):
         super().__init__(parent)
         self.setupUi(self)
 
         self.dotbim_path = dotbim_path
         self.geojson_path = geojson_path
         self.bbox = bbox
-        self.analysis_type_dropdown.addItems(["Wind Speed Analysis", "Pedestrian Wind Comfort"])
+        self.crs = crs
+        self.colors = None
+        self.analysis_type_dropdown.clear()
+        for t in AnalysisType:
+            self.analysis_type_dropdown.addItem(str(t), t)
         self.analysis_type_dropdown.currentTextChanged.connect(self.on_analysis_changed)
+        self.analysis_type = None
+        self.api_key = None
         
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
 
-        # alapértelmezetten wind speed paraméterek látszanak
-        self.group_wind_speed.show()
+        # Állítsuk be az alapértelmezett oldalt a stack-ben
+        if self.analysis_type_dropdown.count() > 0:
+            self.analysis_type_dropdown.setCurrentIndex(0)
+            self.on_analysis_changed(self.analysis_type_dropdown.currentText())
+
+        
+        # Plugin data dir + user.json
+        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
+        user_file = os.path.join(plugin_data_dir, "user.json")
+
+        # Ha létezik a file, olvassuk be az API key-t
+        if os.path.exists(user_file):
+            try:
+                with open(user_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    api_key = data.get("api-key", "")
+                    self.api_key_input.setText(api_key)
+                    self.api_key = api_key
+                    logger.info(f"Loaded API key from user.json: {api_key}")
+            except Exception as e:
+                logger.warning(f"Could not read API key: {e}")
+
+
+
         logger.info("Dialog loaded")
+        logger.info("Dotbim path: %s", self.dotbim_path)
+        logger.info("Geojson path: %s", self.geojson_path)
+        logger.info("Bbox: %s", self.bbox)
+        logger.info("CRS: %s", self.crs)
+
+
 
     def on_analysis_changed(self, text):
-        self.group_wind_speed.setVisible(text == "Wind Speed Analysis")
+        current = self.analysis_type_dropdown.currentData()
+        # Switch stacked pages instead of toggling visibility
+        try:
+            if current == AnalysisType.WIND_SPEED:
+                self.content_stack.setCurrentIndex(0)
+            elif current == AnalysisType.PEDESTRIAN_WIND_COMFORT:
+                self.content_stack.setCurrentIndex(1)
+        except AttributeError:
+            # Fallback for older UI without stacked widget
+            try:
+                self.group_wind_speed.setVisible(current == AnalysisType.WIND_SPEED)
+                self.group_pedestrian_wind_comfort.setVisible(current == AnalysisType.PEDESTRIAN_WIND_COMFORT)
+            except AttributeError:
+                pass
+
+        if current == AnalysisType.PEDESTRIAN_WIND_COMFORT:
+            self.pwc_type_dropdown.clear()
+            # DEBUGGING:
+            self.weather_file_input.setText("AUT_WI_Wien-Innere.Stadt.110340_TMYx.2009-2023")
+            for s in PedestrianWindComfortType:
+                self.pwc_type_dropdown.addItem(str(s), s)
+
+            # Populate season and hours dropdowns
+            try:
+                self.season_dropdown.clear()
+                for season in SeasonalTimeFrameConfig:
+                    self.season_dropdown.addItem(season.value, season)
+            except AttributeError:
+                pass
+            try:
+                self.hours_dropdown.clear()
+                for hours in DailyTimeFrameConfig:
+                    self.hours_dropdown.addItem(hours.value, hours)
+            except AttributeError:
+                pass
 
     def accept(self):
         logger.info(f"Accept called. Sender: {self.sender()}")
@@ -62,26 +137,107 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             QMessageBox.warning(self, "Missing Geometry", "Please fetch geometry first.")
             return
 
-        analysis_type = self.analysis_type_dropdown.currentText()
-        wind_speed = self.wind_speed_input.value()
-        wind_direction = self.wind_direction_input.value()
+        self.analysis_type = self.analysis_type_dropdown.currentData()
+        self.sub_analysis_type = None
 
-        if analysis_type == "Wind Speed Analysis" and (wind_speed <= 0 or wind_direction < 0 or wind_direction > 360):
-            logger.warning("Invalid parameters. Please check the input values.")
-            QMessageBox.warning(self, "Invalid Parameters", "Wind speed must be >0 and direction between 0-360°.")
+
+        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
+        os.makedirs(plugin_data_dir, exist_ok=True)
+        user_file = os.path.join(plugin_data_dir, "user.json")
+
+        # API kulcs mentése
+        self.api_key = self.api_key_input.text().strip()
+        if self.api_key:
+            try:
+                with open(user_file, "w", encoding="utf-8") as f:
+                    json.dump({"api-key": self.api_key}, f, indent=2)
+                    logger.info("API key saved successfully.")
+            except Exception as e:
+                logger.error(f"Failed to save API key: {e}")
+        else:
+            logger.warning("API key is empty. Please fill in the API key.")
+            QMessageBox.warning(self, "Missing API Key", "Please fill in the API key.")
             return
-        logger.info("Parameters checked for analysis")
-        
-        try:
-            logger.info("Simulation started")
-            geotiff_path = process_run_analysis(self.dotbim_path,wind_direction, wind_speed, self.bbox)
-            logger.info("Simulation finished")
+
+
+        if self.analysis_type == AnalysisType.WIND_SPEED:
+            wind_speed = self.wind_speed_input.value()
+            wind_direction = self.wind_direction_input.value()
             
-            add_geojson_then_raster(self.geojson_path, geotiff_path)
-            logger.info("Geotiff visualized")
-        except Exception as e:
-            logger.error("Simulation failed")
-            logger.error(f"Error happened: {e}")
-            raise        
-        
+            if  (wind_speed <= 0 or wind_direction < 0 or wind_direction > 360):
+                logger.warning("Invalid parameters. Please check the input values.")
+                QMessageBox.warning(self, "Invalid Parameters", "Wind speed must be >0 and direction between 0-360°.")
+                return
+            
+            logger.info("Parameters checked for analysis")
+            
+            try:
+                logger.info("Simulation started")
+                payload = get_windspeed_payload(self.dotbim_path, wind_direction, wind_speed,self.bbox)
+                geotiff_path = process_run_analysis(payload,self.dotbim_path,self.bbox,self.crs, self.api_key)
+                logger.info("Simulation finished")
+                
+                add_geojson_then_raster(self.geojson_path, geotiff_path, analysis_type=self.analysis_type.value, sub_analysis_type=(self.sub_analysis_type.value if self.sub_analysis_type else None))
+                logger.info("Geotiff visualized")
+            except Exception as e:
+                logger.error("Simulation failed")
+                logger.error(f"Error happened: {e}")
+                raise        
+        elif self.analysis_type == AnalysisType.PEDESTRIAN_WIND_COMFORT:
+            pwc_type = self.pwc_type_dropdown.currentData()
+            # Optional selections; guard if widgets not present
+            try:
+                selected_season = self.season_dropdown.currentData()
+            except AttributeError:
+                selected_season = None
+            try:        
+                selected_hours = self.hours_dropdown.currentData()
+            except AttributeError:
+                selected_hours = None
+
+            try:
+                weather_file = self.weather_file_input.text().strip()
+                if not validate_weather_filename(weather_file):
+                    logger.warning("Invalid weather file name. Please check the input values.")
+                    QMessageBox.warning(self, "Invalid Weather File", "Invalid weather file name. Please check the input values.")
+                    return
+            except AttributeError:
+                weather_file = None
+
+            self.sub_analysis_type = pwc_type
+            logger.info(
+                f"Parameters checked for analysis: standard={getattr(pwc_type,'value',pwc_type)}, "
+                f"season={getattr(selected_season,'value',selected_season)}, "
+                f"hours={getattr(selected_hours,'value',selected_hours)}"
+            )
+
+            payload = get_pwc_payload_ogc(
+                geometry_path=self.dotbim_path,
+                bbox=self.bbox,
+                crs=self.crs,
+                subtype=pwc_type.value,
+                season=selected_season.value,
+                hours=selected_hours.value,
+                weather_file_name=weather_file)
+            
+            logger.info(f"Payload created")
+
+            base_name = os.path.splitext(os.path.basename(self.dotbim_path))[0]
+            file_path = os.path.join(plugin_data_dir, f"{base_name}_payload.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=4, ensure_ascii=False)
+
+            try:
+                logger.info("Simulation started")
+                geotiff_path = process_ogc(payload,self.dotbim_path,self.analysis_type.value, self.api_key)
+                logger.info("Simulation finished")
+                
+                add_geojson_then_raster(self.geojson_path, geotiff_path, analysis_type=self.analysis_type.value, sub_analysis_type=(self.sub_analysis_type.value if self.sub_analysis_type else None))
+                logger.info("Geotiff visualized")
+            except Exception as e:
+                logger.error("Simulation failed")
+                logger.error(f"Error happened: {e}")
+                raise
+
+            
         super().accept()

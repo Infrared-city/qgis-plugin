@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>420</width>
-    <height>250</height>
+    <height>292</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -15,7 +15,39 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
+    <widget class="QLabel" name="label_api_key">
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>19</height>
+      </size>
+     </property>
+     <property name="text">
+      <string>Infrared.city API key:</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLineEdit" name="api_key_input">
+     <property name="placeholderText">
+      <string>Enter your Infrared.city API key</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QLabel" name="label_analysis_type">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>0</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>19</height>
+      </size>
+     </property>
      <property name="text">
       <string>Analysis Type:</string>
      </property>
@@ -36,55 +68,132 @@
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="group_wind_speed">
-     <property name="title">
-      <string>Wind Speed Parameters</string>
+    <widget class="QStackedWidget" name="content_stack">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
      </property>
-     <layout class="QFormLayout" name="formLayout">
-      <item row="0" column="0">
-       <widget class="QLabel" name="label_direction">
-        <property name="text">
-         <string>Wind Direction (°):</string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1">
-       <widget class="QSpinBox" name="wind_direction_input">
-        <property name="minimum">
-         <number>0</number>
-        </property>
-        <property name="maximum">
-         <number>359</number>
-        </property>
-        <property name="value">
-         <number>45</number>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="label_speed">
-        <property name="text">
-         <string>Wind Speed (m/s):</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QDoubleSpinBox" name="wind_speed_input">
-        <property name="minimum">
-         <double>1.000000000000000</double>
-        </property>
-        <property name="maximum">
-         <double>100.000000000000000</double>
-        </property>
-        <property name="singleStep">
-         <double>0.500000000000000</double>
-        </property>
-        <property name="value">
-         <double>15.000000000000000</double>
-        </property>
-       </widget>
-      </item>
-     </layout>
+     <widget class="QWidget" name="page_wind_speed">
+      <layout class="QVBoxLayout" name="verticalLayoutWind">
+       <item>
+        <widget class="QGroupBox" name="group_wind_speed">
+         <property name="maximumSize">
+          <size>
+           <width>16777215</width>
+           <height>125</height>
+          </size>
+         </property>
+         <property name="title">
+          <string>Wind Speed Parameters</string>
+         </property>
+         <layout class="QFormLayout" name="formLayout">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_direction">
+            <property name="text">
+             <string>Wind Direction (°):</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QSpinBox" name="wind_direction_input">
+            <property name="minimum">
+             <number>0</number>
+            </property>
+            <property name="maximum">
+             <number>359</number>
+            </property>
+            <property name="value">
+             <number>45</number>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QDoubleSpinBox" name="wind_speed_input">
+            <property name="minimum">
+             <double>1.000000000000000</double>
+            </property>
+            <property name="maximum">
+             <double>100.000000000000000</double>
+            </property>
+            <property name="singleStep">
+             <double>0.500000000000000</double>
+            </property>
+            <property name="value">
+             <double>15.000000000000000</double>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_speed">
+            <property name="text">
+             <string>Wind Speed (m/s):</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="page_pedestrian_wind_comfort">
+      <layout class="QVBoxLayout" name="verticalLayoutPWC">
+       <item>
+        <widget class="QGroupBox" name="group_pedestrian_wind_comfort">
+         <property name="title">
+          <string>Pedestrian Wind Comfort</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutPWC">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_pwc_type">
+            <property name="text">
+             <string>Comfort standard:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="pwc_type_dropdown"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_season">
+            <property name="text">
+             <string>Season:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QComboBox" name="season_dropdown"/>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="label_hours">
+            <property name="text">
+             <string>Hours:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QComboBox" name="hours_dropdown"/>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="label_weather_file">
+            <property name="text">
+             <string>Weather file name:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QLineEdit" name="weather_file_input">
+            <property name="placeholderText">
+             <string>AUT_WI_Wien-Innere.Stadt.110340_TMYx.2009-2023</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </widget>
    </item>
    <item>
