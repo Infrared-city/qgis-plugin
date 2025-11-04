@@ -14,7 +14,7 @@ from ..infrared_logger import logger
 import numpy as np
 import rasterio
 from rasterio.transform import from_bounds
-
+import uuid
 
 
 def convert_to_local_coords(coords: List[Tuple[float, float]], center_lat: float, center_lon: float) -> List[List[float]]:
@@ -81,7 +81,8 @@ def create_building_extrusion(polygon_coords_local: List[List[float]], height: f
         print(f"[create_building_extrusion] error: {e}")
         return None, None
 
-def update_dotbim(data,shiftSize=256):
+def update_dotbim(data,bbox_size_meters=512):
+    shiftSize = bbox_size_meters / 2
     logger.info("Updating geometry...")
 
     fixed_data = {}
@@ -130,7 +131,7 @@ def get_bbox(center_lon, center_lat, box_size_meters=512):
 def sanitize_name(s: str) -> str:
     return ''.join(c if (c.isalnum() or c in "-_") else "-" for c in s)
 
-def geojson_to_dotbim(in_path: str, center_lon: float, center_lat: float):
+def geojson_to_dotbim(in_path: str, center_lon: float, center_lat: float, bbox_size_meters=512):
     """
     Read GeoJSON (features polygons) and produce dotbim-like JSON.
     Returns (buildings_2d_list, dotbim_dict)
@@ -206,22 +207,27 @@ def geojson_to_dotbim(in_path: str, center_lon: float, center_lat: float):
         # create extrusion mesh (in local meters)
         verts, inds = create_building_extrusion(local_coords, h_val)
         if verts and inds:
-            name = props.get("id") or props.get("osm_id")
-            name = sanitize_name(str(name))
+            # name = props.get("id") or props.get("osm_id")
+            # ame = sanitize_name(str(name))
+            # if name == "" or name is None:
+            name = str(uuid.uuid4())
+
             dotbim_data[name] = {
                 "mesh_id": len(dotbim_data),
                 "coordinates": verts,
-                "indices": inds,
-                "properties": {
-                    "source_file": os.path.basename(in_path),
-                    "height": float(h_val)
-                }
+                "indices": inds
             }
 
-    sifted_dotbim_data = update_dotbim(dotbim_data)
+    sifted_dotbim_data = update_dotbim(dotbim_data, bbox_size_meters)
     logger.info("DotBIM updated")
 
     return sifted_dotbim_data
+
+def crop_matrix(matrix: np.ndarray, core_size=256):
+    h, w = matrix.shape
+    start_row = (h - core_size) // 2
+    start_col = (w - core_size) // 2
+    return matrix[start_row:start_row + core_size, start_col:start_col + core_size]
 
 
 def generate_geotiff(matrix: np.ndarray, bbox: tuple, crs: str, output_path: str, simulation_type: str = "unknown", criteria: str = "unknown"):

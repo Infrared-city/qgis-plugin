@@ -50,7 +50,7 @@ def extract_height_from_tags(tags):
 
 
 
-def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries: int = 3, delay: int = 3) -> str:
+def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries: int = 3, delay: int = 3,tile_id: int = 0) -> str:
         logger.info("Fetching geometry with lon: {lon}, lat: {lat}, bbox_size_m: {bbox_size_m}")
 
         overpass_url = "https://overpass-api.de/api/interpreter"
@@ -59,8 +59,8 @@ def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries:
         os.makedirs(plugin_data_dir, exist_ok=True)
 
 
-        geojson_path = os.path.join(plugin_data_dir,"infrared_city_buildings.geojson")
-        dotbim_path = os.path.join(plugin_data_dir,"infrared_city_buildings.bim")   
+        geojson_path = os.path.join(plugin_data_dir,f"infrared_city_buildings_{tile_id}.geojson")
+        dotbim_path = os.path.join(plugin_data_dir,f"infrared_city_buildings_{tile_id}.bim")   
 
         
         bbox = get_bbox(lon, lat, bbox_size_m)
@@ -155,7 +155,7 @@ def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries:
         logger.info(f"GeoJSON saved to {geojson_path}")
 
         logger.info("Converting GeoJSON to DotBIM...")
-        dotbim_data = geojson_to_dotbim(geojson_path, lon, lat)
+        dotbim_data = geojson_to_dotbim(geojson_path, lon, lat, bbox_size_m)
         logger.info("DotBIM created")
 
         with open(dotbim_path, "w", encoding="utf-8") as f:

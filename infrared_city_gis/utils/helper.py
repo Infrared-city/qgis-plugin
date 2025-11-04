@@ -5,7 +5,9 @@ import zipfile
 import io
 from ..infrared_logger import logger
 import gzip
-
+import os
+import datetime
+from qgis.core import QgsApplication
     
 def decode_gzip_base64_binary(b64_data: str) -> bytes:
     """Decode gzip+base64 string into raw binary bytes (handles both TIFF and gzip+base64)."""
@@ -65,3 +67,29 @@ def decode(response_content):
     except Exception as e:
         logger.info(f"Decoding pipeline failed: {e}")
         raise
+
+def _clean_up(folder_name):
+    """Delete all files older than today (00:00:00) from directory."""
+    plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", folder_name)
+
+    if not os.path.exists(plugin_data_dir):
+        return
+
+    today = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+
+    for filename in os.listdir(plugin_data_dir):
+        file_path = os.path.join(plugin_data_dir, filename)
+        try:
+            if os.path.isfile(file_path):
+                mtime = datetime.datetime.fromtimestamp(os.path.getmtime(file_path))
+                if mtime < today:
+                    os.remove(file_path)
+                    logger.info(f"Deleted old file: {file_path}")
+        except Exception as e:
+            logger.warning(f"Failed to remove old file {file_path}: {e}")
+    
+
+def cleanup_old_data():
+    """Delete all files older than today (00:00:00) from directory."""
+    _clean_up("data")
+    _clean_up("logs")

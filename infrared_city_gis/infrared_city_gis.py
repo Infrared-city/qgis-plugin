@@ -32,8 +32,11 @@ from .resources import *
 # Import the code for the dialog
 from .infrared_city_fetch_geometry_dialog import InfraredCityFetchGeometryDialog
 from .infrared_city_run_simulation_dialog import InfraredCityRunSimulationDialog
+from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
+from .infrared_city_run_multiple_dialog import InfraredCityRunMultipleDialog
 import os.path
 from .infrared_logger import logger
+from .utils.helper import cleanup_old_data
 
 class InfraredCityGIS:
     """QGIS Plugin Implementation."""
@@ -71,10 +74,9 @@ class InfraredCityGIS:
         self.actions = []
         self.menu = self.tr(u'&Infrared City GIS')
 
-        # Check if plugin was started the first time in current QGIS session
-        # Must be set in initGui() to survive plugin reloads
-        self.first_start_fetch = True
-        self.first_start_simulation = True
+        # cleanup old data
+        cleanup_old_data()
+
 
         #logger.info("Plugin initialized")
 
@@ -184,11 +186,19 @@ class InfraredCityGIS:
             callback=self.run_simulation,
             parent=self.iface.mainWindow()
         )
+        self.add_action(
+            icon_path,
+            text=self.tr(u'Select bbox by center'),
+            callback=self.select_bbox,
+            parent=self.iface.mainWindow()
+        )
 
-        # will be set False in run()
-        self.first_start_fetch = True
-        self.first_start_simulation = True
-
+        self.add_action(
+            icon_path,
+            text=self.tr(u'Run multiple simulations'),
+            callback=self.run_multiple_simulations,
+            parent=self.iface.mainWindow()
+        )
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -198,16 +208,47 @@ class InfraredCityGIS:
                 action)
             self.iface.removeToolBarIcon(action)
 
-
-    def fetch_geometry(self):
+    def run_multiple_simulations(self):
         """Run method that performs all the real work"""
 
-        # Create the dialog with elements (after translation) and keep reference
-        # Only create GUI ONCE in callback, so that it will only load when the plugin is started
-        #logger.info("Fetching geometry")
-        if self.first_start_fetch == True:
-            self.first_start_fetch = False
-            self.dlg = InfraredCityFetchGeometryDialog()
+        self.dlg = InfraredCityRunMultipleDialog()
+
+        # show the dialog
+        self.dlg.show()
+        # Run the dialog event loop
+        result = self.dlg.exec_()
+
+        if result:
+            logger.info("BBox selected successfully")
+        else:
+            logger.error("BBox selection cancelled")
+
+    def select_bbox(self):
+        """Run method that performs all the real work"""
+
+        self.dlg = InfraredCitySelectBBoxDialog()
+
+        # show the dialog
+        self.dlg.show()
+        # Run the dialog event loop
+        result = self.dlg.exec_()
+
+        if result:
+
+            self.last_geojson_path = getattr(self.dlg, "geojson_path", None)
+            self.last_dotbim_path = getattr(self.dlg, "dotbim_path", None)
+            self.bbox = getattr(self.dlg,"bbox",None)
+            self.crs = getattr(self.dlg,"crs",None)
+
+
+            logger.info("BBox selected successfully")
+        else:
+            logger.error("BBox selection cancelled")
+    
+    
+    def fetch_geometry(self):
+        """Run method that performs all the real work"""
+        self.dlg = InfraredCityFetchGeometryDialog()
 
         # show the dialog
         self.dlg.show()
@@ -219,10 +260,7 @@ class InfraredCityGIS:
                 self.last_geojson_path = getattr(self.dlg, "geojson_path", None)
                 self.last_dotbim_path = getattr(self.dlg, "dotbim_path", None)
                 self.bbox = getattr(self.dlg,"bbox",None)
-
-                #logger.info(f"Fetched geometry saved to: {self.last_geojson_path} \n "
-                 #       f"and .bim to {self.last_dotbim_path} \n"
-                  #      f"with bbox: {self.bbox}")
+                self.crs = "EPSG:4326"
 
                 if self.last_geojson_path and self.bbox and self.last_dotbim_path:
                     
@@ -244,21 +282,15 @@ class InfraredCityGIS:
                     )
         
     def run_simulation(self):
-        """Run method that performs all the real work"""
-    
-        #logger.info("Running simulation")
-        # Create the dialog with elements (after translation) and keep reference
-        # Only create GUI ONCE in callback, so that it will only load when the plugin is started
-        if self.first_start_simulation == True:
-            self.first_start_simulation = False
-            
-            if not self.last_geojson_path:
-                #logger.warning("No geometry fetched. Please fetch geometry first.")
-                self.iface.messageBar().pushWarning("InfraredCity", "Please fetch geometry first.")
-                return
-            logger.info("Simulation dialog creation started")
-            self.dlg = InfraredCityRunSimulationDialog(dotbim_path=self.last_dotbim_path,geojson_path=self.last_geojson_path,bbox=self.bbox)
-            logger.info("Simulation dialog created")
+        """Run method that performs all the real work"""            
+        if not self.last_geojson_path or not self.last_dotbim_path or not self.bbox or not self.crs:
+            #logger.warning("No geometry fetched. Please fetch geometry first.")
+            self.iface.messageBar().pushWarning("InfraredCity", "Please select geometry first.")
+            return
+        
+        logger.info("Simulation dialog creation started")
+        self.dlg = InfraredCityRunSimulationDialog(dotbim_path=self.last_dotbim_path,geojson_path=self.last_geojson_path,bbox=self.bbox,crs=self.crs)
+        logger.info("Simulation dialog created")
 
 
         # show the dialog

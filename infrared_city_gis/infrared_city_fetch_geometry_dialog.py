@@ -47,6 +47,11 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         # #widgets-and-dialogs-with-auto-connect
         self.setupUi(self)
         logger.info("Dialog loaded")
+        # DEBUGGING:
+        self.longitude_input.setText("16.3738189")   
+        self.latitude_input.setText("48.2081743")   
+ 
+        
         #self.label.setText("Hello from QGIS plugin dialog!")
 
         # Kapcsoljuk össze az OK gombot a validációs függvénnyel
