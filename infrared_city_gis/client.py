@@ -206,12 +206,12 @@ def get_pwc_payload_ogc(geometry_path, bbox,crs,subtype,season,hours,weather_fil
             "weather-file-name": weather_file_name
         },
         "response": "document",
-        "outputs":{
-            "stringOutput":{
-
+        "outputs": {
+            "stringOutput": {
+                "transmissionMode": "value"
             },
-            "imageOutput":{
-
+            "imageOutput": {
+                "transmissionMode": "value"
             }
         }
    }
