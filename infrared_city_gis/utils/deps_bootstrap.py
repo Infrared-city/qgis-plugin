@@ -67,11 +67,7 @@ def _pip_install(packages: List[str]):
         "--target",
         str(THIRDPARTY),
     ]
-    if WHEELS_DIR.exists():
-        cmd = base_cmd + ["--no-index", "--find-links", str(WHEELS_DIR)] + packages
-    else:
-        cmd = base_cmd + packages
-    # In corporate environments, users may need proxy/CA; they can adjust env if needed
+    cmd = base_cmd + packages
     env = os.environ.copy()
     subprocess.check_call(cmd, env=env)
 
@@ -84,15 +80,13 @@ def ensure_deps(plugin_name: str = "infrared_city_gis") -> None:
     - Creates a '.deps_ok' marker to avoid repeated installs
     """
     _ensure_sys_path()
-    if MARKER.exists():
-        return
-
     reqs = _read_requirements()
     missing = _find_missing(reqs)
     if missing:
         _pip_install(missing)
     try:
-        MARKER.write_text("ok", encoding="utf-8")
+        if not _find_missing(reqs):
+            MARKER.write_text("ok", encoding="utf-8")
     except Exception:
         # Non-fatal if marker can't be written
         pass

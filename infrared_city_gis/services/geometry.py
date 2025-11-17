@@ -1,4 +1,3 @@
-
 import os
 import json
 import math
@@ -7,13 +6,6 @@ import numpy as np
 from shapely.geometry import Polygon
 from ..infrared_logger import logger
 from pyproj import Geod
-import json
-import numpy as np
-import os
-from ..infrared_logger import logger
-import numpy as np
-import rasterio
-from rasterio.transform import from_bounds
 import uuid
 
 
@@ -231,6 +223,11 @@ def crop_matrix(matrix: np.ndarray, core_size=256):
 
 
 def generate_geotiff(matrix: np.ndarray, bbox: tuple, crs: str, output_path: str, simulation_type: str = "unknown", criteria: str = "unknown"):
+    try:
+        import rasterio
+        from rasterio.transform import from_bounds
+    except Exception as e:
+        raise ImportError("rasterio is required to write GeoTIFF. Please ensure dependencies are installed and restart QGIS.") from e
 
     height, width = matrix.shape
     west, south, east, north = bbox
