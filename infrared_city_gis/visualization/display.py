@@ -91,9 +91,13 @@ def get_visual_config(analysis_type, sub_analysis_type=None):
         if not sub_cfg:
             logger.warning(f"Subtype '{sub_analysis_type}' not found under '{analysis_type}'.")
             return None
+        else:
+            logger.info(f"Subtype '{sub_analysis_type}' found under '{analysis_type}'.")
         cfg = sub_cfg
+        logger.info(f"Config: {cfg}")
     else:
         cfg = config
+        logger.info(f"Config: {cfg}")
 
     # --- 3️⃣ Extract values safely ---
     colors_raw = cfg.get("colors", [])
