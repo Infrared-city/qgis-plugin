@@ -53,6 +53,7 @@ class InfraredCityGIS:
         self.iface = iface
         self.last_geojson_path = None
         self.last_dotbim_path = None
+        self.last_geotiff_path = None
         self.bbox = None
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -186,19 +187,19 @@ class InfraredCityGIS:
             callback=self.run_simulation,
             parent=self.iface.mainWindow()
         )
-        self.add_action(
-            icon_path,
-            text=self.tr(u'Select bbox by center'),
-            callback=self.select_bbox,
-            parent=self.iface.mainWindow()
-        )
+        # self.add_action(
+        #     icon_path,
+        #     text=self.tr(u'Select bbox by center'),
+        #     callback=self.select_bbox,
+        #     parent=self.iface.mainWindow()
+        # )
 
-        self.add_action(
-            icon_path,
-            text=self.tr(u'Run multiple simulations'),
-            callback=self.run_multiple_simulations,
-            parent=self.iface.mainWindow()
-        )
+        # self.add_action(
+        #     icon_path,
+        #     text=self.tr(u'Run multiple simulations'),
+        #     callback=self.run_multiple_simulations,
+        #     parent=self.iface.mainWindow()
+        # )
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -300,6 +301,17 @@ class InfraredCityGIS:
         # See if OK was pressed
         if result:
             logger.info("Simulation dialog closed")
+
+            self.last_geotiff_path = getattr(self.dlg, "geotiff_path", None)
+
+            if self.last_geotiff_path:
+                self.iface.messageBar().pushMessage(
+                        "InfraredCity",
+                        f"Simulation result saved to geotiff: {self.last_geotiff_path}",
+                        level=Qgis.Info,
+                        duration=5
+                    )
+
             # Do something useful here - delete the line containing pass and
             # substitute with your code.
             pass
