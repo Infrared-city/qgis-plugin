@@ -54,7 +54,7 @@ class InfraredCityRunMultipleDialog(QtWidgets.QDialog, FORM_CLASS):
     def accept(self):
         """Run fetch when OK is pressed."""
 
-        api_key = "REDACTED_API_KEY"
+        api_key = ""
 
 
         coordinates = [[135.16825585757928,34.67417810179636],

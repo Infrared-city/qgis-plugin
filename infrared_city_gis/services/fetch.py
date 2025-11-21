@@ -5,6 +5,7 @@ import json
 from qgis.core import QgsApplication
 from ..infrared_logger import logger
 from .geometry import geojson_to_dotbim, get_bbox
+from datetime import datetime
 
 def extract_height_from_tags(tags):
     """Extract building height from OSM tags."""
@@ -58,9 +59,10 @@ def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries:
         plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
         os.makedirs(plugin_data_dir, exist_ok=True)
 
+        date_now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
 
-        geojson_path = os.path.join(plugin_data_dir,f"infrared_city_buildings_{tile_id}.geojson")
-        dotbim_path = os.path.join(plugin_data_dir,f"infrared_city_buildings_{tile_id}.bim")   
+        geojson_path = os.path.join(plugin_data_dir,f"infrared_city_buildings_{date_now}.geojson")
+        dotbim_path = os.path.join(plugin_data_dir,f"infrared_city_buildings_{date_now}.bim")   
 
         
         bbox = get_bbox(lon, lat, bbox_size_m)

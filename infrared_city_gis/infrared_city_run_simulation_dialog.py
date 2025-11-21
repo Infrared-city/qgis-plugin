@@ -48,6 +48,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
         self.dotbim_path = dotbim_path
         self.geojson_path = geojson_path
+        self.geotiff_path = None
         self.bbox = bbox
         self.crs = crs
         self.colors = None
@@ -174,10 +175,10 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             try:
                 logger.info("Simulation started")
                 payload = get_windspeed_payload(self.dotbim_path, wind_direction, wind_speed,self.bbox)
-                geotiff_path = process_run_analysis(payload,self.dotbim_path,self.bbox,self.crs, self.api_key)
+                self.geotiff_path = process_run_analysis(payload,self.dotbim_path,self.bbox,self.crs, self.api_key)
                 logger.info("Simulation finished")
                 
-                add_geojson_then_raster(self.geojson_path, geotiff_path, analysis_type=self.analysis_type.value, sub_analysis_type=(self.sub_analysis_type.value if self.sub_analysis_type else None))
+                add_geojson_then_raster(self.geojson_path, self.geotiff_path, analysis_type=self.analysis_type.value, sub_analysis_type=(self.sub_analysis_type.value if self.sub_analysis_type else None))
                 logger.info("Geotiff visualized")
             except Exception as e:
                 logger.error("Simulation failed")
@@ -229,10 +230,10 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
             try:
                 logger.info("Simulation started")
-                geotiff_path = process_ogc(payload,self.dotbim_path,self.analysis_type.value, self.api_key)
+                self.geotiff_path = process_ogc(payload,self.dotbim_path,self.analysis_type.value, self.api_key)
                 logger.info("Simulation finished")
                 
-                add_geojson_then_raster(self.geojson_path, geotiff_path, analysis_type=self.analysis_type.value, sub_analysis_type=(self.sub_analysis_type.value if self.sub_analysis_type else None))
+                add_geojson_then_raster(self.geojson_path, self.geotiff_path, analysis_type=self.analysis_type.value, sub_analysis_type=(self.sub_analysis_type.value if self.sub_analysis_type else None))
                 logger.info("Geotiff visualized")
             except Exception as e:
                 logger.error("Simulation failed")

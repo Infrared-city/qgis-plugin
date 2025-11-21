@@ -48,8 +48,8 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         self.setupUi(self)
         logger.info("Dialog loaded")
         # DEBUGGING:
-        self.longitude_input.setText("16.3738189")   
-        self.latitude_input.setText("48.2081743")   
+        # self.longitude_input.setText("16.3738189")   
+        # self.latitude_input.setText("48.2081743")   
  
         
         #self.label.setText("Hello from QGIS plugin dialog!")
@@ -62,10 +62,10 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         """Run fetch when OK is pressed."""
         longitude = self.longitude_input.text().strip()
         latitude = self.latitude_input.text().strip()
-        bbox = self.bbox_input.text().strip()
+        bbox_val = float(self.bbox_input.value())
         
         # --- Validation ---
-        if not longitude or not latitude or not bbox:
+        if not longitude or not latitude:
             logger.warning("Missing input")
             QMessageBox.warning(self, "Missing Input", "Please fill in all fields!")
             return
@@ -73,7 +73,6 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         try:
             lon = float(longitude)
             lat = float(latitude)
-            bbox_val = float(bbox)
         except ValueError:
             logger.error("Invalid input")
             QMessageBox.warning(self, "Invalid Input", "Coordinates and bbox must be numbers.")
