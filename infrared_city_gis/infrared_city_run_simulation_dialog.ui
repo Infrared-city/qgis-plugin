@@ -156,34 +156,81 @@
            <widget class="QComboBox" name="pwc_type_dropdown"/>
           </item>
           <item row="1" column="0">
-           <widget class="QLabel" name="label_season">
+           <widget class="QLabel" name="label_season_pwc">
             <property name="text">
              <string>Season:</string>
             </property>
            </widget>
           </item>
           <item row="1" column="1">
-           <widget class="QComboBox" name="season_dropdown"/>
+           <widget class="QComboBox" name="season_dropdown_pwc"/>
           </item>
           <item row="2" column="0">
-           <widget class="QLabel" name="label_hours">
+           <widget class="QLabel" name="label_hours_pwc">
             <property name="text">
              <string>Hours:</string>
             </property>
            </widget>
           </item>
           <item row="2" column="1">
-           <widget class="QComboBox" name="hours_dropdown"/>
+           <widget class="QComboBox" name="hours_dropdown_pwc"/>
           </item>
           <item row="3" column="0">
-           <widget class="QLabel" name="label_weather_file">
+           <widget class="QLabel" name="label_weather_file_pwc">
             <property name="text">
              <string>Weather file name:</string>
             </property>
            </widget>
           </item>
           <item row="3" column="1">
-           <widget class="QLineEdit" name="weather_file_input">
+           <widget class="QLineEdit" name="weather_file_input_pwc">
+            <property name="placeholderText">
+             <string>AUT_WI_Wien-Innere.Stadt.110340_TMYx.2009-2023</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="page_thermal_comfort_index">
+      <layout class="QVBoxLayout" name="verticalLayoutTCI">
+       <item>
+        <widget class="QGroupBox" name="group_thermal_comfort_index">
+         <property name="title">
+          <string>Thermal Comfort Index</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutTCI">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_season_tci">
+            <property name="text">
+             <string>Season:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="season_dropdown_tci"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_hours_tci">
+            <property name="text">
+             <string>Hours:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QComboBox" name="hours_dropdown_tci"/>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="label_weather_file_tci">
+            <property name="text">
+             <string>Weather file name:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QLineEdit" name="weather_file_input_tci">
             <property name="placeholderText">
              <string>AUT_WI_Wien-Innere.Stadt.110340_TMYx.2009-2023</string>
             </property>

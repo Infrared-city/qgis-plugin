@@ -5,6 +5,7 @@ from enum import Enum, unique, auto
 class AnalysisType(str, Enum):
     WIND_SPEED = "wind-speed"
     PEDESTRIAN_WIND_COMFORT = "pedestrian-wind-comfort"
+    THERMAL_COMFORT_INDEX = "thermal-comfort-index"
 
 
     def __str__(self):

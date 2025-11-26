@@ -215,3 +215,33 @@ def get_pwc_payload_ogc(geometry_path, bbox,crs,subtype,season,hours,weather_fil
             }
         }
    }
+
+def get_utci_payload_ogc(geometry_path, bbox,crs,season,hours,weather_file_name):
+    
+    with open(geometry_path, "r", encoding="utf-8") as f:
+        geometry_data = json.load(f)
+    logger.info("Geometry loaded")
+
+    return      {
+        "inputs": {
+            "bbox": bbox,
+            "crs": crs,
+            "geometries": geometry_data,
+            "geometry-type": "dotbim",
+            "reduction-factor": 1,
+            "skip-compression": False,
+            "type": "thermal-comfort-index",
+            "season":season,
+            "hours": hours,
+            "weather-file-name": weather_file_name
+        },
+        "response": "document",
+        "outputs": {
+            "stringOutput": {
+                "transmissionMode": "value"
+            },
+            "imageOutput": {
+                "transmissionMode": "value"
+            }
+        }
+   }

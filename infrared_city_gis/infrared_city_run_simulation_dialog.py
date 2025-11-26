@@ -26,7 +26,7 @@ import os
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QMessageBox
-from .client import process_run_analysis, process_ogc, get_windspeed_payload, get_pwc_payload_ogc
+from .client import process_run_analysis, process_ogc, get_windspeed_payload, get_pwc_payload_ogc, get_utci_payload_ogc
 from .infrared_logger import logger
 from .visualization.display import add_geojson_then_raster
 import json
@@ -102,32 +102,52 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.content_stack.setCurrentIndex(0)
             elif current == AnalysisType.PEDESTRIAN_WIND_COMFORT:
                 self.content_stack.setCurrentIndex(1)
+            elif current == AnalysisType.THERMAL_COMFORT_INDEX:
+                self.content_stack.setCurrentIndex(2)
         except AttributeError:
             # Fallback for older UI without stacked widget
             try:
                 self.group_wind_speed.setVisible(current == AnalysisType.WIND_SPEED)
                 self.group_pedestrian_wind_comfort.setVisible(current == AnalysisType.PEDESTRIAN_WIND_COMFORT)
+                self.group_thermal_comfort.setVisible(current == AnalysisType.THERMAL_COMFORT_INDEX)
             except AttributeError:
                 pass
 
         if current == AnalysisType.PEDESTRIAN_WIND_COMFORT:
             self.pwc_type_dropdown.clear()
             # DEBUGGING:
-            self.weather_file_input.setText("AUT_WI_Wien-Innere.Stadt.110340_TMYx.2009-2023")
+            self.weather_file_input_pwc.setText("AUT_WI_Wien-Innere.Stadt.110340_TMYx.2009-2023")
             for s in PedestrianWindComfortType:
                 self.pwc_type_dropdown.addItem(str(s), s)
 
             # Populate season and hours dropdowns
             try:
-                self.season_dropdown.clear()
+                self.season_dropdown_pwc.clear()
                 for season in SeasonalTimeFrameConfig:
-                    self.season_dropdown.addItem(season.value, season)
+                    self.season_dropdown_pwc.addItem(season.value, season)
             except AttributeError:
                 pass
             try:
-                self.hours_dropdown.clear()
+                self.hours_dropdown_pwc.clear()
                 for hours in DailyTimeFrameConfig:
-                    self.hours_dropdown.addItem(hours.value, hours)
+                    self.hours_dropdown_pwc.addItem(hours.value, hours)
+            except AttributeError:
+                pass
+        
+        if current == AnalysisType.THERMAL_COMFORT_INDEX:
+            self.weather_file_input_tci.setText("AUT_WI_Wien-Innere.Stadt.110340_TMYx.2009-2023")
+
+            # Populate season and hours dropdowns
+            try:
+                self.season_dropdown_tci.clear()
+                for season in SeasonalTimeFrameConfig:
+                    self.season_dropdown_tci.addItem(season.value, season)
+            except AttributeError:
+                pass
+            try:
+                self.hours_dropdown_tci.clear()
+                for hours in DailyTimeFrameConfig:
+                    self.hours_dropdown_tci.addItem(hours.value, hours)
             except AttributeError:
                 pass
 
@@ -188,16 +208,16 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             pwc_type = self.pwc_type_dropdown.currentData()
             # Optional selections; guard if widgets not present
             try:
-                selected_season = self.season_dropdown.currentData()
+                selected_season = self.season_dropdown_pwc.currentData()
             except AttributeError:
                 selected_season = None
             try:        
-                selected_hours = self.hours_dropdown.currentData()
+                selected_hours = self.hours_dropdown_pwc.currentData()
             except AttributeError:
                 selected_hours = None
 
             try:
-                weather_file = self.weather_file_input.text().strip()
+                weather_file = self.weather_file_input_pwc.text().strip()
                 if not validate_weather_filename(weather_file):
                     logger.warning("Invalid weather file name. Please check the input values.")
                     QMessageBox.warning(self, "Invalid Weather File", "Invalid weather file name. Please check the input values.")
@@ -217,6 +237,58 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 bbox=self.bbox,
                 crs=self.crs,
                 subtype=pwc_type.value,
+                season=selected_season.value,
+                hours=selected_hours.value,
+                weather_file_name=weather_file)
+            
+            logger.info(f"Payload created")
+
+            base_name = os.path.splitext(os.path.basename(self.dotbim_path))[0]
+            file_path = os.path.join(plugin_data_dir, f"{base_name}_payload.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=4, ensure_ascii=False)
+
+            try:
+                logger.info("Simulation started")
+                self.geotiff_path = process_ogc(payload,self.dotbim_path,self.analysis_type.value, self.api_key)
+                logger.info("Simulation finished")
+                
+                add_geojson_then_raster(self.geojson_path, self.geotiff_path, analysis_type=self.analysis_type.value, sub_analysis_type=(self.sub_analysis_type.value if self.sub_analysis_type else None))
+                logger.info("Geotiff visualized")
+            except Exception as e:
+                logger.error("Simulation failed")
+                logger.error(f"Error happened: {e}")
+                raise
+        
+        elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
+            try:
+                selected_season = self.season_dropdown_tci.currentData()
+            except AttributeError:
+                selected_season = None
+            try:        
+                selected_hours = self.hours_dropdown_tci.currentData()
+            except AttributeError:
+                selected_hours = None
+
+            try:
+                weather_file = self.weather_file_input_tci.text().strip()
+                if not validate_weather_filename(weather_file):
+                    logger.warning("Invalid weather file name. Please check the input values.")
+                    QMessageBox.warning(self, "Invalid Weather File", "Invalid weather file name. Please check the input values.")
+                    return
+            except AttributeError:
+                weather_file = None
+
+            logger.info(
+                f"Parameters checked for analysis:"
+                f"season={getattr(selected_season,'value',selected_season)}, "
+                f"hours={getattr(selected_hours,'value',selected_hours)}"
+            )
+
+            payload = get_utci_payload_ogc(
+                geometry_path=self.dotbim_path,
+                bbox=self.bbox,
+                crs=self.crs,
                 season=selected_season.value,
                 hours=selected_hours.value,
                 weather_file_name=weather_file)
