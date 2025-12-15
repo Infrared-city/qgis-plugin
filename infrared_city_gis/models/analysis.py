@@ -6,6 +6,7 @@ class AnalysisType(str, Enum):
     WIND_SPEED = "wind-speed"
     PEDESTRIAN_WIND_COMFORT = "pedestrian-wind-comfort"
     THERMAL_COMFORT_INDEX = "thermal-comfort-index"
+    THERMAL_COMFORT_STATISTICS = "thermal-comfort-statistics"
 
 
     def __str__(self):
@@ -31,4 +32,16 @@ class Seasons(str, Enum):
     FALL = "fall"
     SPRING = "spring"
     ALLYEAR = "all-year"
+
+    def __str__(self):
+        return self.value
+    
+@unique
+class ThermalComfortStatisticsType(str, Enum):
+    THERMAL_COMFORT = "thermal-comfort"
+    HEAT_STRESS = "heat-stress"
+    COLD_STRESS = "cold-stress"
+
+    def __str__(self):
+        return self.value
     

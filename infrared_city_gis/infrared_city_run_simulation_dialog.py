@@ -26,14 +26,14 @@ import os
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QMessageBox
-from .client import process_run_analysis, process_ogc, get_windspeed_payload, get_pwc_payload_ogc, get_utci_payload_ogc
+from .client import process_run_analysis, process_ogc, get_windspeed_payload, get_windspeed_payload_ogc, get_pwc_payload_ogc, get_utci_payload_ogc, get_tcs_payload_ogc
 from .infrared_logger import logger
 from .visualization.display import add_geojson_then_raster
 import json
 from qgis.core import QgsApplication
-from .models.analysis import AnalysisType, PedestrianWindComfortType
-from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig, validate_weather_filename
-
+from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType
+from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, validate_weather_filename, MonthConfig
+from .models.weather_files import WeatherFile
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'infrared_city_run_simulation_dialog.ui'))
@@ -83,6 +83,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     logger.info(f"Loaded API key from user.json: {api_key}")
             except Exception as e:
                 logger.warning(f"Could not read API key: {e}")
+                QMessageBox.warning(self, "Invalid API Key", "Invalid API key. Please check the input values.")
 
 
 
@@ -104,19 +105,29 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.content_stack.setCurrentIndex(1)
             elif current == AnalysisType.THERMAL_COMFORT_INDEX:
                 self.content_stack.setCurrentIndex(2)
+            elif current == AnalysisType.THERMAL_COMFORT_STATISTICS:
+                self.content_stack.setCurrentIndex(3)
         except AttributeError:
             # Fallback for older UI without stacked widget
             try:
                 self.group_wind_speed.setVisible(current == AnalysisType.WIND_SPEED)
                 self.group_pedestrian_wind_comfort.setVisible(current == AnalysisType.PEDESTRIAN_WIND_COMFORT)
                 self.group_thermal_comfort.setVisible(current == AnalysisType.THERMAL_COMFORT_INDEX)
+                self.group_thermal_comfort_statistics.setVisible(current == AnalysisType.THERMAL_COMFORT_STATISTICS)
             except AttributeError:
                 pass
 
         if current == AnalysisType.PEDESTRIAN_WIND_COMFORT:
+            try:
+                self.weather_file_input_pwc.setEditable(True)
+                self.weather_file_input_pwc.clear()
+
+                for w in WeatherFile:
+                    self.weather_file_input_pwc.addItem(w.value, w)
+            except AttributeError:
+                pass
+            
             self.pwc_type_dropdown.clear()
-            # DEBUGGING:
-            self.weather_file_input_pwc.setText("AUT_WI_Wien-Innere.Stadt.110340_TMYx.2009-2023")
             for s in PedestrianWindComfortType:
                 self.pwc_type_dropdown.addItem(str(s), s)
 
@@ -135,19 +146,72 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 pass
         
         if current == AnalysisType.THERMAL_COMFORT_INDEX:
-            self.weather_file_input_tci.setText("AUT_WI_Wien-Innere.Stadt.110340_TMYx.2009-2023")
+            try:
+                self.weather_file_input_tci.setEditable(True)
+                self.weather_file_input_tci.clear()
+
+                for w in WeatherFile:
+                    self.weather_file_input_tci.addItem(w.value, w)
+            except AttributeError:
+                pass
+
+            try:
+                self.legend_min_input_tci.setEnabled(False)
+                self.legend_max_input_tci.setEnabled(False)
+            except AttributeError:
+                pass
+
+            try:
+                self.legend_min_enable_tci.toggled.connect(
+                    self.legend_min_input_tci.setEnabled
+                )
+                self.legend_max_enable_tci.toggled.connect(
+                    self.legend_max_input_tci.setEnabled
+                )
+            except AttributeError:
+                pass
 
             # Populate season and hours dropdowns
             try:
-                self.season_dropdown_tci.clear()
-                for season in SeasonalTimeFrameConfig:
-                    self.season_dropdown_tci.addItem(season.value, season)
+                self.month_dropdown_tci.clear()
+                for month in MonthConfig:
+                    self.month_dropdown_tci.addItem(month.value, month)
             except AttributeError:
                 pass
             try:
                 self.hours_dropdown_tci.clear()
-                for hours in DailyTimeFrameConfig:
+                for hours in DailyTimeFrameConfigUTCI:
                     self.hours_dropdown_tci.addItem(hours.value, hours)
+            except AttributeError:
+                pass
+
+        if current == AnalysisType.THERMAL_COMFORT_STATISTICS:
+            try:
+                self.weather_file_input_tcs.setEditable(True)
+                self.weather_file_input_tcs.clear()
+
+                for w in WeatherFile:
+                    self.weather_file_input_tcs.addItem(w.value, w)
+            except AttributeError:
+                pass
+
+            # Populate season and hours dropdowns
+            try:
+                self.season_dropdown_tcs.clear()
+                for season in SeasonalTimeFrameConfig:
+                    self.season_dropdown_tcs.addItem(season.value, season)
+            except AttributeError:
+                pass
+            try:
+                self.hours_dropdown_tcs.clear()
+                for hours in DailyTimeFrameConfig:
+                    self.hours_dropdown_tcs.addItem(hours.value, hours)
+            except AttributeError:
+                pass
+            try: 
+                self.tcs_type_dropdown.clear()
+                for tcs_type in ThermalComfortStatisticsType:
+                    self.tcs_type_dropdown.addItem(tcs_type.value, tcs_type)
             except AttributeError:
                 pass
 
@@ -194,8 +258,10 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             
             try:
                 logger.info("Simulation started")
-                payload = get_windspeed_payload(self.dotbim_path, wind_direction, wind_speed,self.bbox)
-                self.geotiff_path = process_run_analysis(payload,self.dotbim_path,self.bbox,self.crs, self.api_key)
+                #payload = get_windspeed_payload(self.dotbim_path, wind_direction, wind_speed,self.bbox)
+                payload = get_windspeed_payload_ogc(self.dotbim_path, self.bbox,self.crs,wind_direction,wind_speed)
+                self.geotiff_path = process_ogc(payload,self.dotbim_path,self.analysis_type.value,self.api_key)
+                #self.geotiff_path = process_run_analysis(payload,self.dotbim_path,self.bbox,self.crs, self.api_key)
                 logger.info("Simulation finished")
                 
                 add_geojson_then_raster(self.geojson_path, self.geotiff_path, analysis_type=self.analysis_type.value, sub_analysis_type=(self.sub_analysis_type.value if self.sub_analysis_type else None))
@@ -203,6 +269,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             except Exception as e:
                 logger.error("Simulation failed")
                 logger.error(f"Error happened: {e}")
+                QMessageBox.warning(self, "Simulation Failed", f"Simulation failed: {e}")
                 raise        
         elif self.analysis_type == AnalysisType.PEDESTRIAN_WIND_COMFORT:
             pwc_type = self.pwc_type_dropdown.currentData()
@@ -217,7 +284,16 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 selected_hours = None
 
             try:
-                weather_file = self.weather_file_input_pwc.text().strip()
+                text = self.weather_file_input_pwc.currentText().strip()
+                data = self.weather_file_input_pwc.currentData()
+
+                if isinstance(data, WeatherFile):
+                    weather_file = data.value   # enum-ból jön
+                else:
+                    weather_file = text 
+                
+                logger.info(f"Weather file: {weather_file}")
+
                 if not validate_weather_filename(weather_file):
                     logger.warning("Invalid weather file name. Please check the input values.")
                     QMessageBox.warning(self, "Invalid Weather File", "Invalid weather file name. Please check the input values.")
@@ -241,7 +317,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 hours=selected_hours.value,
                 weather_file_name=weather_file)
             
-            logger.info(f"Payload created")
+            logger.info(f"Payload created.")
 
             base_name = os.path.splitext(os.path.basename(self.dotbim_path))[0]
             file_path = os.path.join(plugin_data_dir, f"{base_name}_payload.json")
@@ -258,20 +334,47 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             except Exception as e:
                 logger.error("Simulation failed")
                 logger.error(f"Error happened: {e}")
+                QMessageBox.warning(self, "Simulation Failed", f"Simulation failed: {e}")
                 raise
         
         elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
             try:
-                selected_season = self.season_dropdown_tci.currentData()
+                selected_month = self.month_dropdown_tci.currentData()
             except AttributeError:
-                selected_season = None
+                selected_month = None
             try:        
                 selected_hours = self.hours_dropdown_tci.currentData()
             except AttributeError:
                 selected_hours = None
 
+            # Legend overrides (only if checkboxes are enabled)
             try:
-                weather_file = self.weather_file_input_tci.text().strip()
+                if self.legend_min_enable_tci.isChecked():
+                    selected_legend_min = self.legend_min_input_tci.value()
+                else:
+                    selected_legend_min = None
+            except AttributeError:
+                selected_legend_min = None
+
+            try:
+                if self.legend_max_enable_tci.isChecked():
+                    selected_legend_max = self.legend_max_input_tci.value()
+                else:
+                    selected_legend_max = None
+            except AttributeError:
+                selected_legend_max = None
+
+            try:
+                text = self.weather_file_input_tci.currentText().strip()
+                data = self.weather_file_input_tci.currentData()
+
+                if isinstance(data, WeatherFile):
+                    weather_file = data.value  
+                else:
+                    weather_file = text 
+                
+                logger.info(f"Weather file: {weather_file}")
+
                 if not validate_weather_filename(weather_file):
                     logger.warning("Invalid weather file name. Please check the input values.")
                     QMessageBox.warning(self, "Invalid Weather File", "Invalid weather file name. Please check the input values.")
@@ -281,7 +384,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
             logger.info(
                 f"Parameters checked for analysis:"
-                f"season={getattr(selected_season,'value',selected_season)}, "
+                f"month={getattr(selected_month,'value',selected_month)}, "
                 f"hours={getattr(selected_hours,'value',selected_hours)}"
             )
 
@@ -289,7 +392,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 geometry_path=self.dotbim_path,
                 bbox=self.bbox,
                 crs=self.crs,
-                season=selected_season.value,
+                month=selected_month.number,
                 hours=selected_hours.value,
                 weather_file_name=weather_file)
             
@@ -305,11 +408,86 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.geotiff_path = process_ogc(payload,self.dotbim_path,self.analysis_type.value, self.api_key)
                 logger.info("Simulation finished")
                 
-                add_geojson_then_raster(self.geojson_path, self.geotiff_path, analysis_type=self.analysis_type.value, sub_analysis_type=(self.sub_analysis_type.value if self.sub_analysis_type else None))
+                add_geojson_then_raster(self.geojson_path, 
+                self.geotiff_path, 
+                analysis_type=self.analysis_type.value, 
+                sub_analysis_type=(self.sub_analysis_type.value if self.sub_analysis_type else None),
+                min_legend_value=selected_legend_min,
+                max_legend_value=selected_legend_max)
                 logger.info("Geotiff visualized")
             except Exception as e:
                 logger.error("Simulation failed")
                 logger.error(f"Error happened: {e}")
+                QMessageBox.warning(self, "Simulation Failed", f"Simulation failed: {e}")
+                raise
+
+        elif self.analysis_type == AnalysisType.THERMAL_COMFORT_STATISTICS:
+            try:
+                selected_season = self.season_dropdown_tcs.currentData()
+            except AttributeError:
+                selected_season = None
+            try:        
+                selected_hours = self.hours_dropdown_tcs.currentData()
+            except AttributeError:
+                selected_hours = None
+
+            try:
+                selected_tcs_type = self.tcs_type_dropdown.currentData()
+            except AttributeError:
+                selected_tcs_type = None
+
+            try:
+                text = self.weather_file_input_tcs.currentText().strip()
+                data = self.weather_file_input_tcs.currentData()
+
+                if isinstance(data, WeatherFile):
+                    weather_file = data.value   # enum-ból jön
+                else:
+                    weather_file = text 
+                
+                logger.info(f"Weather file: {weather_file}")
+
+                if not validate_weather_filename(weather_file):
+                    logger.warning("Invalid weather file name. Please check the input values.")
+                    QMessageBox.warning(self, "Invalid Weather File", "Invalid weather file name. Please check the input values.")
+                    return
+            except AttributeError:
+                weather_file = None
+
+            logger.info(
+                f"Parameters checked for analysis:"
+                f"tcs_type={getattr(selected_tcs_type,'value',selected_tcs_type)}, "
+                f"season={getattr(selected_season,'value',selected_season)}, "
+                f"hours={getattr(selected_hours,'value',selected_hours)}"
+            )
+
+            payload = get_tcs_payload_ogc(
+                geometry_path=self.dotbim_path,
+                bbox=self.bbox,
+                crs=self.crs,
+                season=selected_season.value,
+                hours=selected_hours.value,
+                weather_file_name=weather_file,
+                subtype=selected_tcs_type.value)
+            
+            logger.info(f"Payload created")
+
+            base_name = os.path.splitext(os.path.basename(self.dotbim_path))[0]
+            file_path = os.path.join(plugin_data_dir, f"{base_name}_payload.json")
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=4, ensure_ascii=False)
+
+            try:
+                logger.info("Simulation started")
+                self.geotiff_path = process_ogc(payload,self.dotbim_path,self.analysis_type.value, self.api_key)
+                logger.info("Simulation finished")
+                
+                add_geojson_then_raster(self.geojson_path, self.geotiff_path, analysis_type=self.analysis_type.value, sub_analysis_type=selected_tcs_type.value)
+                logger.info("Geotiff visualized")
+            except Exception as e:
+                logger.error("Simulation failed")
+                logger.error(f"Error happened: {e}")
+                QMessageBox.warning(self, "Simulation Failed", f"Simulation failed: {e}")
                 raise
 
             

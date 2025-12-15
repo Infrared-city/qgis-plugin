@@ -4,7 +4,9 @@ import requests
 import json
 from qgis.core import QgsApplication
 from ..infrared_logger import logger
-from .geometry import geojson_to_dotbim, get_bbox
+from .geometry import get_bbox
+from .geojson2dotbim import process_geojson_file
+
 from datetime import datetime
 
 def extract_height_from_tags(tags):
@@ -106,10 +108,14 @@ def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries:
                     time.sleep(delay)
 
             except requests.exceptions.Timeout:
-                logger.info(f"Timeout, retrying in {delay}s...")
+                logger.error(f"Timeout, retrying in {delay}s...")
                 time.sleep(delay)
             except requests.exceptions.RequestException as e:
-                logger.info(f"Request error: {e}")
+                logger.error(f"Request error: {e}")
+                status = e.response.status_code if e.response is not None else None
+                body_text = e.response.text if e.response is not None else ""
+                logger.error(f"Status: {status}")
+                logger.error(f"Body: {body_text}")
                 time.sleep(delay)
 
         if not data:
@@ -157,7 +163,12 @@ def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries:
         logger.info(f"GeoJSON saved to {geojson_path}")
 
         logger.info("Converting GeoJSON to DotBIM...")
-        dotbim_data = geojson_to_dotbim(geojson_path, lon, lat, bbox_size_m)
+        try:
+            dotbim_data = process_geojson_file(geojson, lon, lat, "EPSG:4326")
+        except Exception as e:
+            logger.error(f"Failed to convert GeoJSON to DotBIM: {e}")
+            return
+        
         logger.info("DotBIM created")
 
         with open(dotbim_path, "w", encoding="utf-8") as f:

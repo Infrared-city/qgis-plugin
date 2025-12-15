@@ -9,9 +9,46 @@ class SeasonalTimeFrameConfig(str, Enum):
     Summer = "summer"
     Autumn = "autumn"
 
+class MonthConfig(str, Enum):
+    January = "January"
+    February = "February"
+    March = "March"
+    April = "April"
+    May = "May"
+    June = "June"
+    July = "July"
+    August = "August"
+    September = "September"
+    October = "October"
+    November = "November"
+    December = "December"
+
+    @property
+    def number(self) -> int:
+        mapping = {
+            MonthConfig.January: 1,
+            MonthConfig.February: 2,
+            MonthConfig.March: 3,
+            MonthConfig.April: 4,
+            MonthConfig.May: 5,
+            MonthConfig.June: 6,
+            MonthConfig.July: 7,
+            MonthConfig.August: 8,
+            MonthConfig.September: 9,
+            MonthConfig.October: 10,
+            MonthConfig.November: 11,
+            MonthConfig.December: 12,
+        }
+        return mapping[self]
 
 class DailyTimeFrameConfig(str, Enum):
     FullDay = "all-hours"
+    Morning = "morning"
+    Noon = "noon"
+    Afternoon = "afternoon"
+    Evening = "evening"
+
+class DailyTimeFrameConfigUTCI(str, Enum):
     Morning = "morning"
     Noon = "noon"
     Afternoon = "afternoon"
