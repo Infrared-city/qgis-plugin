@@ -18,11 +18,13 @@ from qgis.core import (
     QgsColorRampShader,
     QgsSingleBandPseudoColorRenderer,
     QgsFillSymbol,
-    QgsSymbol
+    QgsSymbol,
+    QgsRasterRange
 )
 from PyQt5.QtGui import QColor
 import json
 import os
+import math
 
 from qgis.core import QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY
 
@@ -130,7 +132,7 @@ def display_geojson(geojson_path):
     else:
         logger.error("Layer could not be loaded")
 
-def _build_color_ramp_items(visual_config):
+def _build_color_ramp_items(visual_config, vmin=None, vmax=None):
     colors = visual_config.get("colors", [])
     steps = visual_config.get("steps", [])
     steps_names = visual_config.get("stepsNames", [])
@@ -139,7 +141,7 @@ def _build_color_ramp_items(visual_config):
     shader = QgsColorRampShader()
     color_items = []
 
-    # ---- 1️⃣ Ha kategóriás (nem numerikus) lépések ----
+    # ---- if chategorical values----
     if steps and not all(isinstance(s, (int, float)) for s in steps):
         # pl. ["A", "B", "C", "D", "E", "S15", "S20"]
         for i, color in enumerate(colors):
@@ -151,12 +153,14 @@ def _build_color_ramp_items(visual_config):
         shader.setColorRampItemList(color_items)
         return shader, color_items
 
-    # ---- 2️⃣ Ha numerikus értékek vannak ----
+    # ---- if numerical values ----
     if steps and len(steps) >= 2:
         vmin, vmax = float(steps[0]), float(steps[-1])
     else:
-        # fallback, ha nincs steps vagy csak 1 érték van
-        vmin, vmax = 0.0, float(len(colors) - 1)
+        # fallback, if no steps are provided
+        # use the min and max values of the raster
+        if vmin is None or vmax is None:
+            vmin, vmax = 0.0, float(len(colors) - 1)
 
     step_range = vmax - vmin if vmax != vmin else 1.0
     num_colors = len(colors)
@@ -171,7 +175,7 @@ def _build_color_ramp_items(visual_config):
         )
         color_items.append(QgsColorRampShader.ColorRampItem(value, color_qt, label))
 
-    # ---- 3️⃣ Interpoláció beállítása ----
+    # ---- if interpolation ----
     if interpolation == "binned":
         shader.setColorRampType(QgsColorRampShader.Discrete)
     else:
@@ -180,7 +184,7 @@ def _build_color_ramp_items(visual_config):
     shader.setColorRampItemList(color_items)
     return shader, color_items
 
-def add_geojson_then_raster(geojson_path, geotiff_path, analysis_type, sub_analysis_type, raster_opacity=0.7):
+def add_geojson_then_raster(geojson_path, geotiff_path, analysis_type, sub_analysis_type, raster_opacity=0.7, min_legend_value=None, max_legend_value=None):
         logger.info("Adding GeoJSON layer: %s", geojson_path)
         logger.info("Adding GeoTIFF layer: %s", geotiff_path)
 
@@ -191,45 +195,72 @@ def add_geojson_then_raster(geojson_path, geotiff_path, analysis_type, sub_analy
 
         logger.info(f"Visual configuration: {visual_config}")
 
-        # --- GeoJSON réteg ---
+        # --- GeoJSON layer ---
         vlayer = QgsVectorLayer(geojson_path, "Infrared Buildings", "ogr")
         if not vlayer.isValid():
             logger.error("GeoJSON layer loading failed: %s", geojson_path)
             raise RuntimeError("GeoJSON layer loading failed: " + geojson_path)
 
-        # Átlátszó kitöltés, fekete körvonal (vonalvastagság megadása a 'outline_width'-dal)
-        # Használjuk a createSimple-t, ami egy egyszerű dictionary-vel beállítható
+        # Transparent fill, black outline (outline width can be set with 'outline_width')
+        # Use createSimple with a simple dictionary
         fill_sym = QgsFillSymbol.createSimple({
-            'color': '0,0,0,0',           # belső: teljesen átlátszó (R,G,B,A)
-            'outline_color': '0,0,0',     # körvonal: fekete
-            'outline_width': '0.8'        # körvonal vastagsága (pixel/mérték)
+            'color': '0,0,0,0',           # inner: fully transparent (R,G,B,A)
+            'outline_color': '0,0,0',     # outline: black
+            'outline_width': '0.8'        # outline width (pixel/measure)
         })
         vlayer.renderer().setSymbol(fill_sym)
 
         QgsProject.instance().addMapLayer(vlayer)
 
-        # --- GeoTIFF réteg ---
+        # --- GeoTIFF layer ---
         rlayer = QgsRasterLayer(geotiff_path, "Infrared Result", "gdal")
         if not rlayer.isValid():
             logger.error("GeoTIFF layer loading failed: %s", geotiff_path)
             raise RuntimeError("GeoTIFF layer loading failed: " + geotiff_path)
 
-        # --- Min / Max értékek lekérése ---
+        # Handle No-data value QGIS side: if the source band has a No-data value,
+        # set it as a user No-data range so that statistics and colorization
+        # skip these pixels.
+        provider = rlayer.dataProvider()
+        try:
+            nodata = provider.sourceNoDataValue(1)
+        except Exception:
+            nodata = None
+
+        if nodata is not None:
+            # If the no-data is not NaN (NaN would not work well in range comparison),
+            # create a narrow QgsRasterRange for this value.
+            if isinstance(nodata, (int, float)) and not math.isnan(nodata):
+                try:
+                    provider.setUserNoDataValues(1, [QgsRasterRange(nodata, nodata)])
+                    logger.info("User no-data range set for band 1: %s", nodata)
+                except Exception as e:
+                    logger.warning("Failed to set user no-data values: %s", e)
+
+        # --- Min / Max values ---
         stats = rlayer.dataProvider().bandStatistics(1)
         vmin, vmax = stats.minimumValue, stats.maximumValue
-        logger.info("Raster stats: min=%s, max=%s", vmin, vmax)
+        logger.info("Original raster stats: min=%s, max=%s", vmin, vmax)
 
-        # Ha valamiért statisztika nem elérhető, fallback
+        if min_legend_value is not None:
+            vmin = min_legend_value
+            logger.info("Using min_legend_value: %s", min_legend_value)
+        if max_legend_value is not None:
+            vmax = max_legend_value
+            logger.info("Using max_legend_value: %s", max_legend_value)
+
+        # If statistics are not available, fallback
         if vmin is None or vmax is None:
-            # próbáljuk meg a rasterio-t vagy vegyük az 0-1 tartományt
+            # Try to use rasterio or use the 0-1 range
             logger.warning("Raster band statistics not available; using default 0..1")
             vmin, vmax = 0.0, 1.0
 
-        # --- Color ramp (zöld -> piros) ---
+        # --- Color ramp (green -> red) ---
         color_ramp = QgsColorRampShader()
         color_ramp.setColorRampType(QgsColorRampShader.Interpolated)
 
-        shader, color_items = _build_color_ramp_items(visual_config)
+        # Build color ramp items for the color ramp
+        shader, color_items = _build_color_ramp_items(visual_config, vmin=vmin, vmax=vmax)
         logger.info("Color items: %s", color_items)
         #color_ramp.setColorRampItemList(color_items)
 
@@ -239,19 +270,19 @@ def add_geojson_then_raster(geojson_path, geotiff_path, analysis_type, sub_analy
         renderer = QgsSingleBandPseudoColorRenderer(rlayer.dataProvider(), 1, raster_shader)
         rlayer.setRenderer(renderer)
 
-        # Opacitás a raszterhez
+        # Set opacity for the raster
         rlayer.setOpacity(float(raster_opacity))
 
         QgsProject.instance().addMapLayer(rlayer)
 
-        # ----- Réteg sorrend: vektor legyen felül -----
+        # ----- Layer order: vector should be on top -----
         try:
             root = QgsProject.instance().layerTreeRoot()
-            # keressük meg a node-okat
+            # Find the nodes
             v_node = root.findLayer(vlayer.id())
             r_node = root.findLayer(rlayer.id())
             if v_node is not None and r_node is not None:
-                # távolítsuk el a vektor node-ot és helyezzük a tetejére
+                # Remove the vector node and insert it at the top
                 parent = v_node.parent()
                 parent.removeChildNode(v_node)
                 root.insertChildNode(0, v_node)  # beillesztés a tetejére

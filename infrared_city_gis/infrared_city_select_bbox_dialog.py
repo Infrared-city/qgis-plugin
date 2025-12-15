@@ -7,7 +7,8 @@ from qgis.core import QgsWkbTypes, QgsGeometry, QgsApplication, QgsUnitTypes
 from qgis.utils import iface
 from PyQt5.QtGui import QColor
 from .infrared_logger import logger
-from .services.geometry import get_bbox, geojson_to_dotbim
+from .services.geometry import get_bbox
+from .services.geojson2dotbim import process_geojson_file
 import os
 import json
 from datetime import datetime
@@ -186,7 +187,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
         with open(geojson_path, "w", encoding="utf-8") as f:
             json.dump(geojson_dict, f, ensure_ascii=False, indent=2)
 
-        dotbim_data = geojson_to_dotbim(geojson_path, center_lon, center_lat)
+        dotbim_data = process_geojson_file(geojson_path, center_lon, center_lat,layer_crs.authid())
         dotbim_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{self.date_now}.bim")
 
         with open(dotbim_path, "w", encoding="utf-8") as f:

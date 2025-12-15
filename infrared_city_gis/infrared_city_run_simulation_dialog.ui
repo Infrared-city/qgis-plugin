@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>420</width>
-    <height>292</height>
+    <height>340</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -183,11 +183,7 @@
            </widget>
           </item>
           <item row="3" column="1">
-           <widget class="QLineEdit" name="weather_file_input_pwc">
-            <property name="placeholderText">
-             <string>AUT_WI_Wien-Innere.Stadt.110340_TMYx.2009-2023</string>
-            </property>
-           </widget>
+           <widget class="QComboBox" name="weather_file_input_pwc"/>
           </item>
          </layout>
         </widget>
@@ -203,14 +199,14 @@
          </property>
          <layout class="QFormLayout" name="formLayoutTCI">
           <item row="0" column="0">
-           <widget class="QLabel" name="label_season_tci">
+           <widget class="QLabel" name="label_month_tci">
             <property name="text">
-             <string>Season:</string>
+             <string>Month:</string>
             </property>
            </widget>
           </item>
           <item row="0" column="1">
-           <widget class="QComboBox" name="season_dropdown_tci"/>
+           <widget class="QComboBox" name="month_dropdown_tci"/>
           </item>
           <item row="1" column="0">
            <widget class="QLabel" name="label_hours_tci">
@@ -230,10 +226,157 @@
            </widget>
           </item>
           <item row="2" column="1">
-           <widget class="QLineEdit" name="weather_file_input_tci">
-            <property name="placeholderText">
-             <string>AUT_WI_Wien-Innere.Stadt.110340_TMYx.2009-2023</string>
+           <widget class="QComboBox" name="weather_file_input_tci"/>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="label_legend_min_tci">
+            <property name="text">
+             <string>Min legend:</string>
             </property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QWidget" name="legend_min_container_tci" native="true">
+            <layout class="QHBoxLayout" name="horizontalLayoutLegendMin">
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <widget class="QCheckBox" name="legend_min_enable_tci">
+               <property name="text">
+                <string/>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QDoubleSpinBox" name="legend_min_input_tci">
+               <property name="minimum">
+                <double>-9999.000000000000000</double>
+               </property>
+               <property name="maximum">
+                <double>9999.000000000000000</double>
+               </property>
+               <property name="decimals">
+                <number>2</number>
+               </property>
+               <property name="singleStep">
+                <double>0.100000000000000</double>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+
+          <item row="4" column="0">
+           <widget class="QLabel" name="label_legend_max_tci">
+            <property name="text">
+             <string>Max legend:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="4" column="1">
+           <widget class="QWidget" name="legend_max_container_tci" native="true">
+            <layout class="QHBoxLayout" name="horizontalLayoutLegendMax">
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <widget class="QCheckBox" name="legend_max_enable_tci">
+               <property name="text">
+                <string/>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QDoubleSpinBox" name="legend_max_input_tci">
+               <property name="minimum">
+                <double>-9999.000000000000000</double>
+               </property>
+               <property name="maximum">
+                <double>9999.000000000000000</double>
+               </property>
+               <property name="decimals">
+                <number>2</number>
+               </property>
+               <property name="singleStep">
+                <double>0.100000000000000</double>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="page_thermal_comfort_statistics">
+      <layout class="QVBoxLayout" name="verticalLayoutTCS">
+       <item>
+        <widget class="QGroupBox" name="group_thermal_comfort_statistics">
+         <property name="title">
+          <string>Thermal Comfort Statistics</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutTCS">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_tcs_type">
+            <property name="text">
+             <string>Statistics type:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="tcs_type_dropdown"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_season_tcs">
+            <property name="text">
+             <string>Season:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QComboBox" name="season_dropdown_tcs"/>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="label_hours_tcs">
+            <property name="text">
+             <string>Hours:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QComboBox" name="hours_dropdown_tcs"/>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="label_weather_file_tcs">
+            <property name="text">
+             <string>Weather file name:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QComboBox" name="weather_file_input_tcs">
            </widget>
           </item>
          </layout>

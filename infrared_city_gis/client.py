@@ -101,12 +101,12 @@ def process_run_analysis(payload, geometry_path, bbox,crs, api_key, do_crop = Fa
 
 
 def process_ogc(payload,geometry_path,analysis_type,api_key):
-    INFRARED_URL = "https://ogc.infrared.city"            
+    INFRARED_URL = "https://ogc.infrared.city"
 
     try:
         logger.info("Try processing OGC request...")
         retries = 3
-        delay = 5  # másodperc
+        delay = 5
 
         for attempt in range(1, retries + 1):
             try:
@@ -127,9 +127,13 @@ def process_ogc(payload,geometry_path,analysis_type,api_key):
                 break
 
             except requests.RequestException as e:
-                logger.info(f"Attempt {attempt} failed: {e}")
+                logger.error(f"Attempt {attempt} failed: {e}")
+                status = e.response.status_code if e.response is not None else None
+                body_text = e.response.text if e.response is not None else ""
+                logger.error(f"Status: {status}")
+                logger.error(f"Body: {body_text}")
                 if attempt < retries:
-                    logger.info(f"Retrying in {delay} seconds...")
+                    logger.error(f"Retrying in {delay} seconds...")
                     time.sleep(delay)
                 else:
                     logger.error(f"All {retries} attempts failed. Aborting request.")
@@ -184,6 +188,34 @@ def get_windspeed_payload(geometry_path, wind_direction, wind_speed,bbox):
                 "wind-direction": wind_direction,
                 "wind-speed": wind_speed,
             }
+
+def get_windspeed_payload_ogc(geometry_path, bbox,crs,wind_direction,wind_speed):
+    
+    with open(geometry_path, "r", encoding="utf-8") as f:
+        geometry_data = json.load(f)
+    logger.info("Geometry loaded")
+
+    return      {
+        "inputs": {
+            "bbox": bbox,
+            "crs": crs,
+            "geometries": geometry_data,
+            "geometry-type": "dotbim",
+            "reduction-factor": 1,
+            "skip-compression": False,
+            "wind-direction": wind_direction,
+            "wind-speed": wind_speed,
+        },
+        "response": "document",
+        "outputs": {
+            "stringOutput": {
+                "transmissionMode": "value"
+            },
+            "imageOutput": {
+                "transmissionMode": "value"
+            }
+        }
+   }
     
 def get_pwc_payload_ogc(geometry_path, bbox,crs,subtype,season,hours,weather_file_name):
     
@@ -216,7 +248,7 @@ def get_pwc_payload_ogc(geometry_path, bbox,crs,subtype,season,hours,weather_fil
         }
    }
 
-def get_utci_payload_ogc(geometry_path, bbox,crs,season,hours,weather_file_name):
+def get_utci_payload_ogc(geometry_path, bbox,crs,month,hours,weather_file_name):
     
     with open(geometry_path, "r", encoding="utf-8") as f:
         geometry_data = json.load(f)
@@ -231,8 +263,39 @@ def get_utci_payload_ogc(geometry_path, bbox,crs,season,hours,weather_file_name)
             "reduction-factor": 1,
             "skip-compression": False,
             "type": "thermal-comfort-index",
+            "month":month,
+            "hours": hours,
+            "weather-file-name": weather_file_name
+        },
+        "response": "document",
+        "outputs": {
+            "stringOutput": {
+                "transmissionMode": "value"
+            },
+            "imageOutput": {
+                "transmissionMode": "value"
+            }
+        }
+   }
+
+def get_tcs_payload_ogc(geometry_path, bbox,crs,season,hours,weather_file_name, subtype):
+    
+    with open(geometry_path, "r", encoding="utf-8") as f:
+        geometry_data = json.load(f)
+    logger.info("Geometry loaded")
+
+    return      {
+        "inputs": {
+            "bbox": bbox,
+            "crs": crs,
+            "geometries": geometry_data,
+            "geometry-type": "dotbim",
+            "reduction-factor": 1,
+            "skip-compression": False,
+            "type": "thermal-comfort-statistics",
             "season":season,
             "hours": hours,
+            "subtype": subtype,
             "weather-file-name": weather_file_name
         },
         "response": "document",
