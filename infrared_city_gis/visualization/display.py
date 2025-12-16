@@ -132,7 +132,7 @@ def display_geojson(geojson_path):
     else:
         logger.error("Layer could not be loaded")
 
-def _build_color_ramp_items(visual_config, vmin=None, vmax=None):
+def _build_color_ramp_items(visual_config,analysis_type, vmin=None, vmax=None):
     colors = visual_config.get("colors", [])
     steps = visual_config.get("steps", [])
     steps_names = visual_config.get("stepsNames", [])
@@ -147,7 +147,11 @@ def _build_color_ramp_items(visual_config, vmin=None, vmax=None):
         for i, color in enumerate(colors):
             color_qt = QColor(*color) if isinstance(color, list) else QColor(color)
             label = str(steps[i]) if i < len(steps) else f"Class {i+1}"
-            color_items.append(QgsColorRampShader.ColorRampItem(i, color_qt, label))
+            
+            if analysis_type == "pedestrian-wind-comfort":
+                color_items.append(QgsColorRampShader.ColorRampItem(i+1, color_qt, label))
+            else:
+                color_items.append(QgsColorRampShader.ColorRampItem(i, color_qt, label))
 
         shader.setColorRampType(QgsColorRampShader.Discrete)
         shader.setColorRampItemList(color_items)
@@ -165,6 +169,8 @@ def _build_color_ramp_items(visual_config, vmin=None, vmax=None):
     step_range = vmax - vmin if vmax != vmin else 1.0
     num_colors = len(colors)
 
+        
+
     for i, color in enumerate(colors):
         value = vmin + (i / max(1, num_colors - 1)) * step_range
         color_qt = QColor(*color) if isinstance(color, list) else QColor(color)
@@ -173,7 +179,11 @@ def _build_color_ramp_items(visual_config, vmin=None, vmax=None):
             if i < len(steps_names)
             else (str(steps[i]) if i < len(steps) else f"{value:.2f}")
         )
-        color_items.append(QgsColorRampShader.ColorRampItem(value, color_qt, label))
+        if analysis_type == "pedestrian-wind-comfort":
+            color_items.append(QgsColorRampShader.ColorRampItem(i+1, value, color_qt, label))
+        else:
+            color_items.append(QgsColorRampShader.ColorRampItem(value, color_qt, label))
+
 
     # ---- if interpolation ----
     if interpolation == "binned":
@@ -260,7 +270,7 @@ def add_geojson_then_raster(geojson_path, geotiff_path, analysis_type, sub_analy
         color_ramp.setColorRampType(QgsColorRampShader.Interpolated)
 
         # Build color ramp items for the color ramp
-        shader, color_items = _build_color_ramp_items(visual_config, vmin=vmin, vmax=vmax)
+        shader, color_items = _build_color_ramp_items(visual_config,analysis_type,vmin=vmin, vmax=vmax)
         logger.info("Color items: %s", color_items)
         #color_ramp.setColorRampItemList(color_items)
 
