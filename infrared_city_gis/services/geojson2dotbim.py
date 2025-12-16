@@ -3,8 +3,16 @@ from shapely.geometry import Polygon
 from typing import List, Tuple
 import uuid
 from pyproj import Transformer, CRS
-import mapbox_earcut as earcut
 from ..infrared_logger import logger
+
+try:
+    import mapbox_earcut as earcut
+    HAS_EARCUT = True
+    logger.info("mapbox_earcut found.")
+except Exception:
+    logger.warning("mapbox_earcut not found.")
+    earcut = None
+    HAS_EARCUT = False
 
 def convert_to_local_coords(coords: List[Tuple[float, float]], center_x: float, center_y: float, crs: str) -> List[List[float]]:
     """
@@ -136,68 +144,87 @@ def get_bbox_center(bbox, crs = None):
     return [center_x, center_y]
 
 
-def flatten_rings(holes: List[List[Tuple[float, float]]]) -> Tuple[
-  List[float], List[int]]:
-  vertices: List[float] = []
+def flatten_rings(holes: List[List[Tuple[float, float]]]) -> Tuple[List[float], List[int]]:
+    """Flatten rings into a single [x,y,...] array and hole start indices for Earcut."""
+    vertices: List[float] = []
+    inner_hole_start_indices: List[int] = []
 
-  inner_hole_start_indices = []
-  for i, hole in enumerate(holes):
-    for x, y in hole:
-      vertices.extend([float(x), float(y)])
-    if i != len(holes) - 1:
-      inner_hole_start_indices.append(len(vertices) // 2)
+    for i, hole in enumerate(holes):
+        for x, y in hole:
+            vertices.extend([float(x), float(y)])
+        if i != len(holes) - 1:
+            inner_hole_start_indices.append(len(vertices) // 2)
 
-  inner_hole_start_indices.append(len(vertices) // 2)
+    inner_hole_start_indices.append(len(vertices) // 2)
 
-  return vertices, inner_hole_start_indices
+    return vertices, inner_hole_start_indices
+
 
 def triangulate_volume(rings: List[List[Tuple[float, float]]], height: float):
-  # Flatten the input rings and identify hole start indices
-  flattened_rings, hole_start_indices = flatten_rings(rings)
-  verts_2d = np.array(flattened_rings).reshape(-1, 2)
-  hole_starts = np.array(hole_start_indices)
+    """Triangulate polygon (with optional holes) using mapbox_earcut and extrude to 3D.
 
-  # Perform triangulation on the 2D shape
-  triangle_indices = earcut.triangulate_float32(verts_2d, hole_starts)
-  triangle_indices = np.array(triangle_indices).reshape(-1, 3)
+    rings: [outer_ring, hole1, hole2, ...], each ring = [(x,y), ...]
+    height: extrusion height
+    Returns (flat_coordinates, all_faces) or (None, None) on failure.
+    """
+    if not HAS_EARCUT:
+        return None, None
 
-  # Create bottom and top vertices (3D)
-  bottom_vertices = [(float(x), float(y), 0.0) for x, y in verts_2d]
-  top_vertices = [(float(x), float(y), float(height)) for x, y in verts_2d]
-  all_vertices = bottom_vertices + top_vertices
-  vertex_index_map = {v: i for i, v in enumerate(all_vertices)}
+    # Flatten the input rings and identify hole start indices
+    flattened_rings, hole_start_indices = flatten_rings(rings)
+    verts_2d = np.array(flattened_rings, dtype=float).reshape(-1, 2)
+    hole_starts = np.array(hole_start_indices, dtype=np.int32)
 
-  # Triangulate bottom and top faces
-  bottom_faces = [int(i) for tri in triangle_indices for i in tri]
-  top_faces = [
-    int(i) + len(verts_2d)
-    for tri in triangle_indices
-    for i in reversed(tri)  # Reverse order to maintain outward normal
-  ]
+    if verts_2d.shape[0] < 3:
+        return None, None
 
-  # Flatten all vertex coordinates for export
-  flat_coordinates = [coord for vertex in all_vertices for coord in vertex]
+    # Perform triangulation on the 2D shape
+    try:
+        triangle_indices = earcut.triangulate_float32(verts_2d, hole_starts)
+    except Exception as e:
+        logger.error(f"[triangulate_volume] Earcut failed: {e}")
+        return None, None
 
-  # Generate side wall faces (2 triangles per edge)
-  side_faces = []
-  for ring in rings:
-    for i in range(len(ring)):
-      curr = ring[i]
-      next = ring[(i + 1) % len(ring)]  # Wrap around
+    triangle_indices = np.array(triangle_indices, dtype=np.int32).reshape(-1, 3)
 
-      # Indices for bottom and top vertices
-      bi = vertex_index_map[(curr[0], curr[1], 0.0)]
-      bip = vertex_index_map[(next[0], next[1], 0.0)]
-      ti = vertex_index_map[(curr[0], curr[1], height)]
-      tip = vertex_index_map[(next[0], next[1], height)]
+    # Create bottom and top vertices (3D)
+    bottom_vertices = [(float(x), float(y), 0.0) for x, y in verts_2d]
+    top_vertices = [(float(x), float(y), float(height)) for x, y in verts_2d]
+    all_vertices = bottom_vertices + top_vertices
+    vertex_index_map = {v: i for i, v in enumerate(all_vertices)}
 
-      # First triangle
-      side_faces.extend([bi, bip, tip])
-      # Second triangle
-      side_faces.extend([bi, tip, ti])
+    # Triangulate bottom and top faces
+    bottom_faces = [int(i) for tri in triangle_indices for i in tri]
+    top_faces = [
+        int(i) + len(verts_2d)
+        for tri in triangle_indices
+        for i in reversed(tri)  # Reverse order to maintain outward normal
+    ]
 
-  all_faces = bottom_faces + top_faces + side_faces
-  return flat_coordinates, all_faces
+    # Flatten all vertex coordinates for export
+    flat_coordinates = [coord for vertex in all_vertices for coord in vertex]
+
+    # Generate side wall faces (2 triangles per edge)
+    side_faces: List[int] = []
+    for ring in rings:
+        for i in range(len(ring)):
+            curr = ring[i]
+            nxt = ring[(i + 1) % len(ring)]  # Wrap around
+
+            # Indices for bottom and top vertices
+            bi = vertex_index_map[(curr[0], curr[1], 0.0)]
+            bip = vertex_index_map[(nxt[0], nxt[1], 0.0)]
+            ti = vertex_index_map[(curr[0], curr[1], height)]
+            tip = vertex_index_map[(nxt[0], nxt[1], height)]
+
+            # First triangle
+            side_faces.extend([bi, bip, tip])
+            # Second triangle
+            side_faces.extend([bi, tip, ti])
+
+    all_faces = bottom_faces + top_faces + side_faces
+    return flat_coordinates, all_faces
+
 
 def process_geojson_file(geojson, center_x: float, center_y: float, crs: str):
     """
@@ -271,10 +298,15 @@ def process_geojson_file(geojson, center_x: float, center_y: float, crs: str):
         if len(local_coords) >= 2 and local_coords[0] == local_coords[-1]:
             local_coords = local_coords[:-1]
 
-
-        # create extrusion mesh (in local meters)
+        # --- Triangulation ---
+        # 1) Try high-quality Earcut-based triangulation if available
         rings = [local_coords]
         verts, inds = triangulate_volume(rings, h_val)
+
+        # 2) Fallback to simple extrusion if Earcut is not available or failed
+        if not verts or not inds:
+            verts, inds = create_building_extrusion(local_coords, h_val)
+
         if verts and inds:
             name = str(uuid.uuid4())
             dotbim_data[name] = {
