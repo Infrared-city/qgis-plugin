@@ -187,12 +187,13 @@ class InfraredCityGIS:
             callback=self.run_simulation,
             parent=self.iface.mainWindow()
         )
-        # self.add_action(
-        #     icon_path,
-        #     text=self.tr(u'Select bbox by center'),
-        #     callback=self.select_bbox,
-        #     parent=self.iface.mainWindow()
-        # )
+
+        self.add_action(
+            icon_path,
+            text=self.tr(u'Select bbox by center'),
+            callback=self.select_bbox,
+            parent=self.iface.mainWindow()
+        )
 
         # self.add_action(
         #     icon_path,
