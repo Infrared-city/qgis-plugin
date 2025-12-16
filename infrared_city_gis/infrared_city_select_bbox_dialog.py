@@ -187,7 +187,9 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
         with open(geojson_path, "w", encoding="utf-8") as f:
             json.dump(geojson_dict, f, ensure_ascii=False, indent=2)
 
-        dotbim_data = process_geojson_file(geojson_path, center_lon, center_lat,layer_crs.authid())
+        logger.info(f"Center coords: {center_lon}, {center_lat}")
+
+        dotbim_data = process_geojson_file(geojson_dict, center_lon, center_lat,"EPSG:4326")
         dotbim_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{self.date_now}.bim")
 
         with open(dotbim_path, "w", encoding="utf-8") as f:
