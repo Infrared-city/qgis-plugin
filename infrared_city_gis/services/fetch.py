@@ -111,7 +111,7 @@ def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries:
                 logger.error(f"Timeout, retrying in {delay}s...")
                 time.sleep(delay)
             except requests.exceptions.RequestException as e:
-                logger.error(f"Request error: {e}")
+                logger.info(f"Request error: {e}")
                 status = e.response.status_code if e.response is not None else None
                 body_text = e.response.text if e.response is not None else ""
                 logger.error(f"Status: {status}")

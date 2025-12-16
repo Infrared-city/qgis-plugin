@@ -270,36 +270,35 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.error("Simulation failed")
                 logger.error(f"Error happened: {e}")
                 QMessageBox.warning(self, "Simulation Failed", f"Simulation failed: {e}")
-                raise        
+                return        
         elif self.analysis_type == AnalysisType.PEDESTRIAN_WIND_COMFORT:
             pwc_type = self.pwc_type_dropdown.currentData()
             # Optional selections; guard if widgets not present
             try:
-                selected_season = self.season_dropdown_pwc.currentData()
-            except AttributeError:
-                selected_season = None
-            try:        
+                selected_season = self.season_dropdown_pwc.currentData()   
                 selected_hours = self.hours_dropdown_pwc.currentData()
             except AttributeError:
-                selected_hours = None
+                logger.warning(f"Missing input, Selected season and hours are required.")
+                QMessageBox.warning(self, "Missing Input", "Selected season and hours are required.")
+                return
 
             try:
-                text = self.weather_file_input_pwc.currentText().strip()
-                data = self.weather_file_input_pwc.currentData()
-
-                if isinstance(data, WeatherFile):
-                    weather_file = data.value   # enum-ból jön
-                else:
-                    weather_file = text 
-                
+                weather_file = self.weather_file_input_pwc.currentText().strip()
                 logger.info(f"Weather file: {weather_file}")
 
                 if not validate_weather_filename(weather_file):
                     logger.warning("Invalid weather file name. Please check the input values.")
-                    QMessageBox.warning(self, "Invalid Weather File", "Invalid weather file name. Please check the input values.")
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Weather File",
+                        "Invalid weather file name. Please check the input values."
+                    )
                     return
+
             except AttributeError:
-                weather_file = None
+                logger.warning("Missing input")
+                QMessageBox.warning(self, "Missing Input", "Please fill in all fields!")
+                return
 
             self.sub_analysis_type = pwc_type
             logger.info(
@@ -335,17 +334,16 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.error("Simulation failed")
                 logger.error(f"Error happened: {e}")
                 QMessageBox.warning(self, "Simulation Failed", f"Simulation failed: {e}")
-                raise
+                return
         
         elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
             try:
-                selected_month = self.month_dropdown_tci.currentData()
-            except AttributeError:
-                selected_month = None
-            try:        
+                selected_month = self.month_dropdown_tci.currentData()      
                 selected_hours = self.hours_dropdown_tci.currentData()
             except AttributeError:
-                selected_hours = None
+                logger.warning(f"Missing input, Selected season and hours are required.")
+                QMessageBox.warning(self, "Missing Input", "Selected season and hours are required.")
+                return
 
             # Legend overrides (only if checkboxes are enabled)
             try:
@@ -365,22 +363,21 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 selected_legend_max = None
 
             try:
-                text = self.weather_file_input_tci.currentText().strip()
-                data = self.weather_file_input_tci.currentData()
-
-                if isinstance(data, WeatherFile):
-                    weather_file = data.value  
-                else:
-                    weather_file = text 
-                
+                weather_file = self.weather_file_input_tci.currentText().strip()
                 logger.info(f"Weather file: {weather_file}")
 
                 if not validate_weather_filename(weather_file):
                     logger.warning("Invalid weather file name. Please check the input values.")
-                    QMessageBox.warning(self, "Invalid Weather File", "Invalid weather file name. Please check the input values.")
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Weather File",
+                        "Invalid weather file name. Please check the input values."
+                    )
                     return
             except AttributeError:
-                weather_file = None
+                logger.warning("Missing input. Weather file is required.")
+                QMessageBox.warning(self, "Missing Input", "Weather file is required.")
+                return
 
             logger.info(
                 f"Parameters checked for analysis:"
@@ -419,40 +416,41 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.error("Simulation failed")
                 logger.error(f"Error happened: {e}")
                 QMessageBox.warning(self, "Simulation Failed", f"Simulation failed: {e}")
-                raise
+                return
 
         elif self.analysis_type == AnalysisType.THERMAL_COMFORT_STATISTICS:
             try:
                 selected_season = self.season_dropdown_tcs.currentData()
-            except AttributeError:
-                selected_season = None
-            try:        
                 selected_hours = self.hours_dropdown_tcs.currentData()
             except AttributeError:
-                selected_hours = None
+                logger.warning("Missing input. Season and hours are required.")
+                QMessageBox.warning(self, "Missing Input", "Season and hours are required.")
+                return
 
             try:
                 selected_tcs_type = self.tcs_type_dropdown.currentData()
             except AttributeError:
-                selected_tcs_type = None
+                logger.warning("Missing input. TCS type is required.")
+                QMessageBox.warning(self, "Missing Input", "TCS type is required.")
+                return
 
             try:
-                text = self.weather_file_input_tcs.currentText().strip()
-                data = self.weather_file_input_tcs.currentData()
-
-                if isinstance(data, WeatherFile):
-                    weather_file = data.value   # enum-ból jön
-                else:
-                    weather_file = text 
-                
+                weather_file = self.weather_file_input_tcs.currentText().strip()
                 logger.info(f"Weather file: {weather_file}")
 
                 if not validate_weather_filename(weather_file):
                     logger.warning("Invalid weather file name. Please check the input values.")
-                    QMessageBox.warning(self, "Invalid Weather File", "Invalid weather file name. Please check the input values.")
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Weather File",
+                        "Invalid weather file name. Please check the input values."
+                    )
                     return
+
             except AttributeError:
-                weather_file = None
+                logger.warning("Missing input")
+                QMessageBox.warning(self, "Missing Input", "Please fill in all fields!")
+                return
 
             logger.info(
                 f"Parameters checked for analysis:"
@@ -488,7 +486,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.error("Simulation failed")
                 logger.error(f"Error happened: {e}")
                 QMessageBox.warning(self, "Simulation Failed", f"Simulation failed: {e}")
-                raise
+                return
 
             
         super().accept()
