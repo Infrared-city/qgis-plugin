@@ -33,7 +33,8 @@ from .resources import *
 from .infrared_city_fetch_geometry_dialog import InfraredCityFetchGeometryDialog
 from .infrared_city_run_simulation_dialog import InfraredCityRunSimulationDialog
 from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
-from .infrared_city_run_multiple_dialog import InfraredCityRunMultipleDialog
+from .infrared_city_run_multiple_simulation_dialog import InfraredCityRunMultipleSimulationDialog
+
 import os.path
 from .infrared_logger import logger
 from .utils.helper import cleanup_old_data
@@ -195,12 +196,12 @@ class InfraredCityGIS:
             parent=self.iface.mainWindow()
         )
 
-        # self.add_action(
-        #     icon_path,
-        #     text=self.tr(u'Run multiple simulations'),
-        #     callback=self.run_multiple_simulations,
-        #     parent=self.iface.mainWindow()
-        # )
+        self.add_action(
+            icon_path,
+            text=self.tr(u'Run multiple simulations'),
+            callback=self.run_multiple_simulations,
+            parent=self.iface.mainWindow()
+        )
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -213,7 +214,7 @@ class InfraredCityGIS:
     def run_multiple_simulations(self):
         """Run method that performs all the real work"""
 
-        self.dlg = InfraredCityRunMultipleDialog()
+        self.dlg = InfraredCityRunMultipleSimulationDialog()
 
         # show the dialog
         self.dlg.show()
@@ -221,9 +222,9 @@ class InfraredCityGIS:
         result = self.dlg.exec_()
 
         if result:
-            logger.info("BBox selected successfully")
+            logger.info("Multiple simulations dialog closed successfully")
         else:
-            logger.error("BBox selection cancelled")
+            logger.info("Multiple simulations dialog cancelled")
 
     def select_bbox(self):
         """Run method that performs all the real work"""

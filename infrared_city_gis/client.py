@@ -11,6 +11,7 @@ import time
 from .infrared_logger import logger
 import numpy as np
 from .services.geometry import generate_geotiff, crop_matrix
+from .visualization.display import add_geojson_then_raster
     
 
 class HEADERS(Enum):
@@ -189,11 +190,14 @@ def get_windspeed_payload(geometry_path, wind_direction, wind_speed,bbox):
                 "wind-speed": wind_speed,
             }
 
-def get_windspeed_payload_ogc(geometry_path, bbox,crs,wind_direction,wind_speed):
+def get_windspeed_payload_ogc(geometry_path=None, bbox=None, crs=None, wind_direction=None, wind_speed=None):
     
-    with open(geometry_path, "r", encoding="utf-8") as f:
-        geometry_data = json.load(f)
-    logger.info("Geometry loaded")
+    if geometry_path is not None:
+        with open(geometry_path, "r", encoding="utf-8") as f:
+            geometry_data = json.load(f)
+        logger.info("Geometry loaded")
+    else:
+        geometry_data = {}
 
     return      {
         "inputs": {
@@ -217,11 +221,14 @@ def get_windspeed_payload_ogc(geometry_path, bbox,crs,wind_direction,wind_speed)
         }
    }
     
-def get_pwc_payload_ogc(geometry_path, bbox,crs,subtype,season,hours,weather_file_name):
+def get_pwc_payload_ogc(geometry_path=None, bbox=None, crs=None, subtype=None, season=None, hours=None, weather_file_name=None):
     
-    with open(geometry_path, "r", encoding="utf-8") as f:
-        geometry_data = json.load(f)
-    logger.info("Geometry loaded")
+    if geometry_path is not None:
+        with open(geometry_path, "r", encoding="utf-8") as f:
+            geometry_data = json.load(f)
+        logger.info("Geometry loaded")
+    else:
+        geometry_data = {}
 
     return      {
         "inputs": {
@@ -248,11 +255,14 @@ def get_pwc_payload_ogc(geometry_path, bbox,crs,subtype,season,hours,weather_fil
         }
    }
 
-def get_utci_payload_ogc(geometry_path, bbox,crs,month,hours,weather_file_name):
+def get_utci_payload_ogc(geometry_path=None, bbox=None, crs=None, month=None, hours=None, weather_file_name=None):
     
-    with open(geometry_path, "r", encoding="utf-8") as f:
-        geometry_data = json.load(f)
-    logger.info("Geometry loaded")
+    if geometry_path is not None:
+        with open(geometry_path, "r", encoding="utf-8") as f:
+            geometry_data = json.load(f)
+        logger.info("Geometry loaded")
+    else:
+        geometry_data = {}
 
     return      {
         "inputs": {
@@ -278,11 +288,14 @@ def get_utci_payload_ogc(geometry_path, bbox,crs,month,hours,weather_file_name):
         }
    }
 
-def get_tcs_payload_ogc(geometry_path, bbox,crs,season,hours,weather_file_name, subtype):
+def get_tcs_payload_ogc(geometry_path=None, bbox=None, crs=None, season=None, hours=None, weather_file_name=None, subtype=None):
     
-    with open(geometry_path, "r", encoding="utf-8") as f:
-        geometry_data = json.load(f)
-    logger.info("Geometry loaded")
+    if geometry_path is not None:
+        with open(geometry_path, "r", encoding="utf-8") as f:
+            geometry_data = json.load(f)
+        logger.info("Geometry loaded")
+    else:
+        geometry_data = {}
 
     return      {
         "inputs": {
@@ -308,3 +321,119 @@ def get_tcs_payload_ogc(geometry_path, bbox,crs,season,hours,weather_file_name, 
             }
         }
    }
+
+def run_wind_speed(geojson_path, dotbim_path, bbox, crs, wind_direction, wind_speed, api_key, analysis_type):
+        try:
+            logger.info("Simulation started")
+            payload = get_windspeed_payload_ogc(dotbim_path, bbox, crs, wind_direction, wind_speed)
+            logger.info(f"Payload created.")
+
+            geotiff_path = process_ogc(payload, dotbim_path, analysis_type, api_key)
+            logger.info("Simulation finished")
+            
+            add_geojson_then_raster(geojson_path, geotiff_path, analysis_type=analysis_type, sub_analysis_type=None)
+            logger.info("Geotiff visualized")
+            return geotiff_path
+        except Exception as e:
+            logger.error(f"Error happened: {e}")
+            return None
+
+def run_pwc(geojson_path,dotbim_path, bbox, crs, sub_analysis_type, season, hours, weather_file_name, api_key, analysis_type):
+        
+        logger.info(
+                f"Parameters checked for analysis: standard={getattr(sub_analysis_type,'value',sub_analysis_type)}, "
+                f"season={getattr(season,'value',season)}, "
+                f"hours={getattr(hours,'value',hours)}"
+            )
+
+        payload = get_pwc_payload_ogc(
+            geometry_path=dotbim_path,
+            bbox=bbox,
+            crs=crs,
+            subtype=sub_analysis_type,
+            season=season,
+            hours=hours,
+            weather_file_name=weather_file_name)
+        
+        logger.info(f"Payload created.")
+
+        try:
+            logger.info("Simulation started")
+            geotiff_path = process_ogc(payload, dotbim_path, analysis_type, api_key)
+            logger.info("Simulation finished")
+            
+            add_geojson_then_raster(geojson_path, geotiff_path, analysis_type=analysis_type, sub_analysis_type=sub_analysis_type)
+            logger.info("Geotiff visualized")
+            return geotiff_path
+        except Exception as e:
+            logger.error(f"Error happened: {e}")
+            return None
+
+def run_utci(geojson_path,dotbim_path, bbox, crs, month, hours, weather_file_name, api_key, analysis_type,legend_min=None, legend_max=None):
+
+        logger.info(
+            f"Parameters checked for analysis:"
+            f"month={getattr(month,'value',month)}, "
+            f"hours={getattr(hours,'value',hours)}"
+        )
+
+        payload = get_utci_payload_ogc(
+            geometry_path=dotbim_path,
+            bbox=bbox,
+            crs=crs,
+            month=month,
+            hours=hours,
+            weather_file_name=weather_file_name)
+        
+        logger.info(f"Payload created")
+
+        try:
+            logger.info("Simulation started")
+            geotiff_path = process_ogc(payload, dotbim_path, analysis_type, api_key)
+            logger.info("Simulation finished")
+            
+            add_geojson_then_raster(
+                geojson_path, 
+                geotiff_path, 
+                analysis_type=analysis_type, 
+                sub_analysis_type=None,
+                min_legend_value=legend_min,
+                max_legend_value=legend_max
+            )
+            logger.info("Geotiff visualized")
+            return geotiff_path
+        except Exception as e:
+            logger.error(f"Error happened: {e}")
+            return None
+
+def run_tcs(geojson_path, dotbim_path, bbox, crs, season, hours, weather_file_name, api_key, analysis_type, sub_analysis_type=None):
+        logger.info(
+            f"Parameters checked for analysis:"
+            f"tcs_type={getattr(sub_analysis_type,'value',sub_analysis_type)}, "
+            f"season={getattr(season,'value',season)}, "
+            f"hours={getattr(hours,'value',hours)}"
+        )
+
+        payload = get_tcs_payload_ogc(
+            geometry_path=dotbim_path,
+            bbox=bbox,
+            crs=crs,
+            season=season,
+            hours=hours,
+            weather_file_name=weather_file_name,
+            subtype=sub_analysis_type)
+        
+        logger.info(f"Payload created")
+
+
+        try:
+            logger.info("Simulation started")
+            geotiff_path = process_ogc(payload, dotbim_path, analysis_type, api_key)
+            logger.info("Simulation finished")
+            
+            add_geojson_then_raster(geojson_path, geotiff_path, analysis_type=analysis_type, sub_analysis_type=sub_analysis_type)
+            logger.info("Geotiff visualized")
+            return geotiff_path
+        except Exception as e:
+            logger.error(f"Error happened: {e}")
+            return None
