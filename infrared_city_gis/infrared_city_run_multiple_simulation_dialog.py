@@ -27,7 +27,9 @@ from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QMessageBox
 from .client import (
-    run_wind_speed, run_pwc, run_utci, run_tcs
+    get_windspeed_payload_ogc, get_pwc_payload_ogc,
+    get_utci_payload_ogc, get_tcs_payload_ogc,
+    process_ogc
 )
 from .infrared_logger import logger
 import json
@@ -35,21 +37,26 @@ from qgis.core import QgsApplication
 from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType
 from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, validate_weather_filename, MonthConfig
 from .models.weather_files import WeatherFile
+from .services.geometry import collect_tile_centers_from_selection, collect_geometry_data_by_tile, crop_matrix, generate_geotiff
+import rasterio
+from .visualization.display import add_geojson_then_raster
+from qgis.PyQt.QtWidgets import QProgressBar
+from qgis.utils import iface
+from qgis.core import Qgis
+
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'infrared_city_run_simulation_dialog.ui'))
 
 
-class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
-    def __init__(self, parent=None, dotbim_path=None, geojson_path=None ,bbox=None,crs=None):
+class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
 
-        self.dotbim_path = dotbim_path
-        self.geojson_path = geojson_path
+        self.dotbim_path = None
+        self.geojson_path = None
         self.geotiff_path = None
-        self.bbox = bbox
-        self.crs = crs
         self.colors = None
         self.analysis_type_dropdown.clear()
         for t in AnalysisType:
@@ -61,12 +68,12 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
 
+        # Állítsuk be az alapértelmezett oldalt a stack-ben
         if self.analysis_type_dropdown.count() > 0:
             self.analysis_type_dropdown.setCurrentIndex(0)
             self.on_analysis_changed(self.analysis_type_dropdown.currentText())
 
         
-        # Plugin data dir + user.json
         plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
         user_file = os.path.join(plugin_data_dir, "user.json")
 
@@ -82,15 +89,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.warning(f"Could not read API key: {e}")
                 QMessageBox.warning(self, "Invalid API Key", "Invalid API key. Please check the input values.")
 
-
-
         logger.info("Dialog loaded")
-        logger.info("Dotbim path: %s", self.dotbim_path)
-        logger.info("Geojson path: %s", self.geojson_path)
-        logger.info("Bbox: %s", self.bbox)
-        logger.info("CRS: %s", self.crs)
-
-
 
     def on_analysis_changed(self, text):
         current = self.analysis_type_dropdown.currentData()
@@ -186,17 +185,16 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             except Exception as e:
                 logger.error("Failed to populate TCS dialog elements: %s", str(e), exc_info=True)
 
+    
     def accept(self):
-        logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨")
-
+        logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
         logger.info(f"Accept called. Sender: {self.sender()}")
-        if not self.dotbim_path or not os.path.exists(self.dotbim_path):
-            logger.warning("No geometry fetched. Please fetch geometry first.")
-            QMessageBox.warning(self, "Missing Geometry", "Please fetch geometry first.")
-            return
+        tile_centers = collect_tile_centers_from_selection()
 
         self.analysis_type = self.analysis_type_dropdown.currentData()
         self.sub_analysis_type = None
+        selected_legend_min = None
+        selected_legend_max = None
 
 
         plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
@@ -216,7 +214,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             QMessageBox.warning(self, "Missing API Key", "Please fill in the API key.")
             return
 
-
+        # ---------  Preparing payloads -----------------
         if self.analysis_type == AnalysisType.WIND_SPEED:
             # Validation
             wind_speed = self.wind_speed_input.value()
@@ -227,21 +225,9 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 QMessageBox.warning(self, "Invalid Parameters", "Wind speed must be >0 and direction between 0-360°.")
                 return
 
-            # Simulation
-            self.geotiff_path = run_wind_speed(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path, 
-                bbox=self.bbox, 
-                crs=self.crs, 
-                wind_direction=wind_direction, 
-                wind_speed=wind_speed, 
-                api_key=self.api_key, 
-                analysis_type=self.analysis_type.value
-            )
-            if not self.geotiff_path:
-                logger.error("Wind speed simulation failed to produce a geotiff path.")
-                QMessageBox.warning(self, "Simulation Failed", "Wind speed simulation failed to produce a result.")
-                return
+            payload = get_windspeed_payload_ogc(None, None, None, wind_direction, wind_speed)
+            logger.info(f"Payload created: {payload}")
+            
      
         elif self.analysis_type == AnalysisType.PEDESTRIAN_WIND_COMFORT:
             # Validation
@@ -267,24 +253,9 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 QMessageBox.warning(self, "Missing Input", "Please fill in all fields!")
                 return
 
-            # Simulation
-            self.geotiff_path = run_pwc(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path, 
-                bbox=self.bbox, 
-                crs=self.crs, 
-                sub_analysis_type=pwc_type.value, 
-                season=selected_season.value, 
-                hours=selected_hours.value, 
-                weather_file_name=weather_file, 
-                api_key=self.api_key, 
-                analysis_type=self.analysis_type.value
-            )
-            
-            if not self.geotiff_path:
-                logger.error("PWC simulation failed to produce a geotiff path.")
-                QMessageBox.warning(self, "Simulation Failed", "PWC simulation failed to produce a result.")
-                return
+            payload = get_pwc_payload_ogc(None, None, None, pwc_type.value, selected_season.value, selected_hours.value, weather_file)
+            logger.info(f"Payload created: {payload}")
+
         
         elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
             # Validation
@@ -319,25 +290,8 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 selected_legend_max = None
                 return
             
-            # Simulation
-            self.geotiff_path = run_utci(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path,
-                bbox=self.bbox,
-                crs=self.crs,
-                month=selected_month.number,
-                hours=selected_hours.value,
-                weather_file_name=weather_file,
-                api_key=self.api_key,
-                analysis_type=self.analysis_type.value,
-                legend_min=selected_legend_min,
-                legend_max=selected_legend_max
-            )
-
-            if self.geotiff_path is None:
-                logger.warning("Geotiff path is None, simulation failed")
-                QMessageBox.warning(self, "Simulation Failed", "Simulation failed. Please check the logs for more details.")
-                return
+            payload = get_utci_payload_ogc(None, None, None, selected_month.number, selected_hours.value, weather_file)
+            logger.info(f"Payload created: {payload}")
 
         elif self.analysis_type == AnalysisType.THERMAL_COMFORT_STATISTICS:
             # Validation
@@ -361,24 +315,83 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 QMessageBox.warning(self, "Missing Input", "TCS type is required.")
                 return
 
-            # Simulation
-            self.geotiff_path = run_tcs(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path,
-                bbox=self.bbox,
-                crs=self.crs,
-                season=selected_season.value,
-                hours=selected_hours.value,
-                weather_file_name=weather_file,
-                api_key=self.api_key,
-                analysis_type=self.analysis_type.value,
-                sub_analysis_type=selected_tcs_type.value
-            )
+            payload = get_tcs_payload_ogc(None, None, None, selected_season.value, selected_hours.value, weather_file, selected_tcs_type.value)
+            logger.info(f"Payload created: {payload}")
 
-            if self.geotiff_path is None:
-                logger.warning("Geotiff path is None, simulation failed")
-                QMessageBox.warning(self, "Simulation Failed", "Simulation failed. Please check the logs for more details.")
-                return
+        for idx, (center_x, center_y) in enumerate(tile_centers):
+            logger.info("Processing tile center %d: %s, %s", idx, center_x, center_y)
+            res = collect_geometry_data_by_tile(center_x, center_y, idx)
+            if not res:
+                continue
 
+            geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256 = res
+            
+            # Read the existing dotbim content and dump it again
+            with open(dotbim_path, "r", encoding="utf-8") as f:
+                dotbim_data = json.load(f)
+            
+
+            # Crop 512x512 GeoTIFF to 256x256 around the tile center and display
+            try:
+                logger.info("Starting wind speed OGC simulation for tile %d", idx)
+                
+                payload["inputs"]["geometries"] = dotbim_data
+                payload["inputs"]["bbox"] = bbox_512
+                payload["inputs"]["crs"] = crs_authid
+
+                
+                geotiff_path = process_ogc(payload, dotbim_path, self.analysis_type.value, self.api_key)
+                logger.info("Simulation finished for tile %d", idx)
+
+                # Crop 512x512 GeoTIFF to 256x256 around the tile center and display
+                try:
+                    with rasterio.open(geotiff_path) as src:
+                        matrix = src.read(1)
+
+                    cropped_matrix = crop_matrix(matrix, core_size=256)
+                    sub_bbox = bbox_256
+
+                    base_name = os.path.splitext(os.path.basename(geotiff_path))[0]
+                    plugin_data_dir = os.path.dirname(geotiff_path)
+                    cropped_geotiff_path = os.path.join(plugin_data_dir, f"{base_name}_crop.tif")
+
+                    generate_geotiff(
+                        cropped_matrix,
+                        sub_bbox,
+                        crs_authid,
+                        cropped_geotiff_path,
+                        simulation_type=self.analysis_type.value,
+                    )
+
+                    add_geojson_then_raster(
+                        geojson_path=geojson_path,
+                        geotiff_path=cropped_geotiff_path,
+                        analysis_type=self.analysis_type.value,
+                        sub_analysis_type=self.sub_analysis_type.value if self.sub_analysis_type is not None else None,
+                        min_legend_value=selected_legend_min,
+                        max_legend_value=selected_legend_max
+                    )
+                    logger.info("Cropped Geotiff visualized for tile %d", idx)
+
+                    iface.messageBar().pushMessage(
+                        "InfraredCity",
+                        f"Tile {idx+1}/{len(tile_centers)} processed successfully, saved to {cropped_geotiff_path}",
+                        level=Qgis.Success,
+                        duration=3
+                    )
+                except Exception as e_crop:
+                    logger.error("Failed to crop/display GeoTIFF for tile %d: %s", idx, e_crop)
+            except Exception as e:
+                logger.error("Simulation failed for tile %d: %s", idx, e)
+
+                iface.messageBar().pushMessage(
+                        "InfraredCity",
+                        f"Error processing tile {idx+1}/{len(tile_centers)}: {str(e)}",
+                        level=Qgis.Warning,
+                        duration=5
+                    )
+                    
+
+            logger.info(f"Processed tile: {idx+1}/{len(tile_centers)}.")
             
         super().accept()

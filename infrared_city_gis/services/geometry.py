@@ -7,6 +7,32 @@ from shapely.geometry import Polygon
 from ..infrared_logger import logger
 from pyproj import Geod
 import uuid
+import os
+import json
+from qgis.PyQt import uic
+from qgis.PyQt import QtWidgets
+from qgis.PyQt.QtWidgets import QMessageBox
+from qgis.core import (
+    QgsProject,
+    QgsVectorLayer,
+    QgsFields,
+    QgsField,
+    QgsFeature,
+    QgsGeometry,
+    QgsPointXY,
+    QgsRectangle,
+    QgsCoordinateTransform,
+    QgsCoordinateReferenceSystem,
+    QgsApplication,
+    QgsUnitTypes,
+)
+from qgis.utils import iface
+from datetime import datetime
+from qgis.PyQt.QtCore import QVariant
+from .geojson2dotbim import process_geojson_file
+
+
+
 
 
 def convert_to_local_coords(coords: List[Tuple[float, float]], center_lat: float, center_lon: float) -> List[List[float]]:
@@ -221,6 +247,19 @@ def crop_matrix(matrix: np.ndarray, core_size=256):
     start_col = (w - core_size) // 2
     return matrix[start_row:start_row + core_size, start_col:start_col + core_size]
 
+def map_categories(matrix: np.ndarray):
+    unique_cats = np.unique(matrix)
+    filtered_cats = [cat for cat in unique_cats if cat != "None"]
+
+    mapping = {cat: i for i, cat in enumerate(filtered_cats, start=1)}
+    mapping["NaN"] = np.nan
+
+    mapped = np.full(matrix.shape, np.nan, dtype=np.float32)
+
+    for cat, idx in mapping.items():
+        mapped[matrix == cat] = idx
+        
+    return mapped, mapping
 
 def generate_geotiff(matrix: np.ndarray, bbox: tuple, crs: str, output_path: str, simulation_type: str = "unknown", criteria: str = "unknown"):
     try:
@@ -267,3 +306,201 @@ def generate_geotiff(matrix: np.ndarray, bbox: tuple, crs: str, output_path: str
                 simulation_type=simulation_type,
                 no_data=np.nan,
                 AREA_OR_POINT="Point")  
+
+def collect_geometry_data_by_tile(center_x, center_y, idx):
+    date_now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+
+    wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+
+    layer = iface.activeLayer()
+    if layer is None or not isinstance(layer, QgsVectorLayer):
+        for lyr in QgsProject.instance().mapLayers().values():
+            if isinstance(lyr, QgsVectorLayer):
+                layer = lyr
+                break
+
+    if layer is None or not isinstance(layer, QgsVectorLayer):
+        logger.error("No valid vector layer found.")
+        return None
+
+    layer_crs = layer.crs()
+
+    try:
+        transform_to_wgs84 = QgsCoordinateTransform(layer_crs, wgs84, QgsProject.instance())
+        pt_wgs84 = transform_to_wgs84.transform(QgsPointXY(center_x, center_y))
+    except Exception as e:
+        logger.error("Transform tile center to WGS84 failed: %s", e)
+        return None
+
+    center_lon, center_lat = pt_wgs84.x(), pt_wgs84.y()
+    logger.info("Tile center (WGS84): %.6f, %.6f", center_lon, center_lat)
+
+    try:
+        xmin, ymin, xmax, ymax = get_bbox(center_lon, center_lat, 512)
+        bbox_rect_wgs84 = QgsRectangle(xmin, ymin, xmax, ymax)
+    except Exception as e:
+        logger.error("get_bbox failed: %s", e)
+        return None
+
+    if layer_crs.authid() != "EPSG:4326":
+        transform_bbox = QgsCoordinateTransform(wgs84, layer_crs, QgsProject.instance())
+        bbox_rect_layer = transform_bbox.transformBoundingBox(bbox_rect_wgs84)
+    else:
+        bbox_rect_layer = bbox_rect_wgs84
+
+    try:
+        layer.removeSelection()
+        layer.selectByRect(bbox_rect_layer, QgsVectorLayer.SetSelection)
+        count = layer.selectedFeatureCount()
+        logger.info("Tile %d: selected %d features.", idx, count)
+    except Exception as e:
+        logger.error("Selection failed for tile %d: %s", idx, e)
+        return None
+
+    selected_features = layer.selectedFeatures()
+    if not selected_features:
+        logger.info("Tile %d: no features selected, skipping.", idx)
+        return None
+    
+    logger.info("Tile %d: processing %d selected features.", idx, len(selected_features))
+    
+    geojson_dict = {
+        "type": "FeatureCollection",
+        "features": []
+    }
+
+    fields = [field.name() for field in layer.fields()]
+
+    for feat in selected_features:
+        geom = feat.geometry()
+        geom_wgs84 = QgsGeometry(geom)
+        if layer_crs.authid() != "EPSG:4326":
+            transform_to_wgs84_back = QgsCoordinateTransform(layer_crs, wgs84, QgsProject.instance())
+            geom_wgs84.transform(transform_to_wgs84_back)
+
+        attr_values = feat.attributes()
+        properties_dict = {fields[i]: attr_values[i] for i in range(len(fields))}
+
+        geom_bbox = geom.boundingBox()
+        height = geom_bbox.height()
+
+        if layer_crs.mapUnits() == QgsUnitTypes.DistanceDegrees:
+            height *= 111_000
+
+        properties_dict["height"] = round(height, 2)
+
+        geojson_dict["features"].append({
+            "type": "Feature",
+            "geometry": json.loads(geom_wgs84.asJson()),
+            "properties": properties_dict
+        })
+
+    plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
+    os.makedirs(plugin_data_dir, exist_ok=True)
+    geojson_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{date_now}_tile_{idx}.geojson")
+
+    with open(geojson_path, "w", encoding="utf-8") as f:
+        json.dump(geojson_dict, f, ensure_ascii=False, indent=2)
+
+    dotbim_data = process_geojson_file(geojson_dict, center_lon, center_lat, "EPSG:4326")
+    dotbim_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{date_now}_tile_{idx}.bim")
+
+    with open(dotbim_path, "w", encoding="utf-8") as f:
+        json.dump(dotbim_data, f, ensure_ascii=False, indent=2)
+
+    logger.info("Tile %d saved to %s and %s", idx, geojson_path, dotbim_path)
+
+    # 512x512 bbox in layer CRS (for OGC API)
+    bbox_512 = (
+        bbox_rect_layer.xMinimum(),
+        bbox_rect_layer.yMinimum(),
+        bbox_rect_layer.xMaximum(),
+        bbox_rect_layer.yMaximum(),
+    )
+
+    # 256x256 bbox in the same CRS, centered on the tile center
+    display_tile_size = 256.0
+    half_disp = display_tile_size / 2.0
+    bbox_256 = (
+        center_x - half_disp,
+        center_y - half_disp,
+        center_x + half_disp,
+        center_y + half_disp,
+    )
+
+    crs_authid = layer_crs.authid()
+
+    logger.info(f"Tile {idx}: CRS={crs_authid}, bbox_512={bbox_512}, bbox_256={bbox_256}")
+
+    return geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256
+
+def get_selected_bbox():
+
+    layer = iface.activeLayer()
+    if layer is None:
+        
+        logger.warning("No active layer found")
+        return None
+
+    selected = layer.selectedFeatures()
+    if not selected:
+        logger.warning("No selected features found in the active layer")
+        return None
+
+    # Get bbox from first selected feature
+    geom = selected[0].geometry()
+    if geom is None or geom.isEmpty():
+        logger.warning("First selected geometry is empty")
+        return None
+    bbox = geom.boundingBox()
+
+    # If multiple features are selected, combine their bboxes
+    for feat in selected[1:]:
+        g = feat.geometry()
+        if g is None or g.isEmpty():
+            logger.debug("Skipping empty geometry in bbox combination")
+            continue
+        bbox.combineExtentWith(g.boundingBox())
+
+    west  = bbox.xMinimum()
+    south = bbox.yMinimum()
+    east  = bbox.xMaximum()
+    north = bbox.yMaximum()
+
+    return west, south, east, north
+
+def generate_tile_centers(west, south, east, north, tile_size=256):
+
+    width = east - west
+    height = north - south
+
+    if width <= 0 or height <= 0:
+        logger.error(f"Wrong bbox: width={width}, height={height} for ({west}, {south}, {east}, {north})")
+        return []
+
+    # How many tiles in X/Y directions, rounded up
+    nx = math.ceil(width / tile_size)
+    ny = math.ceil(height / tile_size)
+
+    centers = []
+
+    for j in range(ny):          # Y direction (row index)
+        cy = south + (j + 0.5) * tile_size
+        for i in range(nx):      # X direction (column index)
+            cx = west + (i + 0.5) * tile_size
+            centers.append((cx, cy))
+
+    return centers
+
+def collect_tile_centers_from_selection():
+
+    # Bbox in active layer CRS based on selected features
+    w, s, e, n = get_selected_bbox()
+    logger.info(f"Selected bbox: W={w}, S={s}, E={e}, N={n}")
+
+    # Generate tile centers in layer CRS
+    tile_centers = generate_tile_centers(w, s, e, n)
+    logger.info("✨ Generated %d tile centers", len(tile_centers))
+    logger.info("✨ Tile centers: %s", tile_centers)
+
+    return tile_centers
