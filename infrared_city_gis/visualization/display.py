@@ -74,14 +74,19 @@ def get_visual_config(analysis_type, sub_analysis_type=None):
     """
     settings_path = os.path.join(os.path.dirname(__file__), "settings.json")
 
+    logger.info("Settings path: %s", settings_path)
+
     try:
         with open(settings_path, "r", encoding="utf-8") as fh:
-            visual_configs = json.load(fh).get("visualConfigurations", {})
+            data = json.load(fh)
+            visual_configs = data.get("settings", {}).get("visualConfigurations", {})
     except Exception as e:
         logger.error(f"Failed to load settings.json: {e}")
         return None
 
     # --- 1️⃣ Find top-level config ---
+    logger.info("Available visual configurations: %s", list(visual_configs.keys()))
+
     config = visual_configs.get(analysis_type)
     if not config:
         logger.warning(f"Analysis type '{analysis_type}' not found in visualConfigurations.")

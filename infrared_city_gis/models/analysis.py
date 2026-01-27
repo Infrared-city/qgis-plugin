@@ -7,6 +7,11 @@ class AnalysisType(str, Enum):
     PEDESTRIAN_WIND_COMFORT = "pedestrian-wind-comfort"
     THERMAL_COMFORT_INDEX = "thermal-comfort-index"
     THERMAL_COMFORT_STATISTICS = "thermal-comfort-statistics"
+    SOLAR_RADIATION = "solar-radiation"
+    DAYLIGHT_AVAILABILITY = "daylight-availability"
+    DIRECT_SUN_HOURS = "direct-sun-hours"
+    SKY_VIEW_FACTORS = "sky-view-factors"
+    SHADOW_MASK = "shadow-mask"
 
 
     def __str__(self):

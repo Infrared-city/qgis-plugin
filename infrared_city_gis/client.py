@@ -31,7 +31,7 @@ class HEADERS(Enum):
 
 
 def process_run_analysis(payload, geometry_path, bbox,crs, api_key, do_crop = False):
-    INFRARED_URL = "https://fbiw2nq5ac.execute-api.eu-central-1.amazonaws.com/development-v1"    
+    INFRARED_URL = "https://fbiw2nq5ac.execute-api.eu-central-1.amazonaws.com/development-v1"
     
     logger.info("Processing run analysis endpoint...")
 
@@ -103,6 +103,8 @@ def process_run_analysis(payload, geometry_path, bbox,crs, api_key, do_crop = Fa
 
 def process_ogc(payload,geometry_path,analysis_type,api_key):
     INFRARED_URL = "https://ogc.infrared.city"
+    INFRARED_URL = "http://127.0.0.1:8050/"
+
 
     try:
         logger.info("Try processing OGC request...")
@@ -322,6 +324,70 @@ def get_tcs_payload_ogc(geometry_path=None, bbox=None, crs=None, season=None, ho
         }
    }
 
+def get_solar_analyses_payload_ogc(geometry_path=None, bbox=None, crs=None, month=None, hours=None, weather_file_name=None, analysis_type=None):
+    
+    if geometry_path is not None:
+        with open(geometry_path, "r", encoding="utf-8") as f:
+            geometry_data = json.load(f)
+        logger.info("Geometry loaded")
+    else:
+        geometry_data = {}
+
+    return      {
+        "inputs": {
+            "bbox": bbox,
+            "crs": crs,
+            "geometries": geometry_data,
+            "geometry-type": "dotbim",
+            "reduction-factor": 1,
+            "skip-compression": False,
+            "type": analysis_type,
+            "month":month,
+            "hours": hours,
+            "weather-file-name": weather_file_name
+        },
+        "response": "document",
+        "outputs": {
+            "stringOutput": {
+                "transmissionMode": "value"
+            },
+            "imageOutput": {
+                "transmissionMode": "value"
+            }
+        }
+   }
+
+def get_payload_shadow_mask(geometry_path=None, bbox=None, crs=None, datetime=None, analysis_type=None):
+    
+    if geometry_path is not None:
+        with open(geometry_path, "r", encoding="utf-8") as f:
+            geometry_data = json.load(f)
+        logger.info("Geometry loaded")
+    else:
+        geometry_data = {}
+
+    return      {
+        "inputs": {
+            "bbox": bbox,
+            "crs": crs,
+            "geometries": geometry_data,
+            "geometry-type": "dotbim",
+            "reduction-factor": 1,
+            "skip-compression": False,
+            "type": analysis_type,
+            "datetime":datetime
+        },
+        "response": "document",
+        "outputs": {
+            "stringOutput": {
+                "transmissionMode": "value"
+            },
+            "imageOutput": {
+                "transmissionMode": "value"
+            }
+        }
+   }
+
 def run_wind_speed(geojson_path, dotbim_path, bbox, crs, wind_direction, wind_speed, api_key, analysis_type):
         try:
             logger.info("Simulation started")
@@ -432,6 +498,73 @@ def run_tcs(geojson_path, dotbim_path, bbox, crs, season, hours, weather_file_na
             logger.info("Simulation finished")
             
             add_geojson_then_raster(geojson_path, geotiff_path, analysis_type=analysis_type, sub_analysis_type=sub_analysis_type)
+            logger.info("Geotiff visualized")
+            return geotiff_path
+        except Exception as e:
+            logger.error(f"Error happened: {e}")
+            return None
+
+def run_solar_analyses(geojson_path,dotbim_path, bbox, crs, month, hours, weather_file_name, api_key, analysis_type):
+
+        logger.info(
+            f"Parameters checked for analysis:"
+            f"month={getattr(month,'value',month)}, "
+            f"hours={getattr(hours,'value',hours)}"
+        )
+
+        payload = get_solar_analyses_payload_ogc(
+            geometry_path=dotbim_path,
+            bbox=bbox,
+            crs=crs,
+            month=month,
+            hours=hours,
+            weather_file_name=weather_file_name,
+            analysis_type=analysis_type)
+        
+        logger.info(f"Payload created")
+
+        try:
+            logger.info("Simulation started")
+            geotiff_path = process_ogc(payload, dotbim_path, analysis_type, api_key)
+            logger.info("Simulation finished")
+            
+            add_geojson_then_raster(
+                geojson_path, 
+                geotiff_path, 
+                analysis_type=analysis_type, 
+                sub_analysis_type=None,
+                min_legend_value=None,
+                max_legend_value=None
+            )
+            logger.info("Geotiff visualized")
+            return geotiff_path
+        except Exception as e:
+            logger.error(f"Error happened: {e}")
+            return None
+
+def run_shadow_mask(geojson_path,dotbim_path, bbox, crs, datetime, api_key, analysis_type):
+
+        logger.info(
+            f"Parameters checked for analysis:"
+            f"datetime={getattr(datetime,'value',datetime)}"
+        )
+
+        payload = get_payload_shadow_mask(
+            geometry_path=dotbim_path,
+            bbox=bbox,
+            crs=crs,
+            datetime=datetime,
+            analysis_type=analysis_type)
+        
+        logger.info(f"Payload created")
+
+        try:
+            logger.info("Simulation started")
+            geotiff_path = process_ogc(payload, dotbim_path, analysis_type, api_key)
+            logger.info("Simulation finished")
+            
+            add_geojson_then_raster(geojson_path, geotiff_path, analysis_type=analysis_type, sub_analysis_type=None)
+            
             logger.info("Geotiff visualized")
             return geotiff_path
         except Exception as e:

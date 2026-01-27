@@ -29,32 +29,51 @@ from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QMessageBox
 from .infrared_logger import logger
 from .visualization.display import display_geojson
-from .services.fetch import fetch_geometry_from_osm
-
+from .services.fetch import fetch_geometry_from_osm, fetch_weather_file_names
+import json
+from qgis.core import QgsApplication
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
-    os.path.dirname(__file__), 'infrared_city_fetch_geometry_dialog.ui'))
+    os.path.dirname(__file__), 'infrared_city_fetch_weather_file_names_dialog.ui'))
 
 
-class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
+class InfraredCityFetchWeatherFileNamesDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
         """Constructor."""
-        super(InfraredCityFetchGeometryDialog, self).__init__(parent)
+        super(InfraredCityFetchWeatherFileNamesDialog, self).__init__(parent)
 
         self.setupUi(self)
         logger.info("Dialog loaded")
 
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
+        self.api_key = None
+        
+        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
+        user_file = os.path.join(plugin_data_dir, "user.json")
+
+        if os.path.exists(user_file):
+            try:
+                with open(user_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    api_key = data.get("api-key", "")
+                    self.api_key_input.setText(api_key)
+                    self.api_key = api_key
+                    logger.info(f"Loaded API key from user.json: {api_key}")
+            except Exception as e:
+                logger.warning(f"Could not read API key: {e}")
+                QMessageBox.warning(self, "Invalid API Key", "Invalid API key. Please check the input values.")
+
+
 
     def accept(self):
         """Run fetch when OK is pressed."""
         longitude = self.longitude_input.text().strip()
         latitude = self.latitude_input.text().strip()
-        bbox_val = float(self.bbox_input.value())
+        radius = self.radius_input.text().strip()
         
         # --- Validation ---
-        if not longitude or not latitude:
+        if not longitude or not latitude or not radius:
             logger.warning("Missing input")
             QMessageBox.warning(self, "Missing Input", "Please fill in all fields!")
             return
@@ -62,25 +81,35 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         try:
             lon = float(longitude)
             lat = float(latitude)
+            radius = float(radius)
         except ValueError:
             logger.error("Invalid input")
             QMessageBox.warning(self, "Invalid Input", "Coordinates and bbox must be numbers.")
             return
+        
+        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
+        os.makedirs(plugin_data_dir, exist_ok=True)
+        user_file = os.path.join(plugin_data_dir, "user.json")
+
+        self.api_key = self.api_key_input.text().strip()
+        if self.api_key:
+            try:
+                with open(user_file, "w", encoding="utf-8") as f:
+                    json.dump({"api-key": self.api_key}, f, indent=2)
+                    logger.info("API key saved successfully.")
+            except Exception as e:
+                logger.error(f"Failed to save API key: {e}")
+        else:
+            logger.warning("API key is empty. Please fill in the API key.")
+            QMessageBox.warning(self, "Missing API Key", "Please fill in the API key.")
+            return
 
         # --- Fetch ---
         try:
-            geojson_path, dotbim_path, bbox = fetch_geometry_from_osm(lon, lat, bbox_val)
+            locations = fetch_weather_file_names(lon, lat, radius, self.api_key)
             
-            if not geojson_path or not dotbim_path or not bbox:
-                logger.error("Failed to fetch geometry")
-                QMessageBox.warning(self, "Invalid Input", "Invalid coordinates, please use different lon,lat coords.")
-                return
-
-            self.geojson_path = geojson_path
-            self.dotbim_path = dotbim_path
-            self.bbox=bbox
-
-            display_geojson(geojson_path)
+            save_locations_to_file(locations)
+            
 
         except Exception as e:
             logger.error(f"Failed to fetch geometry: {e}")
