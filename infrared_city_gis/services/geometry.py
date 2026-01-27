@@ -504,3 +504,9 @@ def collect_tile_centers_from_selection():
     logger.info("✨ Tile centers: %s", tile_centers)
 
     return tile_centers
+
+def get_center_lon_lat_from_bbox(bbox):    
+    w, s, e, n = bbox
+    center_lon = (w + e) / 2
+    center_lat = (s + n) / 2
+    return center_lon, center_lat

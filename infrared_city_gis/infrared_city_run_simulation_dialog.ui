@@ -384,6 +384,155 @@
        </item>
       </layout>
      </widget>
+     <widget class="QWidget" name="page_solar_radiation">
+      <layout class="QVBoxLayout" name="verticalLayoutSR">
+       <item>
+        <widget class="QGroupBox" name="group_solar_radiation">
+         <property name="title">
+          <string>Solar radiation</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutSR">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_month_sr">
+            <property name="text">
+             <string>Month:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="month_dropdown_sr"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_hours_sr">
+            <property name="text">
+             <string>Hours:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QComboBox" name="hours_dropdown_sr"/>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="label_weather_file_sr">
+            <property name="text">
+             <string>Weather file name:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QComboBox" name="weather_file_input_sr"/>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="page_daylight_availability">
+      <layout class="QVBoxLayout" name="verticalLayoutDA">
+       <item>
+        <widget class="QGroupBox" name="group_daylight_availability">
+         <property name="title">
+          <string>Daylight availability</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutDA">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_month_da">
+            <property name="text">
+             <string>Month:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="month_dropdown_da"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_hours_da">
+            <property name="text">
+             <string>Hours:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QComboBox" name="hours_dropdown_da"/>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="page_direct_sun_hours">
+      <layout class="QVBoxLayout" name="verticalLayoutDSH">
+       <item>
+        <widget class="QGroupBox" name="group_direct_sun_hours">
+         <property name="title">
+          <string>Direct sun hours</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutDSH">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_month_dsh">
+            <property name="text">
+             <string>Month:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QComboBox" name="month_dropdown_dsh"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_hours_dsh">
+            <property name="text">
+             <string>Hours:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QComboBox" name="hours_dropdown_dsh"/>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="page_sky_view_factors">
+      <layout class="QVBoxLayout" name="verticalLayoutSVF">
+       <item>
+        <widget class="QGroupBox" name="group_sky_view_factors">
+         <property name="title">
+          <string>Sky view factors</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutSVF">
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="page_shadow_mask">
+      <layout class="QVBoxLayout" name="verticalLayoutSM">
+       <item>
+        <widget class="QGroupBox" name="group_shadow_mask">
+         <property name="title">
+          <string>Shadow mask</string>
+         </property>
+         <layout class="QFormLayout" name="formLayoutSM">
+          <item row="0" column="0">
+           <widget class="QLabel" name="label_datetime_sm">
+            <property name="text">
+             <string>Date &amp; time:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QDateTimeEdit" name="datetime_input_sm">
+            <property name="calendarPopup">
+            <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </widget>
    </item>
    <item>

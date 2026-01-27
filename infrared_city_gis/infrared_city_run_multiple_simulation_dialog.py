@@ -29,6 +29,8 @@ from qgis.PyQt.QtWidgets import QMessageBox
 from .client import (
     get_windspeed_payload_ogc, get_pwc_payload_ogc,
     get_utci_payload_ogc, get_tcs_payload_ogc,
+    get_solar_analyses_payload_ogc,
+    get_payload_shadow_mask,
     process_ogc
 )
 from .infrared_logger import logger
@@ -43,6 +45,10 @@ from .visualization.display import add_geojson_then_raster
 from qgis.PyQt.QtWidgets import QProgressBar
 from qgis.utils import iface
 from qgis.core import Qgis
+from qgis.PyQt.QtWidgets import QApplication
+from qgis.PyQt.QtCore import QDateTime  # ha még nincs importálva
+from datetime import datetime 
+
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -103,6 +109,16 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.content_stack.setCurrentIndex(2)
             elif current == AnalysisType.THERMAL_COMFORT_STATISTICS:
                 self.content_stack.setCurrentIndex(3)
+            elif current == AnalysisType.SOLAR_RADIATION:
+                self.content_stack.setCurrentIndex(4)
+            elif current == AnalysisType.DAYLIGHT_AVAILABILITY:
+                self.content_stack.setCurrentIndex(5)
+            elif current == AnalysisType.DIRECT_SUN_HOURS:
+                self.content_stack.setCurrentIndex(6)
+            elif current == AnalysisType.SKY_VIEW_FACTORS:
+                self.content_stack.setCurrentIndex(7)
+            elif current == AnalysisType.SHADOW_MASK:
+                self.content_stack.setCurrentIndex(8)
         except AttributeError:
             # Fallback for older UI without stacked widget
             try:
@@ -110,6 +126,11 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.group_pedestrian_wind_comfort.setVisible(current == AnalysisType.PEDESTRIAN_WIND_COMFORT)
                 self.group_thermal_comfort.setVisible(current == AnalysisType.THERMAL_COMFORT_INDEX)
                 self.group_thermal_comfort_statistics.setVisible(current == AnalysisType.THERMAL_COMFORT_STATISTICS)
+                self.group_solar_radiation.setVisible(current == AnalysisType.SOLAR_RADIATION)
+                self.group_daylight_availability.setVisible(current == AnalysisType.DAYLIGHT_AVAILABILITY)
+                self.group_direct_sun_hours.setVisible(current == AnalysisType.DIRECT_SUN_HOURS)
+                self.group_sky_view_factors.setVisible(current == AnalysisType.SKY_VIEW_FACTORS)
+                self.group_shadow_mask.setVisible(current == AnalysisType.SHADOW_MASK)
             except AttributeError as e:
                 logger.error("Failed to update group visibility: %s", str(e), exc_info=True)
 
@@ -134,7 +155,6 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     self.hours_dropdown_pwc.addItem(hours.value, hours)
             except Exception as e:
                 logger.error("Failed to populate PWC dialog elements: %s", str(e), exc_info=True)
-        
         if current == AnalysisType.THERMAL_COMFORT_INDEX:
             try:
                 self.weather_file_input_tci.setEditable(True)
@@ -162,7 +182,6 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     self.hours_dropdown_tci.addItem(hours.value, hours)
             except AttributeError as e:
                 logger.error("Failed to populate TCI dialog elements: %s", str(e), exc_info=True)
-
         if current == AnalysisType.THERMAL_COMFORT_STATISTICS:
             try:
                 self.weather_file_input_tcs.setEditable(True)
@@ -184,7 +203,50 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     self.tcs_type_dropdown.addItem(tcs_type.value, tcs_type)
             except Exception as e:
                 logger.error("Failed to populate TCS dialog elements: %s", str(e), exc_info=True)
+        if current == AnalysisType.SOLAR_RADIATION:
+            try:
+                self.weather_file_input_sr.setEditable(True)
+                self.weather_file_input_sr.clear()
 
+                for w in WeatherFile:
+                    self.weather_file_input_sr.addItem(w.value, w)
+
+                self.month_dropdown_sr.clear()
+                for month in MonthConfig:
+                    self.month_dropdown_sr.addItem(month.value, month)
+
+                self.hours_dropdown_sr.clear()
+                for hours in DailyTimeFrameConfig:
+                    self.hours_dropdown_sr.addItem(hours.value, hours)
+            except Exception as e:
+                logger.error("Failed to populate solar radiation dialog elements: %s", str(e), exc_info=True)
+        if current == AnalysisType.DAYLIGHT_AVAILABILITY:
+            try:
+                self.month_dropdown_da.clear()
+                for month in MonthConfig:
+                    self.month_dropdown_da.addItem(month.value, month)
+
+                self.hours_dropdown_da.clear()
+                for hours in DailyTimeFrameConfig:
+                    self.hours_dropdown_da.addItem(hours.value, hours)
+            except Exception as e:
+                logger.error("Failed to populate daylight availability dialog elements: %s", str(e), exc_info=True)
+        if current == AnalysisType.DIRECT_SUN_HOURS:
+            try:
+                self.month_dropdown_dsh.clear()
+                for month in MonthConfig:
+                    self.month_dropdown_dsh.addItem(month.value, month)
+
+                self.hours_dropdown_dsh.clear()
+                for hours in DailyTimeFrameConfig:
+                    self.hours_dropdown_dsh.addItem(hours.value, hours)
+            except Exception as e:
+                logger.error("Failed to populate direct sun hours dialog elements: %s", str(e), exc_info=True)
+        if current == AnalysisType.SHADOW_MASK:
+            try:
+                self.datetime_input_sm.setDateTime(QDateTime.currentDateTime())
+            except Exception as e:
+                logger.error("Failed to populate shadow mask dialog elements: %s", str(e), exc_info=True)
     
     def accept(self):
         logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
@@ -316,8 +378,114 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 return
 
             payload = get_tcs_payload_ogc(None, None, None, selected_season.value, selected_hours.value, weather_file, selected_tcs_type.value)
-            logger.info(f"Payload created: {payload}")
 
+        elif self.analysis_type == AnalysisType.SOLAR_RADIATION:
+             # Validation
+            try:
+                selected_month = self.month_dropdown_sr.currentData()      
+                selected_hours = self.hours_dropdown_sr.currentData()
+                
+
+                weather_file = self.weather_file_input_sr.currentText().strip()
+                logger.info(f"Weather file: {weather_file}")
+
+                if not validate_weather_filename(weather_file):
+                    logger.warning("Invalid weather file name. Please check the input values.")
+                    QMessageBox.warning(
+                        self,
+                        "Invalid Weather File",
+                        "Invalid weather file name. Please check the input values."
+                    )
+                    return
+
+            except AttributeError:
+                logger.warning(f"Missing input, Selected month and hours are required.")
+                QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
+                return
+            
+            payload = get_solar_analyses_payload_ogc(
+                geometry_path=None,#They are adjusted later in a loop
+                bbox=None,
+                crs=None,
+                month=selected_month.number,
+                hours=selected_hours.value,
+                weather_file_name=weather_file,
+                analysis_type=self.analysis_type.value
+            )
+        
+        elif self.analysis_type == AnalysisType.DAYLIGHT_AVAILABILITY:
+            
+            selected_month = self.month_dropdown_da.currentData()      
+            selected_hours = self.hours_dropdown_da.currentData()
+            
+            payload = get_solar_analyses_payload_ogc(
+                geometry_path=None,#They are adjusted later in a loop
+                bbox=None,
+                crs=None,
+                month=selected_month.number,
+                hours=selected_hours.value,
+                weather_file_name=None,
+                analysis_type=self.analysis_type.value
+            )
+
+        elif self.analysis_type == AnalysisType.DIRECT_SUN_HOURS:
+
+            selected_month = self.month_dropdown_dsh.currentData()      
+            selected_hours = self.hours_dropdown_dsh.currentData()
+            
+            payload = get_solar_analyses_payload_ogc(
+                geometry_path=None,#They are adjusted later in a loop
+                bbox=None,
+                crs=None,
+                month=selected_month.number,
+                hours=selected_hours.value,
+                weather_file_name=None,
+                analysis_type=self.analysis_type.value
+            )
+        
+        elif self.analysis_type == AnalysisType.SKY_VIEW_FACTORS:
+            payload = get_solar_analyses_payload_ogc(
+                geometry_path=None,#They are adjusted later in a loop
+                bbox=None,
+                crs=None,
+                month=None,
+                hours=None,
+                weather_file_name=None,
+                analysis_type=self.analysis_type.value
+            )
+
+        elif self.analysis_type == AnalysisType.SHADOW_MASK:
+
+            try:
+                selected_datetime = self.datetime_dropdown.currentData()
+            except AttributeError:
+                logger.warning(f"Missing input, Selected datetime is required.")
+                QMessageBox.warning(self, "Missing Input", "Selected datetime is required.")
+                return
+            
+            datetime_str = selected_datetime.strftime("%Y-%m-%dT%H:%M:%S+02:00")
+
+            payload = get_payload_shadow_mask(
+                geometry_path=None,#They are adjusted later in a loop
+                bbox=None,
+                crs=None,
+                datetime = datetime_str,
+                analysis_type=self.analysis_type.value
+            )
+        
+        logger.info(f"Payload created: {payload}")
+
+        iface.messageBar().pushMessage(
+                        "InfraredCity",
+                        f"Starting simulation for {len(tile_centers)} tiles.",
+                        level=Qgis.Info,
+                        duration=3
+                    )
+        
+        QApplication.processEvents()
+
+
+        
         for idx, (center_x, center_y) in enumerate(tile_centers):
             logger.info("Processing tile center %d: %s, %s", idx, center_x, center_y)
             res = collect_geometry_data_by_tile(center_x, center_y, idx)
@@ -379,6 +547,9 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                         level=Qgis.Success,
                         duration=3
                     )
+
+                    iface.mapCanvas().refresh()
+                    QApplication.processEvents()
                 except Exception as e_crop:
                     logger.error("Failed to crop/display GeoTIFF for tile %d: %s", idx, e_crop)
             except Exception as e:
@@ -390,8 +561,9 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                         level=Qgis.Warning,
                         duration=5
                     )
+                
+                QApplication.processEvents()
                     
-
             logger.info(f"Processed tile: {idx+1}/{len(tile_centers)}.")
             
         super().accept()

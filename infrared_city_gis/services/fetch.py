@@ -51,10 +51,60 @@ def extract_height_from_tags(tags):
     
     return height_estimates.get(building_type, default_height)
 
+def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str):
+    """Call Infrared.city weather location endpoint and return response.
+
+    Logs request URL, params, status code and body. Returns parsed JSON if
+    possible, otherwise raw text. Raises RequestException on network errors
+    and HTTPError on non-2xx status codes.
+    """
+    base_url = "https://fbiw2nq5ac.execute-api.eu-central-1.amazonaws.com/v2/utils/weather/location"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "radius": radius,
+    }
+
+    headers = {"x-api-key": api_key} if api_key else {}
+
+    logger.info(
+        f"Fetching weather file names from {base_url} with params={params} "
+        f"and api-key provided={bool(api_key)}"
+    )
+
+    try:
+        response = requests.get(base_url, params=params, headers=headers, timeout=20)
+        logger.info(f"Weather API status: {response.status_code}")
+        logger.info(f"Weather API response text: {response.text}")
+
+        # Raise if non-2xx
+        response.raise_for_status()
+
+        try:
+            data = response.json()
+            logger.info("Weather API JSON parsed successfully")
+
+            # Extract locations list
+            locations = data.get("data", {}).get("locations", [])
+            logger.info(f"Weather API returned {len(locations)} locations")
+
+            # Collect only fileName values into a simple list
+            file_names = [loc.get("fileName") for loc in locations if isinstance(loc, dict) and loc.get("fileName")]
+            logger.info(f"Collected {len(file_names)} fileName entries from locations")
+            return file_names
+
+        except ValueError:
+            logger.warning("Weather API response is not valid JSON, returning raw text")
+            return []
+
+    except requests.RequestException as e:
+        logger.error(f"Weather API request failed: {e}")
+        # Propagate so caller can handle in UI
+        raise
 
 
 def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries: int = 3, delay: int = 3,tile_id: int = 0) -> str:
-        logger.info("Fetching geometry with lon: {lon}, lat: {lat}, bbox_size_m: {bbox_size_m}")
+        logger.info(f"Fetching geometry with lon: {lon}, lat: {lat}, bbox_size_m: {bbox_size_m}")
 
         overpass_url = "https://overpass-api.de/api/interpreter"
         
@@ -119,14 +169,21 @@ def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries:
                 time.sleep(delay)
 
         if not data:
-            raise RuntimeError("Failed to fetch valid data from Overpass API.")
+            logger.error("Failed to fetch valid data from Overpass API.")
+            return None, None, None
 
         logger.info(f"Fetched {len(data.get('elements', []))} elements")
 
         # --- GeoJSON creation ---
         features = []
-
-        for elem in data.get("elements", []):
+        
+        elements = data.get("elements", [])
+        
+        if not elements:
+            logger.warning("No elements found in response please try with different lon, lat values.")
+            return None, None, None
+        
+        for elem in elements:
             if elem.get("type") == "way" and "geometry" in elem:
                 coords = [(p["lon"], p["lat"]) for p in elem["geometry"]]
                 # Zárjuk a polygont, ha nincs zárva
@@ -167,7 +224,7 @@ def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries:
             dotbim_data = process_geojson_file(geojson, lon, lat, "EPSG:4326")
         except Exception as e:
             logger.error(f"Failed to convert GeoJSON to DotBIM: {e}")
-            return
+            return None, None, None
         
         logger.info("DotBIM created")
 

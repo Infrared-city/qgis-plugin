@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>InfraredCityFetchGeometryDialog</class>
- <widget class="QDialog" name="InfraredCityFetchGeometryDialog">
+ <class>InfraredCityFetchWeatherFileNamesDialog</class>
+ <widget class="QDialog" name="InfraredFetchWeatherFileNamesDialog">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Fetch geometry</string>
+   <string>Fetch closest weatherfile names</string>
   </property>
 
   <layout class="QVBoxLayout" name="verticalLayout">
@@ -20,13 +20,33 @@
     <widget class="QWidget" name="formWidget">
      <layout class="QFormLayout" name="formLayout">
       <item row="0" column="0">
+       <widget class="QLabel" name="label_api_key">
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>19</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>Infrared.city API key:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLineEdit" name="api_key_input">
+        <property name="placeholderText">
+         <string>Enter your Infrared.city API key</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
        <widget class="QLabel" name="label_center_lon">
         <property name="text">
          <string>Center longitude:</string>
         </property>
        </widget>
       </item>
-      <item row="0" column="1">
+      <item row="1" column="1">
        <widget class="QLineEdit" name="longitude_input">
         <property name="placeholderText">
          <string>e.g. 16.3738189</string>
@@ -34,14 +54,14 @@
        </widget>
       </item>
 
-      <item row="1" column="0">
+      <item row="2" column="0">
        <widget class="QLabel" name="label_center_lat">
         <property name="text">
          <string>Center latitude:</string>
         </property>
        </widget>
       </item>
-      <item row="1" column="1">
+      <item row="2" column="1">
        <widget class="QLineEdit" name="latitude_input">
         <property name="placeholderText">
          <string>e.g. 48.2081743</string>
@@ -49,29 +69,17 @@
        </widget>
       </item>
 
-      <item row="2" column="0">
-       <widget class="QLabel" name="label_bbox">
+      <item row="3" column="0">
+       <widget class="QLabel" name="label_radius">
         <property name="text">
-         <string>Bbox (m):</string>
+         <string>Radius (km):</string>
         </property>
        </widget>
       </item>
-      <item row="2" column="1">
-       <widget class="QSpinBox" name="bbox_input">
-        <property name="enabled">
-         <bool>false</bool>
-        </property>
-        <property name="minimum">
-         <number>16</number>
-        </property>
-        <property name="maximum">
-         <number>2000</number>
-        </property>
-        <property name="singleStep">
-         <number>16</number>
-        </property>
-        <property name="value">
-         <number>512</number>
+      <item row="3" column="1">
+       <widget class="QLineEdit" name="radius_input">
+        <property name="placeholderText">
+         <string>100</string>
         </property>
        </widget>
       </item>
