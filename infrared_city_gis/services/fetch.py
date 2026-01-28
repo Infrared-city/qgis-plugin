@@ -51,11 +51,12 @@ def extract_height_from_tags(tags):
     
     return height_estimates.get(building_type, default_height)
 
+
 def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str):
     """Call Infrared.city weather location endpoint and return response.
 
     Logs request URL, params, status code and body. Returns parsed JSON if
-    possible, otherwise raw text. Raises RequestException on network errors
+    possible. Raises RequestException on network errors
     and HTTPError on non-2xx status codes.
     """
     base_url = "https://fbiw2nq5ac.execute-api.eu-central-1.amazonaws.com/v2/utils/weather/location"

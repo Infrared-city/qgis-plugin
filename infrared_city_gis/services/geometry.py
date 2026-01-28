@@ -434,6 +434,17 @@ def collect_geometry_data_by_tile(center_x, center_y, idx):
 
     return geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256
 
+
+def get_selected_crs():
+    layer = iface.activeLayer()
+    if layer is None:
+        
+        logger.warning("No active layer found")
+        return None 
+    layer_crs = layer.crs()
+    logger.info(f"Selected crs: {layer_crs.authid()}")
+    return layer_crs.authid()
+
 def get_selected_bbox():
 
     layer = iface.activeLayer()
@@ -466,6 +477,8 @@ def get_selected_bbox():
     south = bbox.yMinimum()
     east  = bbox.xMaximum()
     north = bbox.yMaximum()
+    
+    logger.info(f"Selected bbox: {west}, {south}, {east}, {north}")
 
     return west, south, east, north
 
@@ -505,8 +518,24 @@ def collect_tile_centers_from_selection():
 
     return tile_centers
 
-def get_center_lon_lat_from_bbox(bbox):    
+def get_center_lon_lat_from_bbox(bbox, crs_authid: str):
+    """Return bbox center as lon/lat in EPSG:4326.
+
+    `bbox` is (west, south, east, north) in the layer CRS given by `crs_authid`.
+    If the CRS is not EPSG:4326, the bbox is transformed to WGS84 first using
+    QgsCoordinateTransform, then the center is computed.
+    """
     w, s, e, n = bbox
-    center_lon = (w + e) / 2
-    center_lat = (s + n) / 2
+    layer_rect = QgsRectangle(w, s, e, n)
+
+    if crs_authid and crs_authid != "EPSG:4326":
+        layer_crs = QgsCoordinateReferenceSystem(crs_authid)
+        wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+        transform = QgsCoordinateTransform(layer_crs, wgs84, QgsProject.instance())
+        bbox_rect_wgs84 = transform.transformBoundingBox(layer_rect)
+    else:
+        bbox_rect_wgs84 = layer_rect
+
+    center_lon = (bbox_rect_wgs84.xMinimum() + bbox_rect_wgs84.xMaximum()) / 2
+    center_lat = (bbox_rect_wgs84.yMinimum() + bbox_rect_wgs84.yMaximum()) / 2
     return center_lon, center_lat
