@@ -27,28 +27,26 @@ from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QMessageBox
 from .client import (
-    get_windspeed_payload_ogc, get_pwc_payload_ogc,
-    get_utci_payload_ogc, get_tcs_payload_ogc,
-    get_solar_analyses_payload_ogc,
-    get_payload_shadow_mask,
-    process_ogc
+    process_run_analysis,
+    load_dotbim,get_windspeed_payload, get_pwc_payload, get_utci_payload, 
+    get_tcs_payload, get_shadow_mask_payload, get_daylight_availability_payload,
+    get_direct_sun_hours_payload, get_solar_radiation_payload
 )
 from .infrared_logger import logger
 import json
 from qgis.core import QgsApplication
 from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType
-from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, validate_weather_filename, MonthConfig
-from .models.weather_files import WeatherFile
+from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, MonthConfig, makeTimeFrameObj,makeTimeFrameObjWithMonth
 from .services.geometry import collect_tile_centers_from_selection, collect_geometry_data_by_tile, crop_matrix, generate_geotiff
 import rasterio
 from .visualization.display import add_geojson_then_raster
-from qgis.PyQt.QtWidgets import QProgressBar
 from qgis.utils import iface
 from qgis.core import Qgis
 from qgis.PyQt.QtWidgets import QApplication
-from qgis.PyQt.QtCore import QDateTime  # ha még nincs importálva
-from datetime import datetime 
-
+from qgis.PyQt.QtCore import QDateTime 
+from .services.fetch import fetch_weather_file_names
+from .services.geometry import get_center_lon_lat_from_bbox, get_selected_bbox, get_selected_crs
+from .services.epw_query import query_infrared_epw, Query_Type
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -69,12 +67,18 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.analysis_type_dropdown.addItem(str(t), t)
         self.analysis_type_dropdown.currentTextChanged.connect(self.on_analysis_changed)
         self.analysis_type = None
+        self.shadow_mask = None
+        self.min_legend_value = None
+        self.max_legend_value = None
         self.api_key = None
+        self.weather_file_names = []
+        w,s,e,n = get_selected_bbox()  
+        self.bbox =[w,s,e,n]
+        self.crs = get_selected_crs()
         
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
 
-        # Állítsuk be az alapértelmezett oldalt a stack-ben
         if self.analysis_type_dropdown.count() > 0:
             self.analysis_type_dropdown.setCurrentIndex(0)
             self.on_analysis_changed(self.analysis_type_dropdown.currentText())
@@ -99,6 +103,11 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def on_analysis_changed(self, text):
         current = self.analysis_type_dropdown.currentData()
+        
+        if self.bbox is not None and self.api_key and not self.weather_file_names:
+            lon, lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
+            self.weather_file_names = fetch_weather_file_names(lon, lat, 100, self.api_key)
+        
         # Switch stacked pages instead of toggling visibility
         try:
             if current == AnalysisType.WIND_SPEED:
@@ -139,8 +148,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.weather_file_input_pwc.setEditable(True)
                 self.weather_file_input_pwc.clear()
 
-                for w in WeatherFile:
-                    self.weather_file_input_pwc.addItem(w.value, w)
+                for w in self.weather_file_names:
+                    self.weather_file_input_pwc.addItem(w, w)
 
                 self.pwc_type_dropdown.clear()
                 for s in PedestrianWindComfortType:
@@ -160,8 +169,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.weather_file_input_tci.setEditable(True)
                 self.weather_file_input_tci.clear()
 
-                for w in WeatherFile:
-                    self.weather_file_input_tci.addItem(w.value, w)
+                for w in self.weather_file_names:
+                    self.weather_file_input_tci.addItem(w, w)
 
                 self.legend_min_input_tci.setEnabled(False)
                 self.legend_max_input_tci.setEnabled(False)
@@ -187,15 +196,15 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.weather_file_input_tcs.setEditable(True)
                 self.weather_file_input_tcs.clear()
 
-                for w in WeatherFile:
-                    self.weather_file_input_tcs.addItem(w.value, w)
+                for w in self.weather_file_names:
+                    self.weather_file_input_tcs.addItem(w, w)
 
                 self.season_dropdown_tcs.clear()
                 for season in SeasonalTimeFrameConfig:
                     self.season_dropdown_tcs.addItem(season.value, season)
 
                 self.hours_dropdown_tcs.clear()
-                for hours in DailyTimeFrameConfig:
+                for hours in DailyTimeFrameConfigUTCI:
                     self.hours_dropdown_tcs.addItem(hours.value, hours)
 
                 self.tcs_type_dropdown.clear()
@@ -208,8 +217,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.weather_file_input_sr.setEditable(True)
                 self.weather_file_input_sr.clear()
 
-                for w in WeatherFile:
-                    self.weather_file_input_sr.addItem(w.value, w)
+                for w in self.weather_file_names:
+                    self.weather_file_input_sr.addItem(w, w)
 
                 self.month_dropdown_sr.clear()
                 for month in MonthConfig:
@@ -287,9 +296,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 QMessageBox.warning(self, "Invalid Parameters", "Wind speed must be >0 and direction between 0-360°.")
                 return
 
-            payload = get_windspeed_payload_ogc(None, None, None, wind_direction, wind_speed)
-            logger.info(f"Payload created: {payload}")
-            
+            payload = get_windspeed_payload(wind_direction, wind_speed)            
      
         elif self.analysis_type == AnalysisType.PEDESTRIAN_WIND_COMFORT:
             # Validation
@@ -301,23 +308,20 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 weather_file = self.weather_file_input_pwc.currentText().strip()
                 logger.info(f"Weather file: {weather_file}")
 
-                if not validate_weather_filename(weather_file):
-                    logger.warning("Invalid weather file name. Please check the input values.")
-                    QMessageBox.warning(
-                        self,
-                        "Invalid Weather File",
-                        "Invalid weather file name. Please check the input values."
-                    )
-                    return
-
             except AttributeError:
                 logger.warning("Missing input")
                 QMessageBox.warning(self, "Missing Input", "Please fill in all fields!")
                 return
 
-            payload = get_pwc_payload_ogc(None, None, None, pwc_type.value, selected_season.value, selected_hours.value, weather_file)
-            logger.info(f"Payload created: {payload}")
-
+            #TODO: hemisphere
+            time_frame = makeTimeFrameObj(isNorthHem=True,season=selected_season.value, hourly=selected_hours.value)
+            wind_data = query_infrared_epw(
+                    file_name=weather_file,
+                    type=Query_Type.WIND,
+                    time_frame=time_frame,
+                    api_key=self.api_key
+                )
+            payload = get_pwc_payload(wind_data,self.sub_analysis_type.value)
         
         elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
             # Validation
@@ -336,15 +340,6 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 weather_file = self.weather_file_input_tci.currentText().strip()
                 logger.info(f"Weather file: {weather_file}")
 
-                if not validate_weather_filename(weather_file):
-                    logger.warning("Invalid weather file name. Please check the input values.")
-                    QMessageBox.warning(
-                        self,
-                        "Invalid Weather File",
-                        "Invalid weather file name. Please check the input values."
-                    )
-                    return
-
             except AttributeError:
                 logger.warning(f"Missing input, Selected season and hours are required.")
                 QMessageBox.warning(self, "Missing Input", "Selected season and hours are required.")
@@ -352,8 +347,15 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 selected_legend_max = None
                 return
             
-            payload = get_utci_payload_ogc(None, None, None, selected_month.number, selected_hours.value, weather_file)
-            logger.info(f"Payload created: {payload}")
+            time_frame = makeTimeFrameObjWithMonth(month=selected_month.number, hourly=selected_hours.value)
+            weather_data = query_infrared_epw(
+                    file_name=weather_file,
+                    type=Query_Type.UTCI,
+                    time_frame=time_frame,
+                    api_key=self.api_key
+                )
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
+            payload = get_utci_payload(weather_data,center_lon, center_lat, time_frame)
 
         elif self.analysis_type == AnalysisType.THERMAL_COMFORT_STATISTICS:
             # Validation
@@ -365,19 +367,20 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 weather_file = self.weather_file_input_tcs.currentText().strip()
                 logger.info(f"Weather file: {weather_file}")
 
-                if not validate_weather_filename(weather_file):
-                    logger.warning("Invalid weather file name. Please check the input values.")
-                    QMessageBox.warning(
-                        self,
-                        "Invalid Weather File",
-                        "Invalid weather file name. Please check the input values."
-                    )   
             except AttributeError:
                 logger.warning("Missing input. TCS type is required.")
                 QMessageBox.warning(self, "Missing Input", "TCS type is required.")
                 return
 
-            payload = get_tcs_payload_ogc(None, None, None, selected_season.value, selected_hours.value, weather_file, selected_tcs_type.value)
+            time_frame = makeTimeFrameObj(isNorthHem=True,season=selected_season.value,hourly=selected_hours.value,analysis_type=self.analysis_type)
+            weather_data = query_infrared_epw(
+                    file_name=weather_file,
+                    type=Query_Type.UTCI,
+                    time_frame=time_frame,
+                    api_key=self.api_key
+                )
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
+            payload = get_tcs_payload(weather_data,center_lon,center_lat,time_frame,selected_tcs_type.value)
 
         elif self.analysis_type == AnalysisType.SOLAR_RADIATION:
              # Validation
@@ -389,70 +392,36 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 weather_file = self.weather_file_input_sr.currentText().strip()
                 logger.info(f"Weather file: {weather_file}")
 
-                if not validate_weather_filename(weather_file):
-                    logger.warning("Invalid weather file name. Please check the input values.")
-                    QMessageBox.warning(
-                        self,
-                        "Invalid Weather File",
-                        "Invalid weather file name. Please check the input values."
-                    )
-                    return
 
             except AttributeError:
                 logger.warning(f"Missing input, Selected month and hours are required.")
                 QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
                 return
             
-            payload = get_solar_analyses_payload_ogc(
-                geometry_path=None,#They are adjusted later in a loop
-                bbox=None,
-                crs=None,
-                month=selected_month.number,
-                hours=selected_hours.value,
-                weather_file_name=weather_file,
-                analysis_type=self.analysis_type.value
-            )
+            time_frame = makeTimeFrameObjWithMonth(month=selected_month.number, hourly=selected_hours.value)
+            weather_data = query_infrared_epw(
+                    file_name=weather_file,
+                    type=Query_Type.UTCI,
+                    time_frame=time_frame,
+                    api_key=self.api_key
+                )
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
+            payload = get_solar_radiation_payload(weather_data,center_lon, center_lat, time_frame)
         
         elif self.analysis_type == AnalysisType.DAYLIGHT_AVAILABILITY:
-            
             selected_month = self.month_dropdown_da.currentData()      
             selected_hours = self.hours_dropdown_da.currentData()
-            
-            payload = get_solar_analyses_payload_ogc(
-                geometry_path=None,#They are adjusted later in a loop
-                bbox=None,
-                crs=None,
-                month=selected_month.number,
-                hours=selected_hours.value,
-                weather_file_name=None,
-                analysis_type=self.analysis_type.value
-            )
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
+            payload = get_daylight_availability_payload(month=selected_month.number, hourly=selected_hours.value, lon=center_lon, lat=center_lat)
 
         elif self.analysis_type == AnalysisType.DIRECT_SUN_HOURS:
-
             selected_month = self.month_dropdown_dsh.currentData()      
-            selected_hours = self.hours_dropdown_dsh.currentData()
-            
-            payload = get_solar_analyses_payload_ogc(
-                geometry_path=None,#They are adjusted later in a loop
-                bbox=None,
-                crs=None,
-                month=selected_month.number,
-                hours=selected_hours.value,
-                weather_file_name=None,
-                analysis_type=self.analysis_type.value
-            )
-        
+            selected_hours = self.hours_dropdown_dsh.currentData()            
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
+            payload = get_direct_sun_hours_payload(month=selected_month.number, hourly=selected_hours.value, lon=center_lon, lat=center_lat)
+
         elif self.analysis_type == AnalysisType.SKY_VIEW_FACTORS:
-            payload = get_solar_analyses_payload_ogc(
-                geometry_path=None,#They are adjusted later in a loop
-                bbox=None,
-                crs=None,
-                month=None,
-                hours=None,
-                weather_file_name=None,
-                analysis_type=self.analysis_type.value
-            )
+            payload = { "analysis-type": self.analysis_type.value, "geometries": None}  
 
         elif self.analysis_type == AnalysisType.SHADOW_MASK:
 
@@ -464,14 +433,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 return
             
             datetime_str = selected_datetime.strftime("%Y-%m-%dT%H:%M:%S+02:00")
-
-            payload = get_payload_shadow_mask(
-                geometry_path=None,#They are adjusted later in a loop
-                bbox=None,
-                crs=None,
-                datetime = datetime_str,
-                analysis_type=self.analysis_type.value
-            )
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
+            payload = get_shadow_mask_payload(datetime_str, center_lon, center_lat)
         
         logger.info(f"Payload created: {payload}")
 
@@ -484,8 +447,6 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         
         QApplication.processEvents()
 
-
-        
         for idx, (center_x, center_y) in enumerate(tile_centers):
             logger.info("Processing tile center %d: %s, %s", idx, center_x, center_y)
             res = collect_geometry_data_by_tile(center_x, center_y, idx)
@@ -494,33 +455,36 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
             geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256 = res
             
-            # Read the existing dotbim content and dump it again
-            with open(dotbim_path, "r", encoding="utf-8") as f:
-                dotbim_data = json.load(f)
-            
-
             # Crop 512x512 GeoTIFF to 256x256 around the tile center and display
             try:
-                logger.info("Starting wind speed OGC simulation for tile %d", idx)
-                
-                payload["inputs"]["geometries"] = dotbim_data
-                payload["inputs"]["bbox"] = bbox_512
-                payload["inputs"]["crs"] = crs_authid
+                self.dotbim_path = dotbim_path
+                logger.info(f"\n✨ ✨ ✨ ✨\nPayload: \n{payload}\n✨ ✨ ✨ ✨")
+                # Load dotbim
+                dotbim = load_dotbim(self.dotbim_path)
+                payload["geometries"] = dotbim
 
-                
-                geotiff_path = process_ogc(payload, dotbim_path, self.analysis_type.value, self.api_key)
+                # Run simulation
+                logger.info("Starting simulation for tile %d", idx)
+                self.geotiff_path = process_run_analysis(
+                    payload=payload,
+                    geometry_path=self.dotbim_path,
+                    bbox=bbox_512,
+                    crs=crs_authid,
+                    api_key=self.api_key,
+                    analysis_type=self.analysis_type.value
+                )                
                 logger.info("Simulation finished for tile %d", idx)
 
                 # Crop 512x512 GeoTIFF to 256x256 around the tile center and display
                 try:
-                    with rasterio.open(geotiff_path) as src:
+                    with rasterio.open(self.geotiff_path) as src:
                         matrix = src.read(1)
 
                     cropped_matrix = crop_matrix(matrix, core_size=256)
                     sub_bbox = bbox_256
 
-                    base_name = os.path.splitext(os.path.basename(geotiff_path))[0]
-                    plugin_data_dir = os.path.dirname(geotiff_path)
+                    base_name = os.path.splitext(os.path.basename(self.geotiff_path))[0]
+                    plugin_data_dir = os.path.dirname(self.geotiff_path)
                     cropped_geotiff_path = os.path.join(plugin_data_dir, f"{base_name}_crop.tif")
 
                     generate_geotiff(

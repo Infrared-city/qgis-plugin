@@ -77,24 +77,22 @@ class InfraredCityRunMultipleDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def _get_selected_bbox(self):
         """
-        Aktív réteg kijelölt objektumai alapján visszaadja a bbox-ot:
-        (west, south, east, north) = (xmin, ymin, xmax, ymax)
+        Returns the bbox of the selected features.
         """
         layer = iface.activeLayer()
         if layer is None:
-            raise RuntimeError("Nincs aktív réteg.")
+            raise RuntimeError("No active layer.")
 
         selected = layer.selectedFeatures()
         if not selected:
-            raise RuntimeError("Nincsenek kijelölt objektumok az aktív rétegen.")
+            raise RuntimeError("No selected features.")
 
         # Első feature bbox-a
         geom = selected[0].geometry()
         if geom is None or geom.isEmpty():
-            raise RuntimeError("Az első kijelölt geometria üres.")
+            raise RuntimeError("The first selected geometry is empty.")
         bbox = geom.boundingBox()
 
-        # Ha több feature van kijelölve, egyesítjük a bbox-okat
         for feat in selected[1:]:
             g = feat.geometry()
             if g is None or g.isEmpty():
@@ -109,37 +107,32 @@ class InfraredCityRunMultipleDialog(QtWidgets.QDialog, FORM_CLASS):
         return west, south, east, north
 
     def _generate_tile_centers(self, west, south, east, north, tile_size=256):
-        """
-        A bbox-ot (west, south, east, north) 512x512 m-es négyzetekre osztja,
-        és visszaadja a tile-ok középpontjainak listáját [(cx, cy), ...].
 
-        Feltételezés: koordináták méterben.
-        """
         width = east - west
         height = north - south
 
         if width <= 0 or height <= 0:
-            raise ValueError("Érvénytelen bbox (negatív vagy nulla szélesség/magasság).")
+            logger.error("Invalid bbox.")
+            raise ValueError("Invalid bbox.")
 
-        # Hány tile kell X/Y irányban, felfelé kerekítve
         nx = math.ceil(width / tile_size)
         ny = math.ceil(height / tile_size)
 
         centers = []
 
-        for j in range(ny):          # Y irány (sorok)
+        for j in range(ny):
             cy = south + (j + 0.5) * tile_size
-            for i in range(nx):      # X irány (oszlopok)
+            for i in range(nx):
                 cx = west + (i + 0.5) * tile_size
                 centers.append((cx, cy))
 
         return centers
 
     def _display_tile_centers(self, tile_centers):
-        """Ideiglenes pont réteg létrehozása és megjelenítése a tile középpontokból."""
+        """Create and display a temporary point layer from the tile centers."""
         layer = iface.activeLayer()
         if layer is None:
-            raise RuntimeError("Nincs aktív réteg a tile pontok megjelenítéséhez.")
+            raise RuntimeError("No active layer for tile center display.")
 
         crs_authid = layer.crs().authid()
 

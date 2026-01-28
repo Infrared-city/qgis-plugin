@@ -26,8 +26,9 @@ import os
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QMessageBox
-from .client import (
-    run_wind_speed, run_pwc, run_utci, run_tcs, run_solar_analyses, run_shadow_mask
+from .client import (load_dotbim, get_windspeed_payload, process_run_analysis,get_shadow_mask_payload,
+    get_daylight_availability_payload, get_direct_sun_hours_payload, get_pwc_payload,
+    get_utci_payload, get_tcs_payload, get_solar_radiation_payload
 )
 from .services.fetch import fetch_weather_file_names
 from .services.geometry import get_center_lon_lat_from_bbox
@@ -35,10 +36,10 @@ from .infrared_logger import logger
 import json
 from qgis.core import QgsApplication
 from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType
-from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, validate_weather_filename, MonthConfig
-from .models.weather_files import WeatherFile
-from qgis.PyQt.QtCore import QDateTime  # ha még nincs importálva
-from datetime import datetime 
+from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, MonthConfig, makeTimeFrameObj,makeTimeFrameObjWithMonth
+from qgis.PyQt.QtCore import QDateTime 
+from .visualization.display import add_geojson_then_raster
+from .services.epw_query import query_infrared_epw, Query_Type
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -63,6 +64,8 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self.analysis_type_dropdown.currentTextChanged.connect(self.on_analysis_changed)
         self.analysis_type = None
         self.api_key = None
+        self.selected_legend_min = None
+        self.selected_legend_max = None
         
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
@@ -102,9 +105,8 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         current = self.analysis_type_dropdown.currentData()
         
         # Get weather file names
-
         if self.bbox is not None and self.api_key and not self.weather_file_names:
-            lon, lat = get_center_lon_lat_from_bbox(self.bbox) 
+            lon, lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
             self.weather_file_names = fetch_weather_file_names(lon, lat, 100, self.api_key)
         
         # Switch stacked pages instead of toggling visibility
@@ -205,7 +207,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     self.season_dropdown_tcs.addItem(season.value, season)
 
                 self.hours_dropdown_tcs.clear()
-                for hours in DailyTimeFrameConfig:
+                for hours in DailyTimeFrameConfigUTCI:
                     self.hours_dropdown_tcs.addItem(hours.value, hours)
 
                 self.tcs_type_dropdown.clear()
@@ -302,22 +304,10 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.warning("Invalid parameters. Please check the input values.")
                 QMessageBox.warning(self, "Invalid Parameters", "Wind speed must be >0 and direction between 0-360°.")
                 return
+            
+            # Collect payload
+            payload = get_windspeed_payload(wind_direction, wind_speed)
 
-            # Simulation
-            self.geotiff_path = run_wind_speed(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path, 
-                bbox=self.bbox, 
-                crs=self.crs, 
-                wind_direction=wind_direction, 
-                wind_speed=wind_speed, 
-                api_key=self.api_key, 
-                analysis_type=self.analysis_type.value
-            )
-            if not self.geotiff_path:
-                logger.error("Wind speed simulation failed to produce a geotiff path.")
-                QMessageBox.warning(self, "Simulation Failed", "Wind speed simulation failed to produce a result.")
-                return
         elif self.analysis_type == AnalysisType.PEDESTRIAN_WIND_COMFORT:
             # Validation
             try:
@@ -328,171 +318,105 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 weather_file = self.weather_file_input_pwc.currentText().strip()
                 logger.info(f"Weather file: {weather_file}")
 
-                if not validate_weather_filename(weather_file):
-                    logger.warning("Invalid weather file name. Please check the input values.")
-                    QMessageBox.warning(
-                        self,
-                        "Invalid Weather File",
-                        "Invalid weather file name. Please check the input values."
-                    )
-                    return
-
             except AttributeError:
                 logger.warning("Missing input")
                 QMessageBox.warning(self, "Missing Input", "Please fill in all fields!")
                 return
-
-            # Simulation
-            self.geotiff_path = run_pwc(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path, 
-                bbox=self.bbox, 
-                crs=self.crs, 
-                sub_analysis_type=pwc_type.value, 
-                season=selected_season.value, 
-                hours=selected_hours.value, 
-                weather_file_name=weather_file, 
-                api_key=self.api_key, 
-                analysis_type=self.analysis_type.value
-            )
             
-            if not self.geotiff_path:
-                logger.error("PWC simulation failed to produce a geotiff path.")
-                QMessageBox.warning(self, "Simulation Failed", "PWC simulation failed to produce a result.")
-                return 
+            #TODO: hemisphere
+            time_frame = makeTimeFrameObj(isNorthHem=True,season=selected_season.value, hourly=selected_hours.value)
+            
+            wind_data = query_infrared_epw(
+                    file_name=weather_file,
+                    type=Query_Type.WIND,
+                    time_frame=time_frame,
+                    api_key=self.api_key
+                )
+            
+            payload = get_pwc_payload(wind_data,self.sub_analysis_type.value)
+
         elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
             # Validation
             try:
                 selected_month = self.month_dropdown_tci.currentData()      
                 selected_hours = self.hours_dropdown_tci.currentData()
                 if self.legend_min_enable_tci.isChecked():
-                    selected_legend_min = self.legend_min_input_tci.value()
-                else:
-                    selected_legend_min = None
+                    self.selected_legend_min = self.legend_min_input_tci.value()
+
                 if self.legend_max_enable_tci.isChecked():
-                    selected_legend_max = self.legend_max_input_tci.value()
-                else:
-                    selected_legend_max = None
+                    self.selected_legend_max = self.legend_max_input_tci.value()
+
 
                 weather_file = self.weather_file_input_tci.currentText().strip()
                 logger.info(f"Weather file: {weather_file}")
 
-                if not validate_weather_filename(weather_file):
-                    logger.warning("Invalid weather file name. Please check the input values.")
-                    QMessageBox.warning(
-                        self,
-                        "Invalid Weather File",
-                        "Invalid weather file name. Please check the input values."
-                    )
-                    return
-
             except AttributeError:
                 logger.warning(f"Missing input, Selected season and hours are required.")
                 QMessageBox.warning(self, "Missing Input", "Selected season and hours are required.")
-                selected_legend_min = None
-                selected_legend_max = None
                 return
             
-            # Simulation
-            self.geotiff_path = run_utci(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path,
-                bbox=self.bbox,
-                crs=self.crs,
-                month=selected_month.number,
-                hours=selected_hours.value,
-                weather_file_name=weather_file,
-                api_key=self.api_key,
-                analysis_type=self.analysis_type.value,
-                legend_min=selected_legend_min,
-                legend_max=selected_legend_max
-            )
+            time_frame = makeTimeFrameObjWithMonth(month=selected_month.number, hourly=selected_hours.value)
 
-            if self.geotiff_path is None:
-                logger.warning("Geotiff path is None, simulation failed")
-                QMessageBox.warning(self, "Simulation Failed", "Simulation failed. Please check the logs for more details.")
-                return
+            weather_data = query_infrared_epw(
+                    file_name=weather_file,
+                    type=Query_Type.UTCI,
+                    time_frame=time_frame,
+                    api_key=self.api_key
+                )
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
+            payload = get_utci_payload(weather_data,center_lon, center_lat, time_frame)
+
         elif self.analysis_type == AnalysisType.THERMAL_COMFORT_STATISTICS:
             # Validation
             try:
                 selected_season = self.season_dropdown_tcs.currentData()
                 selected_hours = self.hours_dropdown_tcs.currentData()
                 selected_tcs_type = self.tcs_type_dropdown.currentData()
+                self.sub_analysis_type = selected_tcs_type
 
                 weather_file = self.weather_file_input_tcs.currentText().strip()
                 logger.info(f"Weather file: {weather_file}")
-
-                if not validate_weather_filename(weather_file):
-                    logger.warning("Invalid weather file name. Please check the input values.")
-                    QMessageBox.warning(
-                        self,
-                        "Invalid Weather File",
-                        "Invalid weather file name. Please check the input values."
-                    )   
+ 
             except AttributeError:
                 logger.warning("Missing input. TCS type is required.")
                 QMessageBox.warning(self, "Missing Input", "TCS type is required.")
                 return
+            
+            time_frame = makeTimeFrameObj(isNorthHem=True,season=selected_season.value,hourly=selected_hours.value,analysis_type=self.analysis_type)
 
-            # Simulation
-            self.geotiff_path = run_tcs(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path,
-                bbox=self.bbox,
-                crs=self.crs,
-                season=selected_season.value,
-                hours=selected_hours.value,
-                weather_file_name=weather_file,
-                api_key=self.api_key,
-                analysis_type=self.analysis_type.value,
-                sub_analysis_type=selected_tcs_type.value
-            )
+            weather_data = query_infrared_epw(
+                    file_name=weather_file,
+                    type=Query_Type.UTCI,
+                    time_frame=time_frame,
+                    api_key=self.api_key
+                )
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
+            payload = get_tcs_payload(weather_data,center_lon,center_lat,time_frame,selected_tcs_type.value)
 
-            if self.geotiff_path is None:
-                logger.warning("Geotiff path is None, simulation failed")
-                QMessageBox.warning(self, "Simulation Failed", "Simulation failed. Please check the logs for more details.")
-                return
         elif self.analysis_type == AnalysisType.SOLAR_RADIATION:
              # Validation
             try:
                 selected_month = self.month_dropdown_sr.currentData()      
                 selected_hours = self.hours_dropdown_sr.currentData()
-                
-
                 weather_file = self.weather_file_input_sr.currentText().strip()
                 logger.info(f"Weather file: {weather_file}")
-
-                if not validate_weather_filename(weather_file):
-                    logger.warning("Invalid weather file name. Please check the input values.")
-                    QMessageBox.warning(
-                        self,
-                        "Invalid Weather File",
-                        "Invalid weather file name. Please check the input values."
-                    )
-                    return
-
             except AttributeError:
                 logger.warning(f"Missing input, Selected month and hours are required.")
                 QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
                 return
             
-            # Simulation
-            self.geotiff_path = run_solar_analyses(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path,
-                bbox=self.bbox,
-                crs=self.crs,
-                month=selected_month.number,
-                hours=selected_hours.value,
-                weather_file_name=weather_file,
-                api_key=self.api_key,
-                analysis_type=self.analysis_type.value
-            )
+            time_frame = makeTimeFrameObjWithMonth(month=selected_month.number, hourly=selected_hours.value)
 
-            if self.geotiff_path is None:
-                logger.warning("Geotiff path is None, simulation failed")
-                QMessageBox.warning(self, "Simulation Failed", "Simulation failed. Please check the logs for more details.")
-                return
+            weather_data = query_infrared_epw(
+                    file_name=weather_file,
+                    type=Query_Type.UTCI,
+                    time_frame=time_frame,
+                    api_key=self.api_key
+                )
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
+            
+            payload = get_solar_radiation_payload(weather_data,center_lon, center_lat, time_frame)
+
         elif self.analysis_type == AnalysisType.DAYLIGHT_AVAILABILITY:
             try:
                 selected_month = self.month_dropdown_da.currentData()      
@@ -503,23 +427,9 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
                 return
             
-            # Simulation
-            self.geotiff_path = run_solar_analyses(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path,
-                bbox=self.bbox,
-                crs=self.crs,
-                month=selected_month.number,
-                hours=selected_hours.value,
-                weather_file_name=None,
-                api_key=self.api_key,
-                analysis_type=self.analysis_type.value
-            )
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
+            payload = get_daylight_availability_payload(month=selected_month.number, hourly=selected_hours.value, lon=center_lon, lat=center_lat)
 
-            if self.geotiff_path is None:
-                logger.warning("Geotiff path is None, simulation failed")
-                QMessageBox.warning(self, "Simulation Failed", "Simulation failed. Please check the logs for more details.")
-                return
         elif self.analysis_type == AnalysisType.DIRECT_SUN_HOURS:
             try:
                 selected_month = self.month_dropdown_dsh.currentData()      
@@ -530,41 +440,13 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
                 return
             
-            # Simulation
-            self.geotiff_path = run_solar_analyses(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path,
-                bbox=self.bbox,
-                crs=self.crs,
-                month=selected_month.number,
-                hours=selected_hours.value,
-                weather_file_name=None,
-                api_key=self.api_key,
-                analysis_type=self.analysis_type.value
-            )
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
+            payload = get_direct_sun_hours_payload(month=selected_month.number, hourly=selected_hours.value, lon=center_lon, lat=center_lat)
 
-            if self.geotiff_path is None:
-                logger.warning("Geotiff path is None, simulation failed")
-                QMessageBox.warning(self, "Simulation Failed", "Simulation failed. Please check the logs for more details.")
-                return
         elif self.analysis_type == AnalysisType.SKY_VIEW_FACTORS:
 
-            self.geotiff_path = run_solar_analyses(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path,
-                bbox=self.bbox,
-                crs=self.crs,
-                month=None,
-                hours=None,
-                weather_file_name=None,
-                api_key=self.api_key,
-                analysis_type=self.analysis_type.value
-            )
-
-            if self.geotiff_path is None:
-                logger.warning("Geotiff path is None, simulation failed")
-                QMessageBox.warning(self, "Simulation Failed", "Simulation failed. Please check the logs for more details.")
-                return    
+            payload = { "analysis-type": self.analysis_type.value, "geometries": None}  
+        
         elif self.analysis_type == AnalysisType.SHADOW_MASK:   
             try:
                 selected_datetime = self.datetime_input_sm.dateTime().toPyDateTime()
@@ -574,19 +456,38 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 return
             
             datetime_str = selected_datetime.strftime("%Y-%m-%dT%H:%M:%S+02:00")
+            center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
+            payload = get_shadow_mask_payload(datetime_str, center_lon, center_lat)
+        
+        logger.info(f"\n✨ ✨ ✨ ✨\nPayload: \n{payload}\n✨ ✨ ✨ ✨")
+        # Load dotbim
+        dotbim = load_dotbim(self.dotbim_path)
+        payload["geometries"] = dotbim
 
-            self.geotiff_path = run_shadow_mask(
-                geojson_path=self.geojson_path,
-                dotbim_path=self.dotbim_path,
-                bbox=self.bbox,
-                crs=self.crs,
-                datetime=datetime_str,
-                api_key=self.api_key,
-                analysis_type=self.analysis_type.value
-            )
-
-            if self.geotiff_path is None:
-                logger.warning("Geotiff path is None, simulation failed")
-                QMessageBox.warning(self, "Simulation Failed", "Simulation failed. Please check the logs for more details.")
-                return    
+        # Run simulation
+        self.geotiff_path = process_run_analysis(
+            payload=payload,
+            geometry_path=self.dotbim_path,
+            bbox=self.bbox,
+            crs=self.crs,
+            api_key=self.api_key,
+            analysis_type=self.analysis_type.value
+        )
+            
+        if not self.geotiff_path:
+            logger.error("Wind speed simulation failed to produce a geotiff path.")
+            QMessageBox.warning(self, "Simulation Failed", "Wind speed simulation failed to produce a result.")
+            return
+        
+        # Display results
+        add_geojson_then_raster(
+            geojson_path=self.geojson_path, 
+            geotiff_path=self.geotiff_path, 
+            analysis_type=self.analysis_type.value,
+            sub_analysis_type=self.sub_analysis_type,
+            raster_opacity=0.7,
+            min_legend_value=self.selected_legend_min,
+            max_legend_value=self.selected_legend_max)
+    
+        
         super().accept()
