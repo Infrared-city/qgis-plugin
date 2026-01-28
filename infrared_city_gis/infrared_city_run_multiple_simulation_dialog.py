@@ -38,7 +38,6 @@ from qgis.core import QgsApplication
 from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType
 from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, MonthConfig, makeTimeFrameObj,makeTimeFrameObjWithMonth
 from .services.geometry import collect_tile_centers_from_selection, collect_geometry_data_by_tile, crop_matrix, generate_geotiff
-import rasterio
 from .visualization.display import add_geojson_then_raster
 from qgis.utils import iface
 from qgis.core import Qgis
@@ -47,6 +46,8 @@ from qgis.PyQt.QtCore import QDateTime
 from .services.fetch import fetch_weather_file_names
 from .services.geometry import get_center_lon_lat_from_bbox, get_selected_bbox, get_selected_crs
 from .services.epw_query import query_infrared_epw, Query_Type
+from osgeo import gdal
+import numpy as np
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -477,8 +478,17 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
                 # Crop 512x512 GeoTIFF to 256x256 around the tile center and display
                 try:
-                    with rasterio.open(self.geotiff_path) as src:
-                        matrix = src.read(1)
+                    ds = gdal.Open(self.geotiff_path)
+                    if ds is None:
+                        logger.error(f"Failed to open GeoTIFF: {self.geotiff_path}")
+                        continue  
+                    band = ds.GetRasterBand(1)
+                    if self.analysis_type == AnalysisType.PEDESTRIAN_WIND_COMFORT  :
+                        matrix = band.ReadAsArray().astype(str)
+                    else:
+                        matrix = band.ReadAsArray().astype(np.float32)
+                    
+                    ds = None  
 
                     cropped_matrix = crop_matrix(matrix, core_size=256)
                     sub_bbox = bbox_256
