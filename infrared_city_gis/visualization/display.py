@@ -266,7 +266,7 @@ def add_geojson_then_raster(geojson_path, geotiff_path, analysis_type, sub_analy
 
         # If statistics are not available, fallback
         if vmin is None or vmax is None:
-            # Try to use rasterio or use the 0-1 range
+            # Try to use the 0-1 range
             logger.warning("Raster band statistics not available; using default 0..1")
             vmin, vmax = 0.0, 1.0
 

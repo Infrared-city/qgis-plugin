@@ -30,7 +30,8 @@ from qgis.utils import iface
 from datetime import datetime
 from qgis.PyQt.QtCore import QVariant
 from .geojson2dotbim import process_geojson_file
-
+from osgeo import gdal, osr
+import numpy as np
 
 
 
@@ -260,52 +261,56 @@ def map_categories(matrix: np.ndarray):
         mapped[matrix == cat] = idx
         
     return mapped, mapping
-
-def generate_geotiff(matrix: np.ndarray, bbox: tuple, crs: str, output_path: str, simulation_type: str = "unknown", criteria: str = "unknown"):
-    try:
-        import rasterio
-        from rasterio.transform import from_bounds
-    except Exception as e:
-        raise ImportError("rasterio is required to write GeoTIFF. Please ensure dependencies are installed and restart QGIS.") from e
-
-    height, width = matrix.shape
+    
+def generate_geotiff(
+    matrix: np.ndarray,
+    bbox: tuple,
+    crs: str,
+    output_path: str,
+    simulation_type: str = "unknown",
+    criteria: str = "unknown",
+):
     west, south, east, north = bbox
-    logger.info(f"Height: {height}, Width: {width}")
-    logger.info(f"West: {west}, South: {south}, East: {east}, North: {north}")
-    transform = from_bounds(west, south, east, north, width, height)     
-
-    with rasterio.open(
-        output_path,
-        "w",
-        driver="GTiff",
-        height=height,
-        width=width,
-        count=1,  # 1 band
-        dtype=np.float32,
-        crs=crs,
-        transform=transform,
-        nodata=np.nan,
-        compress="LZW",    
-        tiled=True,              
-        blockxsize=width,          
-        blockysize=height
-    ) as dst:
-        if simulation_type == "pedestrian-wind-comfort":
-            mapped_matrix, mapping_dict = map_categories(matrix)  
-            dst.write(mapped_matrix[np.newaxis, :, :])  
-            dst.update_tags(
-                simulation_type=simulation_type,
-                category_mapping=str(mapping_dict),
-                criteria=criteria,
-                no_data=np.nan,
-                AREA_OR_POINT="Point"
-        )
-        else:
-            dst.write(matrix[np.newaxis, :, :])  
-            dst.update_tags(
-                simulation_type=simulation_type,
-                no_data=np.nan,
-                AREA_OR_POINT="Point")  
+    height, width = matrix.shape
+    pixel_width = (east - west) / width
+    pixel_height = (north - south) / height
+    geotransform = (west, pixel_width, 0, north, 0, -pixel_height)
+    driver = gdal.GetDriverByName("GTiff")
+    ds = driver.Create(output_path, width, height, 1, gdal.GDT_Float32)
+    if ds is None:
+        raise RuntimeError(f"Failed to create GeoTIFF at {output_path}")
+    ds.SetGeoTransform(geotransform)
+    srs = osr.SpatialReference()
+    srs.SetFromUserInput(crs)
+    ds.SetProjection(srs.ExportToWkt())
+    band = ds.GetRasterBand(1)
+    if simulation_type == "pedestrian-wind-comfort":
+        # index mapping
+        mapped_matrix, mapping_dict = map_categories(matrix)
+        band.WriteArray(mapped_matrix.astype(np.float32))
+        band.SetDescription(simulation_type)
+        band.SetNoDataValue(np.nan)
+        # metadata
+        md = {
+            "simulation_type": simulation_type,
+            "category_mapping": str(mapping_dict),
+            "criteria": criteria,
+            "no_data": str(np.nan),
+            "AREA_OR_POINT": "Point",
+        }
+        ds.SetMetadata(md)
+    else:
+        band.WriteArray(matrix.astype(np.float32))
+        band.SetDescription(simulation_type)
+        band.SetNoDataValue(np.nan)
+        md = {
+            "simulation_type": simulation_type,
+            "no_data": str(np.nan),
+            "AREA_OR_POINT": "Point",
+        }
+        ds.SetMetadata(md)
+    band.FlushCache()
+    ds = None
 
 def collect_geometry_data_by_tile(center_x, center_y, idx):
     date_now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
