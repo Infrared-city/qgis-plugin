@@ -261,6 +261,37 @@ def map_categories(matrix: np.ndarray):
         mapped[matrix == cat] = idx
         
     return mapped, mapping
+
+
+def _to_json_primitive(value):
+    """Recursively convert QGIS/Qt types (e.g. QVariant) to JSON-serializable
+    Python primitives. Handles nested lists/tuples/dicts.
+    """
+    # Unwrap QVariant
+    if isinstance(value, QVariant):
+        try:
+            if hasattr(value, "value"):
+                value = value.value()
+            else:
+                # In some QGIS versions QVariant behaves like the inner value already
+                value = value
+        except Exception:
+            return str(value)
+
+    # Primitive types are fine
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+
+    # Lists / tuples: convert elements
+    if isinstance(value, (list, tuple)):
+        return [_to_json_primitive(v) for v in value]
+
+    # Dicts: convert values (and keys to str just in case)
+    if isinstance(value, dict):
+        return {str(k): _to_json_primitive(v) for k, v in value.items()}
+
+    # Fallback: string representation for any other type (e.g. Qgs* objects)
+    return str(value)
     
 def generate_geotiff(
     matrix: np.ndarray,
@@ -383,8 +414,13 @@ def collect_geometry_data_by_tile(center_x, center_y, idx):
             transform_to_wgs84_back = QgsCoordinateTransform(layer_crs, wgs84, QgsProject.instance())
             geom_wgs84.transform(transform_to_wgs84_back)
 
+        # Collect raw attribute values (may contain QVariant)
         attr_values = feat.attributes()
-        properties_dict = {fields[i]: attr_values[i] for i in range(len(fields))}
+        raw_properties = {fields[i]: attr_values[i] for i in range(len(fields))}
+
+        # Convert attributes (possibly containing QVariant and nested structures)
+        # to JSON-serializable primitives.
+        properties_dict = {key: _to_json_primitive(val) for key, val in raw_properties.items()}
 
         geom_bbox = geom.boundingBox()
         height = geom_bbox.height()
@@ -511,17 +547,21 @@ def generate_tile_centers(west, south, east, north, tile_size=256):
     return centers
 
 def collect_tile_centers_from_selection():
-
-    # Bbox in active layer CRS based on selected features
     w, s, e, n = get_selected_bbox()
-    logger.info(f"Selected bbox: W={w}, S={s}, E={e}, N={n}")
-
-    # Generate tile centers in layer CRS
     tile_centers = generate_tile_centers(w, s, e, n)
-    logger.info("✨ Generated %d tile centers", len(tile_centers))
-    logger.info("✨ Tile centers: %s", tile_centers)
-
-    return tile_centers
+    layer = iface.activeLayer()
+    selected = layer.selectedFeatures()
+    geom_union = QgsGeometry.unaryUnion(
+        [f.geometry() for f in selected if f.geometry() and not f.geometry().isEmpty()]
+    )
+    tile_size = 256.0
+    half = tile_size / 2.0
+    filtered = []
+    for cx, cy in tile_centers:
+        rect = QgsRectangle(cx - half, cy - half, cx + half, cy + half)
+        if geom_union.intersects(QgsGeometry.fromRect(rect)):
+            filtered.append((cx, cy))
+    return filtered
 
 def get_center_lon_lat_from_bbox(bbox, crs_authid: str):
     """Return bbox center as lon/lat in EPSG:4326.
