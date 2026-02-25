@@ -26,6 +26,7 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.utils import iface  
 from qgis.core import Qgis
+from qgis.PyQt.QtWidgets import QDialog
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -34,10 +35,12 @@ from .infrared_city_fetch_geometry_dialog import InfraredCityFetchGeometryDialog
 from .infrared_city_run_simulation_dialog import InfraredCityRunSimulationDialog
 from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
 from .infrared_city_run_multiple_simulation_dialog import InfraredCityRunMultipleSimulationDialog
+from .infrared_city_fetch_weather_file_names_dialog import InfraredCityFetchWeatherFileNamesDialog
+from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
 
 import os.path
 from .infrared_logger import logger
-from .utils.helper import cleanup_old_data
+from .utils.helper import cleanup_old_data, update_vegetation_registry
 
 class InfraredCityGIS:
     """QGIS Plugin Implementation."""
@@ -58,7 +61,7 @@ class InfraredCityGIS:
         self.bbox = None
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
-        self.dlg = InfraredCityFetchGeometryDialog()
+        self.dlg = None
 
         # initialize locale
         locale = QSettings().value('locale/userLocale')[0:2]
@@ -79,8 +82,8 @@ class InfraredCityGIS:
         # cleanup old data
         cleanup_old_data()
 
-
-        #logger.info("Plugin initialized")
+        # update vegetation registry
+        update_vegetation_registry()
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -175,24 +178,34 @@ class InfraredCityGIS:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
-        icon_path = ':/plugins/infrared_city_gis/icon.png'
+        icon_path = ':/plugins/infrared_city_gis/icons/icon.png'
+        fetch_geometry_icon_path = ':/plugins/infrared_city_gis/icons/get_geometry.png'
+        place_bbox_icon_path = ':/plugins/infrared_city_gis/icons/place_analysis.png'
+        
         self.add_action(
-            icon_path,
+            fetch_geometry_icon_path,
             text=self.tr(u'Fetch geometry from OSM'),
             callback=self.fetch_geometry,
             parent=self.iface.mainWindow())
         
         self.add_action(
+            place_bbox_icon_path,
+            text=self.tr(u'Select bbox by center'),
+            callback=self.select_bbox,
+            parent=self.iface.mainWindow()
+        )
+        
+        self.add_action(
+            icon_path,
+            text=self.tr(u'Tree catalog'),
+            callback=self.select_tree_type,
+            parent=self.iface.mainWindow()
+        )
+        
+        self.add_action(
             icon_path,
             text=self.tr(u'Run simulation'),
             callback=self.run_simulation,
-            parent=self.iface.mainWindow()
-        )
-
-        self.add_action(
-            icon_path,
-            text=self.tr(u'Select bbox by center'),
-            callback=self.select_bbox,
             parent=self.iface.mainWindow()
         )
 
@@ -215,6 +228,10 @@ class InfraredCityGIS:
         """Run method that performs all the real work"""
 
         self.dlg = InfraredCityRunMultipleSimulationDialog()
+        
+        if self.dlg.result() == QDialog.Rejected:
+            logger.warning("Multiple simulations dialog closed successfully")
+            return
 
         # show the dialog
         self.dlg.show()
@@ -226,6 +243,22 @@ class InfraredCityGIS:
         else:
             logger.info("Multiple simulations dialog cancelled")
 
+    
+    def fetch_weather_file_names(self):
+        
+        self.dlg = InfraredCityFetchWeatherFileNamesDialog()
+        
+        # show the dialog
+        self.dlg.show()
+        # Run the dialog event loop
+        result = self.dlg.exec_()
+        # See if OK was pressed
+        if result:
+            logger.info("Weather file names dialog closed successfully")
+        else:
+            logger.info("Weather file names dialog cancelled")
+        
+    
     def select_bbox(self):
         """Run method that performs all the real work"""
 
@@ -248,6 +281,19 @@ class InfraredCityGIS:
         else:
             logger.error("BBox selection cancelled")
     
+    
+    def select_tree_type(self):
+        self.dlg = InfraredCityTreeCatalogDialog()
+        
+        # show the dialog
+        self.dlg.show()
+        # Run the dialog event loop
+        result = self.dlg.exec_()
+        
+        if result:
+            logger.info("Tree type selected successfully")
+        else:
+            logger.error("Tree type selection cancelled")
     
     def fetch_geometry(self):
         """Run method that performs all the real work"""

@@ -29,10 +29,12 @@ from qgis.core import (
 from qgis.utils import iface
 from datetime import datetime
 from qgis.PyQt.QtCore import QVariant
-from .geojson2dotbim import process_geojson_file
+from .geojson2dotbim import process_geojson_file, convert_tree_to_dotbim
 from osgeo import gdal, osr
 import numpy as np
-
+import gzip
+import base64
+from ..models.analysis import GeometryTypes
 
 
 
@@ -476,6 +478,226 @@ def collect_geometry_data_by_tile(center_x, center_y, idx):
     return geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256
 
 
+def collect_geometries(center_x, center_y, idx, geometry_type: GeometryTypes = GeometryTypes.BUILDINGS):
+    """Collect geometries for a tile center from multiple layers.
+
+    geometry_type:
+        - "buildings" (default): prefers layers whose name contains
+          'building'/'buildings'.
+        - "trees": prefers layers with 'tree'/'trees'/'vegetation' in the name.
+
+    Returns the same tuple as collect_geometry_data_by_tile:
+        (geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256)
+    or None if no geometries were found.
+    """
+
+    date_now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+
+    project = QgsProject.instance()
+    all_vector_layers = [
+        lyr for lyr in project.mapLayers().values()
+        if isinstance(lyr, QgsVectorLayer)
+    ]
+
+    if not all_vector_layers:
+        logger.error("No vector layers found in project.")
+        return None
+
+    if geometry_type  == GeometryTypes.TREES:
+        keywords = ["tree", "trees", "vegetation"]
+    elif geometry_type == GeometryTypes.BUILDINGS:
+        keywords = ["building", "buildings"]
+
+    target_layers = [
+        lyr for lyr in all_vector_layers
+        if any(k in lyr.name().lower() for k in keywords)
+    ]
+
+    # If no specific target layers matched, fall back to all vector layers
+    if not target_layers:
+        logger.warning(
+            "No layers matched geometry_type '%s'; falling back to all vector layers.",
+            geometry_type,
+        )
+        target_layers = all_vector_layers
+
+    # Use the first target layer as reference CRS for the input center point
+    ref_layer = target_layers[0]
+    ref_crs = ref_layer.crs()
+
+    try:
+        transform_to_wgs84 = QgsCoordinateTransform(ref_crs, wgs84, project)
+        pt_wgs84 = transform_to_wgs84.transform(QgsPointXY(center_x, center_y))
+    except Exception as e:
+        logger.error("Transform tile center to WGS84 failed (collect_geometries): %s", e)
+        return None
+
+    center_lon, center_lat = pt_wgs84.x(), pt_wgs84.y()
+    logger.info(
+        "[collect_geometries] Tile center (WGS84): %.6f, %.6f", center_lon, center_lat
+    )
+
+    try:
+        xmin, ymin, xmax, ymax = get_bbox(center_lon, center_lat, 512)
+        bbox_rect_wgs84 = QgsRectangle(xmin, ymin, xmax, ymax)
+    except Exception as e:
+        logger.error("get_bbox failed in collect_geometries: %s", e)
+        return None
+
+    # Reference 512x512 bbox in ref_layer CRS (for OGC API)
+    if ref_crs.authid() != "EPSG:4326":
+        transform_bbox_ref = QgsCoordinateTransform(wgs84, ref_crs, project)
+        bbox_rect_ref = transform_bbox_ref.transformBoundingBox(bbox_rect_wgs84)
+    else:
+        bbox_rect_ref = bbox_rect_wgs84
+
+    geojson_dict = {
+        "type": "FeatureCollection",
+        "features": []
+    }
+
+    total_features = 0
+
+    for layer in target_layers:
+        layer_crs = layer.crs()
+
+        # Transform bbox to this layer's CRS
+        if layer_crs.authid() != "EPSG:4326":
+            try:
+                transform_bbox = QgsCoordinateTransform(wgs84, layer_crs, project)
+                bbox_rect_layer = transform_bbox.transformBoundingBox(bbox_rect_wgs84)
+            except Exception as e:
+                logger.error("BBox transform failed for layer %s: %s", layer.name(), e)
+                continue
+        else:
+            bbox_rect_layer = bbox_rect_wgs84
+
+        try:
+            layer.removeSelection()
+            layer.selectByRect(bbox_rect_layer, QgsVectorLayer.SetSelection)
+            selected_features = layer.selectedFeatures()
+            if not selected_features:
+                logger.info(
+                    "[collect_geometries] Layer '%s': no features in tile bbox.",
+                    layer.name(),
+                )
+                continue
+        except Exception as e:
+            logger.error(
+                "Selection failed for layer %s in tile %d: %s",
+                layer.name(),
+                idx,
+                e,
+            )
+            continue
+
+        logger.info(
+            "[collect_geometries] Layer '%s': processing %d features for tile %d.",
+            layer.name(),
+            len(selected_features),
+            idx,
+        )
+
+        fields = [field.name() for field in layer.fields()]
+
+        for feat in selected_features:
+            geom = feat.geometry()
+            geom_wgs84 = QgsGeometry(geom)
+            if layer_crs.authid() != "EPSG:4326":
+                transform_to_wgs84_back = QgsCoordinateTransform(layer_crs, wgs84, project)
+                geom_wgs84.transform(transform_to_wgs84_back)
+
+            attr_values = feat.attributes()
+            raw_properties = {fields[i]: attr_values[i] for i in range(len(fields))}
+            properties_dict = {key: _to_json_primitive(val) for key, val in raw_properties.items()}
+
+            # Optional: tag by source layer and geometry_type
+            properties_dict["source_layer"] = layer.name()
+            properties_dict["geometry_type"] = geometry_type.value
+
+            geom_bbox = geom.boundingBox()
+            height = geom_bbox.height()
+
+            if layer_crs.mapUnits() == QgsUnitTypes.DistanceDegrees:
+                height *= 111_000
+
+            properties_dict["height"] = round(height, 2)
+
+            geojson_dict["features"].append({
+                "type": "Feature",
+                "geometry": json.loads(geom_wgs84.asJson()),
+                "properties": properties_dict
+            })
+
+            total_features += 1
+
+    if total_features == 0:
+        logger.info("[collect_geometries] Tile %d: no features found on any layer.", idx)
+        return None
+
+    plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
+    os.makedirs(plugin_data_dir, exist_ok=True)
+
+    geojson_path = os.path.join(
+        plugin_data_dir,
+        f"infrared_city_geometries_{geometry_type.value}_{date_now}_tile_{idx}.geojson",
+    )
+
+    with open(geojson_path, "w", encoding="utf-8") as f:
+        json.dump(geojson_dict, f, ensure_ascii=False, indent=2)
+
+    if geometry_type == GeometryTypes.BUILDINGS:
+        dotbim_data = process_geojson_file(geojson_dict, center_lon, center_lat, "EPSG:4326")
+    
+    if geometry_type == GeometryTypes.TREES:
+        dotbim_data = convert_tree_to_dotbim(geojson_dict, center_lon, center_lat, "EPSG:4326")
+        logger.info("Trees converted to dotbim for tile: %d", idx)
+    
+    dotbim_path = os.path.join(
+        plugin_data_dir,
+        f"infrared_city_geometries_{geometry_type.value}_{date_now}_tile_{idx}.bim",
+    )
+
+    with open(dotbim_path, "w", encoding="utf-8") as f:
+        json.dump(dotbim_data, f, ensure_ascii=False, indent=2)
+
+    logger.info(
+        "[collect_geometries] Tile %d saved to %s and %s (features: %d), trees: %s",
+        idx,
+        geojson_path,
+        dotbim_path,
+        total_features,
+        geometry_type == GeometryTypes.TREES,
+    )
+
+    # 512x512 bbox in reference layer CRS 
+    bbox_512 = (
+        bbox_rect_ref.xMinimum(),
+        bbox_rect_ref.yMinimum(),
+        bbox_rect_ref.xMaximum(),
+        bbox_rect_ref.yMaximum(),
+    )
+
+    # 256x256 bbox in the same CRS, centered on the tile center
+    display_tile_size = 256.0
+    half_disp = display_tile_size / 2.0
+    bbox_256 = (
+        center_x - half_disp,
+        center_y - half_disp,
+        center_x + half_disp,
+        center_y + half_disp,
+    )
+
+    crs_authid = ref_crs.authid()
+
+    logger.info(
+        f"[collect_geometries] Tile {idx}: CRS={crs_authid}, bbox_512={bbox_512}, bbox_256={bbox_256}"
+    )
+
+    return geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256
+
+
 def get_selected_crs():
     layer = iface.activeLayer()
     if layer is None:
@@ -539,7 +761,7 @@ def generate_tile_centers(west, south, east, north, tile_size=256):
     centers = []
 
     for j in range(ny):          # Y direction (row index)
-        cy = south + (j + 0.5) * tile_size
+        cy = north - (j + 0.5) * tile_size
         for i in range(nx):      # X direction (column index)
             cx = west + (i + 0.5) * tile_size
             centers.append((cx, cy))
@@ -556,12 +778,52 @@ def collect_tile_centers_from_selection():
     )
     tile_size = 256.0
     half = tile_size / 2.0
+    scale = 1  # 2×
     filtered = []
     for cx, cy in tile_centers:
-        rect = QgsRectangle(cx - half, cy - half, cx + half, cy + half)
+        rect = QgsRectangle(
+            cx - half * scale,
+            cy - half * scale,
+            cx + half * scale,
+            cy + half * scale,
+        )
         if geom_union.intersects(QgsGeometry.fromRect(rect)):
             filtered.append((cx, cy))
     return filtered
+
+def plot_tile_centers(tile_centers):
+    """Create a temporary point layer with the given tile centers and add it to the project."""
+
+    if not tile_centers:
+        logger.warning("plot_tile_centers called with empty tile_centers list")
+        return
+
+    layer = iface.activeLayer()
+    if layer is not None:
+        crs = layer.crs()
+    else:
+        crs = QgsProject.instance().crs()
+
+    vlayer = QgsVectorLayer(f"Point?crs={crs.authid()}", "Tile centers", "memory")
+    pr = vlayer.dataProvider()
+
+    fields = QgsFields()
+    fields.append(QgsField("id", QVariant.Int))
+    pr.addAttributes(fields)
+    vlayer.updateFields()
+
+    feats = []
+    for idx, (cx, cy) in enumerate(tile_centers):
+        feat = QgsFeature()
+        feat.setFields(fields)
+        feat.setAttribute("id", idx)
+        feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(cx, cy)))
+        feats.append(feat)
+
+    pr.addFeatures(feats)
+    vlayer.updateExtents()
+
+    QgsProject.instance().addMapLayer(vlayer)
 
 def get_center_lon_lat_from_bbox(bbox, crs_authid: str):
     """Return bbox center as lon/lat in EPSG:4326.
@@ -584,3 +846,7 @@ def get_center_lon_lat_from_bbox(bbox, crs_authid: str):
     center_lon = (bbox_rect_wgs84.xMinimum() + bbox_rect_wgs84.xMaximum()) / 2
     center_lat = (bbox_rect_wgs84.yMinimum() + bbox_rect_wgs84.yMaximum()) / 2
     return center_lon, center_lat
+
+def get_center_from_bbox(bbox):
+    w, s, e, n = bbox
+    return (w + e) / 2, (s + n) / 2

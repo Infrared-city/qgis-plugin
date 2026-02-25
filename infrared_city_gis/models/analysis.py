@@ -49,4 +49,11 @@ class ThermalComfortStatisticsType(str, Enum):
 
     def __str__(self):
         return self.value
+ 
+@unique   
+class GeometryTypes(str,Enum):
+    BUILDINGS = "buildings"
+    TREES = "trees"
     
+    def __str__(self):
+        return self.value

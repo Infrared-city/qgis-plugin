@@ -7,6 +7,7 @@ from ..infrared_logger import logger
 import gzip
 import os
 import datetime
+from shutil import copyfile
 from qgis.core import QgsApplication
     
 def decode_gzip_base64_binary(b64_data: str) -> bytes:
@@ -93,3 +94,39 @@ def cleanup_old_data():
     """Delete all files older than 1 month (00:00:00) from directory."""
     _clean_up("data")
     _clean_up("logs")
+    
+
+
+def update_vegetation_registry():
+    #TODO: utility service call after it is available in production
+    """Ensure vegetation_registry.json exists in the user settings dir.
+
+    If the file is missing in
+      <qgisSettingsDir>/infrared_city_gis/settings/vegetation_registry.json
+    it is copied from the plugin source root
+      <plugin_root>/vegetation_registry.json
+    """
+
+    settings_dir = os.path.join(
+        QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings"
+    )
+    os.makedirs(settings_dir, exist_ok=True)
+
+    dest_path = os.path.join(settings_dir, "vegetation_registry.json")
+    if os.path.exists(dest_path):
+        logger.info("vegetation_registry.json already present in settings dir")
+        return
+
+    # Plugin root is one level above this utils/ directory
+    plugin_root = os.path.dirname(os.path.dirname(__file__))
+    src_path = os.path.join(plugin_root, "vegetation_registry.json")
+
+    if not os.path.exists(src_path):
+        logger.warning("Source vegetation_registry.json not found at %s", src_path)
+        return
+
+    try:
+        copyfile(src_path, dest_path)
+        logger.info("Copied vegetation_registry.json from %s to %s", src_path, dest_path)
+    except Exception as e:
+        logger.warning("Failed to copy vegetation_registry.json: %s", e)

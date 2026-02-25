@@ -1,5 +1,7 @@
 <RCC>
-    <qresource prefix="/plugins/infrared_city_gis" >
-        <file>icon.png</file>
-    </qresource>
+  <qresource prefix="/plugins/infrared_city_gis">
+    <file>icons/icon.png</file>
+    <file>icons/get_geometry.png</file>
+    <file>icons/place_analysis.png</file>
+  </qresource>
 </RCC>
