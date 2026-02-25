@@ -37,8 +37,8 @@ import json
 from qgis.core import QgsApplication
 from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType, GeometryTypes
 from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, MonthConfig, makeTimeFrameObj,makeTimeFrameObjWithMonth
-from .services.geometry import collect_tile_centers_from_selection, collect_geometry_data_by_tile, collect_geometries, crop_matrix, generate_geotiff
-from .visualization.display import add_geojson_then_raster
+from .services.geometry import collect_tile_centers_from_selection, collect_geometries, crop_matrix, generate_geotiff
+from .visualization.display import add_geojson_then_raster, deselect_all
 from qgis.utils import iface
 from qgis.core import Qgis
 from qgis.PyQt.QtWidgets import QApplication
@@ -273,6 +273,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
             logger.info(f"Accept called. Sender: {self.sender()}")
             tile_centers = collect_tile_centers_from_selection()
+            
+            plot_tile_centers(tile_centers)
 
             self.analysis_type = self.analysis_type_dropdown.currentData()
             self.sub_analysis_type = None
@@ -543,6 +545,9 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                             min_legend_value=selected_legend_min,
                             max_legend_value=selected_legend_max
                         )
+                        
+                        deselect_all()
+                        
                         logger.info("Cropped Geotiff visualized for tile %d", idx)
 
                         iface.messageBar().pushMessage(
