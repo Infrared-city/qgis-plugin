@@ -35,16 +35,16 @@ from .client import (
 from .infrared_logger import logger
 import json
 from qgis.core import QgsApplication
-from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType
+from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType, GeometryTypes
 from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, MonthConfig, makeTimeFrameObj,makeTimeFrameObjWithMonth
-from .services.geometry import collect_tile_centers_from_selection, collect_geometry_data_by_tile, crop_matrix, generate_geotiff
+from .services.geometry import collect_tile_centers_from_selection, collect_geometry_data_by_tile, collect_geometries, crop_matrix, generate_geotiff
 from .visualization.display import add_geojson_then_raster
 from qgis.utils import iface
 from qgis.core import Qgis
 from qgis.PyQt.QtWidgets import QApplication
 from qgis.PyQt.QtCore import QDateTime 
 from .services.fetch import fetch_weather_file_names
-from .services.geometry import get_center_lon_lat_from_bbox, get_selected_bbox, get_selected_crs
+from .services.geometry import get_center_lon_lat_from_bbox, get_selected_bbox, get_selected_crs,plot_tile_centers
 from .services.epw_query import query_infrared_epw, Query_Type
 from osgeo import gdal
 import numpy as np
@@ -58,6 +58,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
+        
+
 
         self.dotbim_path = None
         self.geojson_path = None
@@ -73,9 +75,15 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self.max_legend_value = None
         self.api_key = None
         self.weather_file_names = []
-        w,s,e,n = get_selected_bbox()  
-        self.bbox =[w,s,e,n]
-        self.crs = get_selected_crs()
+        try:
+            w,s,e,n = get_selected_bbox()  
+            self.bbox =[w,s,e,n]
+            self.crs = get_selected_crs()
+        except Exception as e:
+            logger.error(f"Failed to get selected bbox: {e}")
+            QMessageBox.warning(self, "Invalid selection", "Invalid selection please select geometry.")
+            self.reject()
+            return
         
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
@@ -453,23 +461,37 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
             for idx, (center_x, center_y) in enumerate(tile_centers):
                 logger.info("Processing tile center %d: %s, %s", idx, center_x, center_y)
-                res = collect_geometry_data_by_tile(center_x, center_y, idx)
-                if not res:
+                #res = collect_geometry_data_by_tile(center_x, center_y, idx)
+                buildings = collect_geometries(center_x, center_y, idx, geometry_type=GeometryTypes.BUILDINGS)
+                trees = collect_geometries(center_x, center_y, idx, geometry_type=GeometryTypes.TREES)   
+                tree_dotbim = None
+                if not buildings:
                     continue
 
-                geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256 = res
+                geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256 = buildings
+                
+                if trees:
+                    geojson_path_trees, dotbim_path_trees, bbox_512_trees, crs_authid_trees, bbox_256_trees = trees
+                    logger.info("Trees found for tile: %d", idx)
+                    
+                    tree_dotbim =  load_dotbim(dotbim_path_trees)
+                    logger.info("Tree dotbim was loaded")
                 
                 # Crop 512x512 GeoTIFF to 256x256 around the tile center and display
                 try:
                     self.dotbim_path = dotbim_path
                     payload["geometries"] = None
+                    payload["vegetation"] = None
                     # Load dotbim
                     dotbim = load_dotbim(self.dotbim_path)
                     if dotbim is None or len(dotbim) == 0:
                         logger.error("Failed to load dotbim: %s", self.dotbim_path)
                         raise Exception("No selected building geometry was found.")
                         
+                        
+                    
                     payload["geometries"] = dotbim
+                    payload["vegetation"] = tree_dotbim
 
                     # Run simulation
                     logger.info("Starting simulation for tile %d", idx)

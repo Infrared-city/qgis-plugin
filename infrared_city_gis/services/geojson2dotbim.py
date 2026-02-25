@@ -4,6 +4,12 @@ from typing import List, Tuple
 import uuid
 from pyproj import Transformer, CRS
 from ..infrared_logger import logger
+from ..models.analysis import GeometryTypes
+from qgis.PyQt.QtCore import QSettings
+from qgis.core import QgsApplication
+import json
+import os
+from ..models.vegetation_types import TreeType, TreeSize
 
 try:
     import mapbox_earcut as earcut
@@ -15,27 +21,29 @@ except Exception:
     HAS_EARCUT = False
 
 def convert_to_local_coords(coords: List[Tuple[float, float]], center_x: float, center_y: float, crs: str) -> List[List[float]]:
-    """
-    Convert coordinates to local meters (x east, y north) relative to center (center_lon, center_lat).
-    - If CRS is geographic (e.g., EPSG:4326): inputs are lon/lat degrees; we project to a local AEQD centered at (center_lon, center_lat).
-    - If CRS is projected (e.g., EPSG:25832): inputs are meters; we subtract the values from the center.
-    Returns list of [x, y] pairs.
+    """Convert coordinates to local meters (x east, y north) relative to a center.
+
+    - If CRS is geographic (e.g., EPSG:4326) **and** the center looks like valid lon/lat
+      (|lat| <= 90, |lon| <= 180), we project to a local AEQD centered at that point.
+    - Otherwise (projected CRS, or center clearly in meters), we assume inputs are already
+      in meters and simply subtract the center.
     """
     local_coords: List[List[float]] = []
     crs_obj = CRS.from_user_input(crs)
 
-    if crs_obj.is_geographic:
-        # Input coords are lon/lat: project to a local AEQD centered at the given point
+    use_aeqd = crs_obj.is_geographic and abs(center_y) <= 90.0 and abs(center_x) <= 180.0
+
+    if use_aeqd:
+        # Input coords are lon/lat degrees: project to a local AEQD centered at the given point
         local_crs = CRS.from_proj4(
-            f"+proj=aeqd +lat_0={center_y} +lon_0={center_x} +datum=WGS84 +units=m +no_defs"
+            f"+proj=aeqd +lat_0={center_y} +lon_0={center_x} +ellps=WGS84 +units=m +type=crs"
         )
         to_local = Transformer.from_crs("EPSG:4326", local_crs, always_xy=True)
         for lon, lat in coords:
             x, y = to_local.transform(float(lon), float(lat))
             local_coords.append([float(x), float(y)])
     else:
-        # Input coords are already in a projected CRS (e.g., EPSG:25832) in meters.
-        # We subtract the center to get local meters.
+        # Treat as projected coordinates in meters: subtract the center.
         for x, y in coords:
             local_coords.append([float(x) - float(center_x), float(y) - float(center_y)])
 
@@ -225,6 +233,182 @@ def triangulate_volume(rings: List[List[Tuple[float, float]]], height: float):
     all_faces = bottom_faces + top_faces + side_faces
     return flat_coordinates, all_faces
 
+def scale_mesh(mesh_coords, height, crownDiameter):
+    
+    # Compute bounding box of original mesh
+    min_x = min_y = min_z = float("inf")
+    max_x = max_y = max_z = float("-inf")
+    for i in range(0, len(mesh_coords), 3):
+        x = mesh_coords[i]
+        y = mesh_coords[i + 1]
+        z = mesh_coords[i + 2]
+        if x < min_x:
+            min_x = x
+        if x > max_x:
+            max_x = x
+        if y < min_y:
+            min_y = y
+        if y > max_y:
+            max_y = y
+        if z < min_z:
+            min_z = z
+        if z > max_z:
+            max_z = z
+
+    current_height = max_z - min_z if max_z > min_z else 1.0
+    current_diameter = max_x - min_x if max_x > min_x else 1.0
+
+    # Target dimensions; if not provided, keep original size
+    target_height = float(height) if height is not None else current_height
+    target_diameter = float(crownDiameter) if crownDiameter is not None else current_diameter
+
+    # Non-uniform scale: x/y by crown diameter, z by height
+    sx = target_diameter / current_diameter if current_diameter != 0 else 1.0
+    sz = target_height / current_height if current_height != 0 else 1.0
+
+    # Scale around mesh center (keep tree roughly in place)
+    cx = (min_x + max_x) / 2.0
+    cy = (min_y + max_y) / 2.0
+    cz = min_z
+
+    scaled_coords: List[float] = []
+    for i in range(0, len(mesh_coords), 3):
+        x = mesh_coords[i]
+        y = mesh_coords[i + 1]
+        z = mesh_coords[i + 2]
+
+        sx_x = cx + (x - cx) * sx
+        sx_y = cy + (y - cy) * sx
+        sz_z = cz + (z - cz) * sz
+
+        scaled_coords.extend([sx_x, sx_y, sz_z])
+    
+    return scaled_coords
+
+def convert_tree_to_dotbim(geojson,center_x: float, center_y: float,crs: str):
+    
+                # Try to restore last saved selection from settings
+    settings = QSettings()
+    tree_type = settings.value("infrared_city/tree_type", None)
+    tree_size = settings.value("infrared_city/tree_size", None)
+    
+    plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
+    vegetation_file = os.path.join(plugin_data_dir, "vegetation_registry.json")
+
+    try:
+        with open(vegetation_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        logger.warning(f"Could not read vegetation_registry.json: {e}")
+        return None
+ 
+    client_models = data.get("clientModels") or {}
+    if not isinstance(client_models, dict):
+        logger.warning("clientModels in vegetation_registry.json is not a dict")
+        return None
+ 
+    selected = None
+    
+    if tree_type:
+        for model in client_models.values():
+ 
+            if model.get("displayName") == tree_type:
+                logger.info(f"Selected tree model: {model.get('displayName')}")
+                selected = model
+                break
+ 
+    # 2) Fallback: first "tree" model
+    if selected is None:
+        for model in client_models.values():
+            selected = model
+            logger.info(f"Firsttree model was selected: {model.get('displayName')}")
+            break
+
+ 
+    if selected is None:
+        logger.warning("No suitable tree model found in vegetation_registry.json")
+        return None
+ 
+ 
+    crownDiameter = selected.get("crownDiameter")
+    height = selected.get("height")
+    crownDiameterRange = selected.get("crownDiameterRange")
+    heightRange = selected.get("heightRange")
+    
+    if tree_size:
+        if tree_size == "small":
+            height = heightRange[0]
+            crownDiameter = crownDiameterRange[0]
+        elif tree_size == "medium":
+            height = (heightRange[0] + heightRange[1]) / 2
+            crownDiameter = (crownDiameterRange[0] + crownDiameterRange[1]) / 2
+        elif tree_size == "large":
+            height = heightRange[1]
+            crownDiameter = crownDiameterRange[1]
+    
+    
+    
+    mesh = selected.get("mesh")
+    if mesh is None:
+        logger.warning("Selected tree model has no 'mesh' field")
+        return None
+
+    # --- Scale mesh to requested height / crown diameter ---
+    mesh_coords = mesh.get("coordinates", [])
+    if not mesh_coords:
+        logger.warning("Selected tree mesh has empty coordinates")
+        return None
+
+    scaled_coords = scale_mesh(mesh_coords, height, crownDiameter)
+
+    # GeoJSON features: each feature gives a tree position
+    features = geojson.get("features", [])
+    dotbim_data = {}
+
+    for idx, feat in enumerate(features):
+        geom = (feat or {}).get("geometry") or {}
+        gtype = geom.get("type")
+        coords = geom.get("coordinates") or []
+
+        # Expect MultiPoint: coordinates = [[lon, lat, z], ...]
+        if gtype == "MultiPoint":
+            if (not coords) or (not coords[0]) or len(coords[0]) < 2:
+                continue
+            lon = float(coords[0][0])
+            lat = float(coords[0][1])
+        elif gtype == "Point":
+            # Optional support for Point geometries
+            if len(coords) < 2:
+                continue
+            lon = float(coords[0])
+            lat = float(coords[1])
+        else:
+            # Skip other geometry types
+            continue
+
+        # Convert lon/lat to local (meter) coordinates relative to center
+        local_pts = convert_to_local_coords([(lon, lat)], center_x, center_y, crs)
+        if not local_pts:
+            continue
+        dx, dy = local_pts[0]
+
+        # Shift scaled mesh coordinates (flattened [x0, y0, z0, x1, y1, z1, ...])
+        shifted_coords: List[float] = []
+        for i in range(0, len(scaled_coords), 3):
+            mx = scaled_coords[i]
+            my = scaled_coords[i + 1]
+            mz = scaled_coords[i + 2]
+            shifted_coords.extend([mx + dx, my + dy, mz])
+
+        name = str(uuid.uuid4())
+        dotbim_data[name] = {
+            "coordinates": shifted_coords,
+            "indices": mesh.get("indices", [])
+        }
+
+    dotbim_updated = update_geometry(dotbim_data)
+      
+    return dotbim_updated
 
 def process_geojson_file(geojson, center_x: float, center_y: float, crs: str):
     """

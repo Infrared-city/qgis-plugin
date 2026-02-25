@@ -31,11 +31,11 @@ from .client import (load_dotbim, get_windspeed_payload, process_run_analysis,ge
     get_utci_payload, get_tcs_payload, get_solar_radiation_payload
 )
 from .services.fetch import fetch_weather_file_names
-from .services.geometry import get_center_lon_lat_from_bbox
+from .services.geometry import get_center_lon_lat_from_bbox, get_center_from_bbox, collect_geometries
 from .infrared_logger import logger
 import json
 from qgis.core import QgsApplication
-from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType
+from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType, GeometryTypes
 from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, MonthConfig, makeTimeFrameObj,makeTimeFrameObjWithMonth
 from qgis.PyQt.QtCore import QDateTime 
 from .visualization.display import add_geojson_then_raster
@@ -270,9 +270,40 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨")
 
             logger.info(f"Accept called. Sender: {self.sender()}")
+            tree_dotbim = None
+
+            
+            if self.bbox is not None and self.crs is not None:
+                center_x, center_y = get_center_from_bbox(self.bbox)
+                logger.info("Bbox: %s, CRS: %s", self.bbox, self.crs)
+                logger.info("Center center_x/center_y: %s, %s", center_x, center_y)
+                buildings = collect_geometries(center_x, center_y, 1, geometry_type=GeometryTypes.BUILDINGS)
+                trees = collect_geometries(center_x, center_y, 1, geometry_type=GeometryTypes.TREES)
+                
+                if buildings and not self.dotbim_path:
+                    geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256 = buildings
+                    logger.info("Buildings found for the selection.")
+                    
+                    self.dotbim_path = dotbim_path
+                    self.bbox = bbox_512
+                    self.crs = crs_authid
+                    logger.info("Dotbim path: %s", self.dotbim_path)
+                
+                if trees:
+                    geojson_path_trees, dotbim_path_trees, bbox_512_trees, crs_authid_trees, bbox_256_trees = trees
+                    logger.info("Trees found the selection.")
+                    
+                    tree_dotbim =  load_dotbim(dotbim_path_trees)
+                    logger.info("Tree dotbim was loaded")
+
+            else:
+                logger.warning("No geometry fetched. Please fetch geometry first.")
+                QMessageBox.warning(self, "Missing Geometry", "Please fetch or select geometry first.")
+                return
+            
             if not self.dotbim_path or not os.path.exists(self.dotbim_path):
                 logger.warning("No geometry fetched. Please fetch geometry first.")
-                QMessageBox.warning(self, "Missing Geometry", "Please fetch geometry first.")
+                QMessageBox.warning(self, "Missing Geometry", "Please fetch or select geometry first.")
                 return
 
             self.analysis_type = self.analysis_type_dropdown.currentData()
@@ -465,6 +496,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             # Load dotbim
             dotbim = load_dotbim(self.dotbim_path)
             payload["geometries"] = dotbim
+            payload["vegetation"] = tree_dotbim
 
             # Run simulation
             self.geotiff_path = process_run_analysis(
