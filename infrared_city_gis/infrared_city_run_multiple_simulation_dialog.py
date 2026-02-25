@@ -59,7 +59,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         super().__init__(parent)
         self.setupUi(self)
         
-
+        self._init_ok = False
 
         self.dotbim_path = None
         self.geojson_path = None
@@ -109,6 +109,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 QMessageBox.warning(self, "Invalid API Key", "Invalid API key. Please check the input values.")
 
         logger.info("Dialog loaded")
+        self._init_ok = True
 
     def on_analysis_changed(self, text):
         current = self.analysis_type_dropdown.currentData()
