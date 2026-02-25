@@ -229,8 +229,8 @@ class InfraredCityGIS:
 
         self.dlg = InfraredCityRunMultipleSimulationDialog()
         
-        if self.dlg.result() == QDialog.Rejected:
-            logger.warning("Multiple simulations dialog closed successfully")
+        if not getattr(self.dlg, "_init_ok", True):
+            logger.warning("Multiple simulations dialog initialization failed")
             return
 
         # show the dialog

@@ -308,10 +308,20 @@ def generate_geotiff(
     pixel_width = (east - west) / width
     pixel_height = (north - south) / height
     geotransform = (west, pixel_width, 0, north, 0, -pixel_height)
+    
     driver = gdal.GetDriverByName("GTiff")
+ 
+    # On Windows, ensure existing file is removed before Create
+    if os.path.exists(output_path):
+        try:
+            os.remove(output_path)
+        except Exception as e:
+            logger.warning("Failed to remove existing GeoTIFF %s: %s", output_path, e)
+ 
     ds = driver.Create(output_path, width, height, 1, gdal.GDT_Float32)
     if ds is None:
         raise RuntimeError(f"Failed to create GeoTIFF at {output_path}")
+    
     ds.SetGeoTransform(geotransform)
     srs = osr.SpatialReference()
     srs.SetFromUserInput(crs)
