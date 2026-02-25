@@ -26,6 +26,7 @@ import json
 import os
 import math
 
+
 from qgis.core import QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY
 
 def display_route_and_points(route, points):
@@ -306,4 +307,11 @@ def add_geojson_then_raster(geojson_path, geotiff_path, analysis_type, sub_analy
 
         logger.info("✅ GeoJSON and colorized GeoTIFF added (green→red). Raster opacity=%s", raster_opacity)
 
-    
+def deselect_all():
+    """
+    Remove selection from all vector layers in the current QGIS project.
+    """
+    project = QgsProject.instance()
+    for layer in project.mapLayers().values():
+        if isinstance(layer, QgsVectorLayer):
+            layer.removeSelection()
