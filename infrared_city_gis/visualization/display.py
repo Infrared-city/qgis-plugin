@@ -29,6 +29,86 @@ import math
 
 from qgis.core import QgsVectorLayer, QgsFeature, QgsGeometry, QgsPointXY
 
+def _create_layer_from_feature_collection(name, collection, color):
+    """Create an in-memory layer from a GeoJSON FeatureCollection dict.
+
+    Supports Point, Polygon and MultiPolygon geometries in EPSG:4326.
+    Returns the created QgsVectorLayer or None if no valid features.
+    """
+    if not collection or not isinstance(collection, dict):
+        return None
+
+    if collection.get("type") != "FeatureCollection":
+        return None
+
+    features_in = collection.get("features") or []
+    if not features_in:
+        return None
+
+    first_geom = (features_in[0] or {}).get("geometry") or {}
+    gtype = first_geom.get("type", "Point")
+
+    if gtype == "Point":
+        qgis_geom_type = "Point"
+    elif gtype in ("Polygon", "MultiPolygon"):
+        qgis_geom_type = "Polygon"
+    else:
+        qgis_geom_type = "Point"
+
+    layer = QgsVectorLayer(f"{qgis_geom_type}?crs=EPSG:4326", name, "memory")
+    provider = layer.dataProvider()
+
+    new_features = []
+    for f in features_in:
+        geom = (f or {}).get("geometry") or {}
+        coords = geom.get("coordinates")
+        if not coords:
+            continue
+
+        qfeat = QgsFeature()
+
+        try:
+            if gtype == "Point":
+                x, y = coords
+                qgeom = QgsGeometry.fromPointXY(QgsPointXY(float(x), float(y)))
+            elif gtype == "Polygon":
+                ring = coords[0]
+                pts = [QgsPointXY(float(x), float(y)) for x, y in ring]
+                qgeom = QgsGeometry.fromPolygonXY([pts])
+            elif gtype == "MultiPolygon":
+                polys = []
+                for poly in coords:
+                    if not poly:
+                        continue
+                    ring = poly[0]
+                    pts = [QgsPointXY(float(x), float(y)) for x, y in ring]
+                    polys.append([pts])
+                if not polys:
+                    continue
+                qgeom = QgsGeometry.fromMultiPolygonXY(polys)
+            else:
+                continue
+        except Exception:
+            continue
+
+        qfeat.setGeometry(qgeom)
+        new_features.append(qfeat)
+
+    if not new_features:
+        return None
+
+    provider.addFeatures(new_features)
+
+    try:
+        symbol = layer.renderer().symbol()
+        symbol.setColor(color)
+    except Exception:
+        pass
+
+    QgsProject.instance().addMapLayer(layer)
+    return layer
+
+
 def display_route_and_points(route, points):
     
 
@@ -306,6 +386,36 @@ def add_geojson_then_raster(geojson_path, geotiff_path, analysis_type, sub_analy
             logger.warning("Could not reorder layers automatically: %s", e)
 
         logger.info("✅ GeoJSON and colorized GeoTIFF added (green→red). Raster opacity=%s", raster_opacity)
+
+
+def display_ground_materials(ground_materials):
+    asphalt = ground_materials.get("asphalt")  # dark gray
+    building = ground_materials.get("building")  # medium gray
+    concrete = ground_materials.get("concrete")  # light gray
+    vegetation = ground_materials.get("grass")  # green
+    soil = ground_materials.get("soil")  # brown
+    water = ground_materials.get("water")  # blue
+
+    logger.info("Displaying ground materials layers")
+
+    material_defs = [
+        ("Ground Asphalt", asphalt, QColor(77, 77, 77)),       # #4D4D4D
+        ("Ground Building", building, QColor(128, 128, 128)),  # #808080
+        ("Ground Concrete", concrete, QColor(191, 191, 191)),  # #BFBFBF
+        ("Ground Grass", vegetation, QColor(76, 175, 80)),     # #4CAF50
+        ("Ground Soil", soil, QColor(139, 69, 19)),            # #8B4513
+        ("Ground Water", water, QColor(33, 150, 243)),         # #2196F3
+    ]
+
+    created_any = False
+    for name, collection, color in material_defs:
+        layer = _create_layer_from_feature_collection(name, collection, color)
+        if layer is not None:
+            logger.info("Ground material layer created: %s (%d features)", name, layer.featureCount())
+            created_any = True
+
+    if not created_any:
+        logger.warning("No ground material layers were created (no features in response)")
 
 def deselect_all():
     """

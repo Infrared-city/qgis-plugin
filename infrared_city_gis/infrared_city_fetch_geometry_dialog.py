@@ -28,8 +28,8 @@ from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
 from qgis.PyQt.QtWidgets import QMessageBox
 from .infrared_logger import logger
-from .visualization.display import display_geojson
-from .services.fetch import fetch_geometry_from_osm
+from .visualization.display import display_geojson,display_ground_materials
+from .services.fetch import fetch_geometry_from_osm, fetch_ground_materials
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -70,6 +70,8 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         # --- Fetch ---
         try:
             geojson_path, dotbim_path, bbox = fetch_geometry_from_osm(lon, lat, bbox_val)
+            #TODO: apply ground material fetching
+            #ground_materials = fetch_ground_materials(lon, lat, 256,"Rs1MoXnOUn4PPPQ3LT7JZ8LN5J5SvV615rik1JgI")
             
             if not geojson_path or not dotbim_path or not bbox:
                 logger.error("Failed to fetch geometry")
@@ -81,6 +83,8 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
             self.bbox=bbox
 
             display_geojson(geojson_path)
+            # TODO: adjust ground materil displya
+            #display_ground_materials(ground_materials)
 
         except Exception as e:
             logger.error(f"Failed to fetch geometry: {e}")

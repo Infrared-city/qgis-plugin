@@ -40,6 +40,8 @@ from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameCon
 from qgis.PyQt.QtCore import QDateTime 
 from .visualization.display import add_geojson_then_raster
 from .services.epw_query import query_infrared_epw, Query_Type
+from qgis.utils import iface
+from qgis.core import Qgis
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -69,6 +71,14 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
+        
+        if self.crs is not None:
+            iface.messageBar().pushMessage(
+                "InfraredCity",
+                f"Layer CRS is the following: {self.crs}",
+                level=Qgis.Info,
+                duration=7
+            )
 
         if self.analysis_type_dropdown.count() > 0:
             self.analysis_type_dropdown.setCurrentIndex(0)
@@ -497,6 +507,17 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             dotbim = load_dotbim(self.dotbim_path)
             payload["geometries"] = dotbim
             payload["vegetation"] = tree_dotbim
+
+            # Log first 100 characters of dotbim and tree_dotbim if not None
+            if dotbim is not None:
+                logger.info(f"dotbim (first 100 chars): {str(dotbim)[:100]}")
+            else:
+                logger.warning("dotbim is None")
+            
+            if tree_dotbim is not None:
+                logger.info(f"tree_dotbim (first 100 chars): {str(tree_dotbim)[:100]}")
+            else:
+                logger.warning("tree_dotbim is None")
 
             # Run simulation
             self.geotiff_path = process_run_analysis(
