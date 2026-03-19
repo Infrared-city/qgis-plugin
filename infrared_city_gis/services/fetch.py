@@ -51,6 +51,66 @@ def extract_height_from_tags(tags):
     
     return height_estimates.get(building_type, default_height)
 
+def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str):
+    base_url = "https://fbiw2nq5ac.execute-api.eu-central-1.amazonaws.com/v2/utils/ground-material/collect"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "distance": distance,
+    }
+    
+    logger.info(
+        f"Fetching ground materials from {base_url} with params={params} "
+        f"and api-key provided={bool(api_key)}"
+    )
+    
+    headers = {"x-api-key": api_key} if api_key else {}
+
+    try:
+        response = requests.get(base_url, params=params, headers=headers, timeout=20)
+        logger.info(f"Weather API status: {response.status_code}")
+        logger.info(f"Weather API response text: {response.text}")
+
+        # Raise if non-2xx
+        response.raise_for_status()
+        
+        
+        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
+        vegetation_file = os.path.join(plugin_data_dir, "ground_materials_{date_now}.json")
+
+
+        try:
+            data = response.json()
+            # --- Save response to settings/ground_materials.json ---
+            dir = os.path.join(
+                QgsApplication.qgisSettingsDirPath(),
+                "infrared_city_gis",
+                "data",
+            )
+            os.makedirs(dir, exist_ok=True)
+            date_now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+            ground_file = os.path.join(dir, f"ground_materials_{date_now}.json")
+    
+            try:
+                with open(ground_file, "w", encoding="utf-8") as fh:
+                    json.dump(data, fh, ensure_ascii=False, indent=2)
+                logger.info(f"Ground materials saved to {ground_file}")
+            except Exception as write_err:
+                logger.warning(
+                    f"Failed to save ground materials JSON to {ground_file}: {write_err}"
+                )
+    
+            return data 
+
+        except ValueError as e:
+            logger.warning("Weather API response is not valid JSON ")
+            raise e
+
+    except requests.RequestException as e:
+        logger.error(f"Weather API request failed: {e}")
+        # Propagate so caller can handle in UI
+        raise
+
 
 def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str):
     """Call Infrared.city weather location endpoint and return response.
@@ -94,9 +154,9 @@ def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str
             logger.info(f"Collected {len(file_names)} fileName entries from locations")
             return file_names
 
-        except ValueError:
+        except ValueError as e:
             logger.warning("Weather API response is not valid JSON, returning raw text")
-            return []
+            raise e
 
     except requests.RequestException as e:
         logger.error(f"Weather API request failed: {e}")

@@ -178,9 +178,12 @@ class InfraredCityGIS:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
-        icon_path = ':/plugins/infrared_city_gis/icons/icon.png'
         fetch_geometry_icon_path = ':/plugins/infrared_city_gis/icons/get_geometry.png'
-        place_bbox_icon_path = ':/plugins/infrared_city_gis/icons/place_analysis.png'
+        select_bbox_icon_path = ':/plugins/infrared_city_gis/icons/select_area.png'
+        tree_icon_path = ':/plugins/infrared_city_gis/icons/tree.svg'
+        run_single_icon_path = ':/plugins/infrared_city_gis/icons/run_single.svg'
+        run_multiple_icon_path = ':/plugins/infrared_city_gis/icons/run_multiple.svg'
+        
         
         self.add_action(
             fetch_geometry_icon_path,
@@ -189,28 +192,28 @@ class InfraredCityGIS:
             parent=self.iface.mainWindow())
         
         self.add_action(
-            place_bbox_icon_path,
+            select_bbox_icon_path,
             text=self.tr(u'Select bbox by center'),
             callback=self.select_bbox,
             parent=self.iface.mainWindow()
         )
         
         self.add_action(
-            icon_path,
+            tree_icon_path,
             text=self.tr(u'Tree catalog'),
             callback=self.select_tree_type,
             parent=self.iface.mainWindow()
         )
         
         self.add_action(
-            icon_path,
+            run_single_icon_path,
             text=self.tr(u'Run simulation'),
             callback=self.run_simulation,
             parent=self.iface.mainWindow()
         )
 
         self.add_action(
-            icon_path,
+            run_multiple_icon_path,
             text=self.tr(u'Run multiple simulations'),
             callback=self.run_multiple_simulations,
             parent=self.iface.mainWindow()

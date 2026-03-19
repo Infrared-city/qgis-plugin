@@ -303,6 +303,8 @@ def generate_geotiff(
     simulation_type: str = "unknown",
     criteria: str = "unknown",
 ):
+    logger.info(f"Generate_geotiff bbox: {bbox}, crs: {crs}, output_path: {output_path}, simulation_type: {simulation_type}, criteria: {criteria}")
+    
     west, south, east, north = bbox
     height, width = matrix.shape
     pixel_width = (east - west) / width
@@ -692,13 +694,43 @@ def collect_geometries(center_x, center_y, idx, geometry_type: GeometryTypes = G
     # 256x256 bbox in the same CRS, centered on the tile center
     display_tile_size = 256.0
     half_disp = display_tile_size / 2.0
-    bbox_256 = (
-        center_x - half_disp,
-        center_y - half_disp,
-        center_x + half_disp,
-        center_y + half_disp,
-    )
-
+    if ref_crs.isGeographic():
+        # Local azimuthal equidistant projection centered on the tile
+        cx_center = (bbox_rect_ref.xMinimum() + bbox_rect_ref.xMaximum()) / 2.0
+        cy_center = (bbox_rect_ref.yMinimum() + bbox_rect_ref.yMaximum()) / 2.0
+        local_crs = QgsCoordinateReferenceSystem.fromProj4(
+            f"+proj=aeqd +lat_0={cy_center} +lon_0={cx_center} +ellps=WGS84 +units=m +type=crs"
+        )
+        # Transform to local projection
+        transform_to_local = QgsCoordinateTransform(ref_crs, local_crs, QgsProject.instance())
+        center_x_m, center_y_m = transform_to_local.transform(center_x, center_y)
+ 
+        # 256 meter tile in local projection
+        bbox_256_m = (
+            center_x_m - half_disp,
+            center_y_m - half_disp,
+            center_x_m + half_disp,
+            center_y_m + half_disp,
+        )
+        
+        
+        transform_back = QgsCoordinateTransform(local_crs, ref_crs, QgsProject.instance())
+        bbox_256 = []
+        for x, y in [
+            (bbox_256_m[0], bbox_256_m[1]),
+            (bbox_256_m[2], bbox_256_m[3])
+        ]:
+            x_orig, y_orig = transform_back.transform(x, y)
+            bbox_256.extend([x_orig, y_orig])
+    else:
+        # If projected CRS
+        bbox_256 = (
+            center_x - half_disp,
+            center_y - half_disp,
+            center_x + half_disp,
+            center_y + half_disp,
+        )
+    
     crs_authid = ref_crs.authid()
 
     logger.info(
@@ -779,26 +811,71 @@ def generate_tile_centers(west, south, east, north, tile_size=256):
     return centers
 
 def collect_tile_centers_from_selection():
-    w, s, e, n = get_selected_bbox()
-    tile_centers = generate_tile_centers(w, s, e, n)
     layer = iface.activeLayer()
+    if not layer:
+        return []
+ 
+    w, s, e, n = get_selected_bbox()
     selected = layer.selectedFeatures()
     geom_union = QgsGeometry.unaryUnion(
         [f.geometry() for f in selected if f.geometry() and not f.geometry().isEmpty()]
     )
-    tile_size = 256.0
-    half = tile_size / 2.0
-    scale = 1  # 2×
-    filtered = []
-    for cx, cy in tile_centers:
-        rect = QgsRectangle(
-            cx - half * scale,
-            cy - half * scale,
-            cx + half * scale,
-            cy + half * scale,
+ 
+    layer_crs = layer.crs()
+    tile_size_m = 256.0
+    half = tile_size_m / 2.0
+ 
+    if layer_crs.isGeographic():
+        # Helyi AEQD vetület a bbox középpontjára
+        cx_center = (w + e) / 2.0
+        cy_center = (s + n) / 2.0
+        target_crs = QgsCoordinateReferenceSystem.fromProj4(
+            f"+proj=aeqd +lat_0={cy_center} +lon_0={cx_center} +ellps=WGS84 +units=m +type=crs"
         )
-        if geom_union.intersects(QgsGeometry.fromRect(rect)):
-            filtered.append((cx, cy))
+        # Koordinátátalakítás méterbe
+        transform_to_meters = QgsCoordinateTransform(layer_crs, target_crs, QgsProject.instance())
+        w_m, s_m = transform_to_meters.transform(w, s)
+        e_m, n_m = transform_to_meters.transform(e, n)
+        # Tile‑centerek generálása méterben
+        tile_centers_m = generate_tile_centers(w_m, s_m, e_m, n_m)
+ 
+        # Selection geometria áttranszformálása méterbe
+        transform_geom = QgsCoordinateTransform(layer_crs, target_crs, QgsProject.instance())
+        geom_union_m = QgsGeometry(geom_union)
+        geom_union_m.transform(transform_geom)
+ 
+        # Szűrés méterben
+        filtered_m = []
+        for cx_m, cy_m in tile_centers_m:
+            rect = QgsRectangle(
+                cx_m - half,
+                cy_m - half,
+                cx_m + half,
+                cy_m + half,
+            )
+            if geom_union_m.intersects(QgsGeometry.fromRect(rect)):
+                filtered_m.append((cx_m, cy_m))
+ 
+        # Eredmény visszaalakítása a réteg CRS‑ébe
+        transform_back = QgsCoordinateTransform(target_crs, layer_crs, QgsProject.instance())
+        filtered = []
+        for cx_m, cy_m in filtered_m:
+            cx_layer, cy_layer = transform_back.transform(cx_m, cy_m)
+            filtered.append((cx_layer, cy_layer))
+    else:
+        # Már méter‑alapú CRS: nincs vetítés
+        tile_centers_layer_crs = generate_tile_centers(w, s, e, n)
+        filtered = []
+        for cx, cy in tile_centers_layer_crs:
+            rect = QgsRectangle(
+                cx - half,
+                cy - half,
+                cx + half,
+                cy + half,
+            )
+            if geom_union.intersects(QgsGeometry.fromRect(rect)):
+                filtered.append((cx, cy))
+ 
     return filtered
 
 def plot_tile_centers(tile_centers):
@@ -814,7 +891,7 @@ def plot_tile_centers(tile_centers):
     else:
         crs = QgsProject.instance().crs()
 
-    vlayer = QgsVectorLayer(f"Point?crs={crs.authid()}", "Tile centers", "memory")
+    vlayer = QgsVectorLayer(f"Point?crs={crs.authid()}", f"Tile centers: {len(tile_centers)}", "memory")
     pr = vlayer.dataProvider()
 
     fields = QgsFields()

@@ -79,6 +79,14 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             w,s,e,n = get_selected_bbox()  
             self.bbox =[w,s,e,n]
             self.crs = get_selected_crs()
+            
+            iface.messageBar().pushMessage(
+                            "InfraredCity",
+                            f"Layer CRS is the following: {self.crs}",
+                            level=Qgis.Info,
+                            duration=7
+                        )
+            
         except Exception as e:
             logger.error(f"Failed to get selected bbox: {e}")
             QMessageBox.warning(self, "Invalid selection", "Invalid selection please select geometry.")
@@ -472,7 +480,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     continue
 
                 geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256 = buildings
-                
+                logger.info("Buildings found for tile: %d", idx)
+                logger.info(f"Bounding box 512: {bbox_512}, CRS authid: {crs_authid}, Bounding box 256: {bbox_256}")
                 if trees:
                     geojson_path_trees, dotbim_path_trees, bbox_512_trees, crs_authid_trees, bbox_256_trees = trees
                     logger.info("Trees found for tile: %d", idx)

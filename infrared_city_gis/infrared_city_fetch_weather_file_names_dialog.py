@@ -108,7 +108,7 @@ class InfraredCityFetchWeatherFileNamesDialog(QtWidgets.QDialog, FORM_CLASS):
         try:
             locations = fetch_weather_file_names(lon, lat, radius, self.api_key)
             
-            save_locations_to_file(locations)
+            #save_locations_to_file(locations)
             
 
         except Exception as e:
