@@ -38,7 +38,7 @@ from qgis.core import QgsApplication
 from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType, GeometryTypes
 from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, MonthConfig, makeTimeFrameObj,makeTimeFrameObjWithMonth
 from qgis.PyQt.QtCore import QDateTime 
-from .visualization.display import add_geojson_then_raster
+from .visualization.display import add_geojson_then_raster, deselect_all
 from .services.epw_query import query_infrared_epw, Query_Type
 from qgis.utils import iface
 from qgis.core import Qgis
@@ -505,19 +505,19 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             logger.info(f"\n✨ ✨ ✨ ✨\nPayload: \n{payload}\n✨ ✨ ✨ ✨")
             # Load dotbim
             dotbim = load_dotbim(self.dotbim_path)
-            payload["geometries"] = dotbim
-            payload["vegetation"] = tree_dotbim
-
-            # Log first 100 characters of dotbim and tree_dotbim if not None
             if dotbim is not None:
-                logger.info(f"dotbim (first 100 chars): {str(dotbim)[:100]}")
+                payload["geometries"] = dotbim
             else:
-                logger.warning("dotbim is None")
+                logger.warning("Geometries data is empty")
+                deselect_all()   
+                QMessageBox.warning(self, "Missing Geometry", "Please select geometry on the buildings layer.")
+                return
             
             if tree_dotbim is not None:
-                logger.info(f"tree_dotbim (first 100 chars): {str(tree_dotbim)[:100]}")
+                payload["vegetation"] = tree_dotbim
+                logger.warning("Vegetation data was loaded.")   
             else:
-                logger.warning("tree_dotbim is None")
+                logger.warning("Vegetation data is empty")               
 
             # Run simulation
             self.geotiff_path = process_run_analysis(
