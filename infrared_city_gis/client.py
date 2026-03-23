@@ -30,7 +30,7 @@ class HEADERS(Enum):
 def load_dotbim(dotbim_path):
     with open(dotbim_path, "r", encoding="utf-8") as f:
         dotbim_data = json.load(f)
-    logger.info("Dotbim loaded")
+    logger.info(f"Dotbim loaded, {dotbim_path}")
     return dotbim_data
 
 
@@ -40,6 +40,7 @@ def process_run_analysis(payload, geometry_path, bbox,crs, api_key, analysis_typ
     logger.info("Processing run analysis endpoint...")
 
     json_data = json.dumps(payload)
+    
     compressed_data = gzip.compress(json_data.encode(HEADERS.UTF_8.value))
     base64_encoded = base64.b64encode(compressed_data).decode(HEADERS.UTF_8.value)
 

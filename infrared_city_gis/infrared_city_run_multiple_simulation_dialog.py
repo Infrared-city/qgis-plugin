@@ -493,17 +493,16 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 try:
                     self.dotbim_path = dotbim_path
                     payload["geometries"] = None
-                    payload["vegetation"] = None
                     # Load dotbim
                     dotbim = load_dotbim(self.dotbim_path)
                     if dotbim is None or len(dotbim) == 0:
                         logger.error("Failed to load dotbim: %s", self.dotbim_path)
                         raise Exception("No selected building geometry was found.")
                         
-                        
-                    
                     payload["geometries"] = dotbim
-                    payload["vegetation"] = tree_dotbim
+                    
+                    if tree_dotbim is not None:
+                        payload["vegetation"] = tree_dotbim
 
                     # Run simulation
                     logger.info("Starting simulation for tile %d", idx)
