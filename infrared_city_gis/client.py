@@ -13,6 +13,7 @@ import numpy as np
 from .services.geometry import generate_geotiff, crop_matrix
 from .visualization.display import add_geojson_then_raster
 from .models.timeframes_parser import adjustDatetime, makeTimeFrameObjWithMonth
+from .exceptions import InfraredAPIError
     
 
 class HEADERS(Enum):
@@ -85,8 +86,11 @@ def process_run_analysis(payload, geometry_path, bbox,crs, api_key, analysis_typ
                             logger.error(f"Parsed message: {parsed_message}")
                         except Exception:
                             parsed_message = None
-                    
-                    raise  
+
+                    raise InfraredAPIError(
+                        status_code=status,
+                        server_message=parsed_message,
+                    ) from e
 
         
         logger.info(f"Response received from client, status code: {response.status_code}")
@@ -166,7 +170,18 @@ def process_ogc(payload,geometry_path,analysis_type,api_key):
                     time.sleep(delay)
                 else:
                     logger.error(f"All {retries} attempts failed. Aborting request.")
-                    raise 
+
+                    parsed_message = None
+                    if e.response is not None:
+                        try:
+                            parsed_message = e.response.json().get("message")
+                        except Exception:
+                            parsed_message = None
+
+                    raise InfraredAPIError(
+                        status_code=status,
+                        server_message=parsed_message,
+                    ) from e
     except Exception as e:
         logger.error(f"HTTP Error: {e}")
         raise

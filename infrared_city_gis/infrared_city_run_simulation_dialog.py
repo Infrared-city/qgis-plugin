@@ -30,6 +30,7 @@ from .client import (load_dotbim, get_windspeed_payload, process_run_analysis,ge
     get_daylight_availability_payload, get_direct_sun_hours_payload, get_pwc_payload,
     get_utci_payload, get_tcs_payload, get_solar_radiation_payload
 )
+from .exceptions import InfraredAPIError
 from .services.fetch import fetch_weather_file_names
 from .services.geometry import get_center_lon_lat_from_bbox, get_center_from_bbox, collect_geometries
 from .infrared_logger import logger
@@ -113,11 +114,20 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def on_analysis_changed(self, text):
         current = self.analysis_type_dropdown.currentData()
-        
+
         # Get weather file names
         if self.bbox is not None and self.api_key and not self.weather_file_names:
             lon, lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
-            self.weather_file_names = fetch_weather_file_names(lon, lat, 100, self.api_key)
+            try:
+                self.weather_file_names = fetch_weather_file_names(lon, lat, 100, self.api_key)
+            except InfraredAPIError as e:
+                logger.error("API error fetching weather file names: %s", e, exc_info=True)
+                QMessageBox.critical(self, e.title, e.detail)
+                return
+            except Exception as e:
+                logger.error("Unexpected error fetching weather file names: %s", e, exc_info=True)
+                QMessageBox.critical(self, "Error", f"Failed to fetch weather file names.\n\n{e}")
+                return
         
         # Switch stacked pages instead of toggling visibility
         try:
@@ -547,6 +557,9 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         
             super().accept()
         
+        except InfraredAPIError as e:
+            logger.error("API error in accept(): %s", e, exc_info=True)
+            QMessageBox.critical(self, e.title, e.detail)
         except Exception as e:
             logger.error("Unhandled exception in accept(): %s", e, exc_info=True)
             msg = str(e)
