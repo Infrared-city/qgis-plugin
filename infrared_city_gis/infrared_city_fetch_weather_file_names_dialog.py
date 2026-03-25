@@ -30,6 +30,7 @@ from qgis.PyQt.QtWidgets import QMessageBox
 from .infrared_logger import logger
 from .visualization.display import display_geojson
 from .services.fetch import fetch_geometry_from_osm, fetch_weather_file_names
+from .exceptions import InfraredAPIError
 import json
 from qgis.core import QgsApplication
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
@@ -107,12 +108,16 @@ class InfraredCityFetchWeatherFileNamesDialog(QtWidgets.QDialog, FORM_CLASS):
         # --- Fetch ---
         try:
             locations = fetch_weather_file_names(lon, lat, radius, self.api_key)
-            
-            #save_locations_to_file(locations)
-            
 
+            #save_locations_to_file(locations)
+
+        except InfraredAPIError as e:
+            logger.error(f"API error fetching weather file names: {e}", exc_info=True)
+            QMessageBox.critical(self, e.title, e.detail)
+            return
         except Exception as e:
-            logger.error(f"Failed to fetch geometry: {e}")
+            logger.error(f"Failed to fetch weather file names: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to fetch weather file names.\n\n{e}")
             return
 
         super().accept()

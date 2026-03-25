@@ -6,6 +6,7 @@ from qgis.core import QgsApplication
 from ..infrared_logger import logger
 from .geometry import get_bbox
 from .geojson2dotbim import process_geojson_file
+from ..exceptions import InfraredAPIError
 
 from datetime import datetime
 
@@ -108,8 +109,14 @@ def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str
 
     except requests.RequestException as e:
         logger.error(f"Weather API request failed: {e}")
-        # Propagate so caller can handle in UI
-        raise
+        status = e.response.status_code if e.response is not None else None
+        parsed_message = None
+        if e.response is not None:
+            try:
+                parsed_message = e.response.json().get("message")
+            except Exception:
+                pass
+        raise InfraredAPIError(status_code=status, server_message=parsed_message) from e
 
 
 def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str):
@@ -160,8 +167,14 @@ def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str
 
     except requests.RequestException as e:
         logger.error(f"Weather API request failed: {e}")
-        # Propagate so caller can handle in UI
-        raise
+        status = e.response.status_code if e.response is not None else None
+        parsed_message = None
+        if e.response is not None:
+            try:
+                parsed_message = e.response.json().get("message")
+            except Exception:
+                pass
+        raise InfraredAPIError(status_code=status, server_message=parsed_message) from e
 
 
 def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries: int = 3, delay: int = 3,tile_id: int = 0) -> str:

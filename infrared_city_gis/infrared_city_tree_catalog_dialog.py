@@ -23,82 +23,335 @@
 """
 
 import os
+import json
 
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
-from qgis.PyQt.QtWidgets import QMessageBox
-from qgis.PyQt.QtCore import QSettings
+from qgis.PyQt.QtWidgets import (
+    QMessageBox, QScrollArea, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QButtonGroup, QFrame, QSizePolicy,
+)
+from qgis.PyQt.QtCore import QSettings, Qt, QSize
+from qgis.PyQt.QtGui import QFont, QCursor
+
 from .infrared_logger import logger
 from .models.vegetation_types import TreeType, TreeSize
+from .utils.tree_icons import make_tree_icon
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'infrared_city_tree_catalog_dialog.ui'))
 
 
+# ---------------------------------------------------------------------------
+# Height labels per tree (Small / Medium / Large), read from registry
+# ---------------------------------------------------------------------------
+
+def _load_size_labels() -> dict:
+    """Return {TreeType: (small_label, medium_label, large_label)} using
+    heightRange and default height from vegetation_registry.json."""
+    registry_path = os.path.join(os.path.dirname(__file__), "vegetation_registry.json")
+    labels = {}
+    try:
+        with open(registry_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        models = data.get("clientModels", {})
+        name_map = {entry["displayName"]: entry for entry in models.values() if isinstance(entry, dict)}
+        for tt in TreeType:
+            entry = name_map.get(tt.value)
+            if entry:
+                h_min = entry.get("heightRange", [entry["height"], entry["height"]])[0]
+                # Medium uses the registry's actual default height – NOT (min+max)/2,
+                # because the default is usually biased toward the mature/large end.
+                h_default = entry.get("height", h_min)
+                h_max = entry.get("heightRange", [h_default, h_default])[-1]
+                labels[tt] = (f"Small  ~{h_min}m", f"Medium  ~{h_default}m", f"Large  ~{h_max}m")
+            else:
+                labels[tt] = ("Small", "Medium", "Large")
+    except Exception as e:
+        logger.warning("Could not load size labels from registry: %s", e)
+        for tt in TreeType:
+            labels[tt] = ("Small", "Medium", "Large")
+    return labels
+
+
+_SIZE_LABELS = _load_size_labels()
+
+# Map TreeSize enum → button index (0/1/2)
+_SIZE_INDEX = {TreeSize.SMALL: 0, TreeSize.MEDIUM: 1, TreeSize.LARGE: 2}
+_INDEX_SIZE = {0: TreeSize.SMALL, 1: TreeSize.MEDIUM, 2: TreeSize.LARGE}
+
+
+# ---------------------------------------------------------------------------
+# Tree card widget
+# ---------------------------------------------------------------------------
+
+_CARD_DEFAULT_BG  = "transparent"
+_CARD_SELECTED_BG = "#e8f4e8"
+_CARD_HOVER_BG    = "#f0f8f0"
+_CARD_BORDER_SEL  = "#4a9a4a"
+_CARD_BORDER_DEF  = "#d0d0d0"
+
+_BTN_CHECKED_STYLE = (
+    "QPushButton {"
+    "  background-color: #3d8c3d;"
+    "  color: white;"
+    "  border: 1px solid #2e6e2e;"
+    "  border-radius: 3px;"
+    "  padding: 2px 6px;"
+    "  font-size: 11px;"
+    "}"
+)
+_BTN_UNCHECKED_STYLE = (
+    "QPushButton {"
+    "  background-color: #f5f5f5;"
+    "  color: #333;"
+    "  border: 1px solid #bbb;"
+    "  border-radius: 3px;"
+    "  padding: 2px 6px;"
+    "  font-size: 11px;"
+    "}"
+    "QPushButton:hover {"
+    "  background-color: #e0ede0;"
+    "  border-color: #4a9a4a;"
+    "}"
+)
+
+
+class TreeCard(QFrame):
+    """A single tree row: icon | name + latin | size buttons."""
+
+    def __init__(self, tree_type: TreeType, on_select, parent=None):
+        super().__init__(parent)
+        self.tree_type = tree_type
+        self._on_select = on_select
+        self._selected = False
+
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setFrameShadow(QFrame.Plain)
+        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self._apply_style(selected=False)
+
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(8, 6, 8, 6)
+        outer.setSpacing(10)
+
+        # --- Icon ---
+        icon_label = QLabel()
+        icon_label.setFixedSize(24, 24)
+        pixmap = make_tree_icon(tree_type, 24)
+        icon_label.setPixmap(pixmap)
+        icon_label.setAlignment(Qt.AlignCenter)
+        outer.addWidget(icon_label)
+
+        # --- Name block ---
+        name_block = QVBoxLayout()
+        name_block.setSpacing(0)
+        name_block.setContentsMargins(0, 0, 0, 0)
+
+        name_font = QFont()
+        name_font.setPointSize(9)
+        name_font.setBold(True)
+        name_lbl = QLabel(tree_type.value)
+        name_lbl.setFont(name_font)
+
+        outer.addLayout(name_block)
+        outer.addStretch()
+
+        name_block.addWidget(name_lbl)
+
+        # --- Size buttons ---
+        size_labels = _SIZE_LABELS.get(tree_type, ("Small", "Medium", "Large"))
+        self._btn_group = QButtonGroup(self)
+        self._btn_group.setExclusive(True)
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(4)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._size_buttons = []
+        for idx, label in enumerate(size_labels):
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setStyleSheet(_BTN_UNCHECKED_STYLE)
+            btn.setFocusPolicy(Qt.NoFocus)
+            btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            self._btn_group.addButton(btn, idx)
+            btn_layout.addWidget(btn)
+            self._size_buttons.append(btn)
+
+        # Default: medium selected
+        self._size_buttons[1].setChecked(True)
+        self._size_buttons[1].setStyleSheet(_BTN_CHECKED_STYLE)
+
+        self._btn_group.buttonClicked.connect(self._on_size_clicked)
+
+        outer.addLayout(btn_layout)
+
+    # ------------------------------------------------------------------
+
+    def _on_size_clicked(self, btn):
+        """Selecting a size also selects this card."""
+        self._update_btn_styles()
+        self._on_select(self.tree_type)
+
+    def _update_btn_styles(self):
+        for btn in self._size_buttons:
+            btn.setStyleSheet(_BTN_CHECKED_STYLE if btn.isChecked() else _BTN_UNCHECKED_STYLE)
+
+    def _apply_style(self, selected: bool):
+        if selected:
+            self.setStyleSheet(
+                f"TreeCard {{ background-color: {_CARD_SELECTED_BG};"
+                f"  border: 1px solid {_CARD_BORDER_SEL}; border-radius: 4px; }}"
+            )
+        else:
+            self.setStyleSheet(
+                f"TreeCard {{ background-color: {_CARD_DEFAULT_BG};"
+                f"  border: 1px solid {_CARD_BORDER_DEF}; border-radius: 4px; }}"
+            )
+
+    def set_selected(self, selected: bool):
+        self._selected = selected
+        self._apply_style(selected)
+
+    def mousePressEvent(self, event):
+        self._on_select(self.tree_type)
+        super().mousePressEvent(event)
+
+    def current_size(self) -> TreeSize:
+        idx = self._btn_group.checkedId()
+        return _INDEX_SIZE.get(idx, TreeSize.MEDIUM)
+
+    def set_size(self, tree_size: TreeSize):
+        idx = _SIZE_INDEX.get(tree_size, 1)
+        self._size_buttons[idx].setChecked(True)
+        self._update_btn_styles()
+
+
+# ---------------------------------------------------------------------------
+# Dialog
+# ---------------------------------------------------------------------------
+
 class InfraredCityTreeCatalogDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
-        """Constructor."""
-        super(InfraredCityTreeCatalogDialog, self).__init__(parent)
-
+        super().__init__(parent)
         self.setupUi(self)
-        logger.info("Dialog loaded")
-        
-        # Populate combo boxes with enum values
-        try:
-            self.combo_tree_type.clear()
-            self.combo_tree_type.addItems([str(t) for t in TreeType])
+        self.setWindowTitle("Tree Catalog")
+        self.resize(520, 440)
 
-            self.combo_tree_size.clear()
-            self.combo_tree_size.addItems([str(s) for s in TreeSize])
+        self.selected_tree_type: TreeType = None
+        self.selected_tree_size: TreeSize = None
 
-            # Try to restore last saved selection from settings
-            settings = QSettings()
-            saved_type = settings.value("infrared_city/tree_type", None)
-            saved_size = settings.value("infrared_city/tree_size", None)
+        self._cards: dict[TreeType, TreeCard] = {}
+        self._active_type: TreeType = None
 
-            if saved_type:
-                for idx, t in enumerate(TreeType):
-                    if t.value == saved_type:
-                        self.combo_tree_type.setCurrentIndex(idx)
-                        break
+        self._build_catalog()
+        self._restore_selection()
 
-            if saved_size:
-                for idx, s in enumerate(TreeSize):
-                    if s.value == saved_size:
-                        self.combo_tree_size.setCurrentIndex(idx)
-                        break
-        except Exception as e:
-            logger.error("Failed to populate tree catalog combos: %s", e, exc_info=True)
-            QMessageBox.critical(self, "Error", str(e))
+        logger.info("Tree catalog dialog loaded")
+
+    # ------------------------------------------------------------------
+    # Build UI
+    # ------------------------------------------------------------------
+
+    def _build_catalog(self):
+        """Replace the formWidget from the .ui with a scrollable tree list."""
+        # Remove the formWidget that was generated by the .ui file
+        layout = self.layout()
+        old_widget = self.formWidget
+        layout.removeWidget(old_widget)
+        old_widget.setParent(None)
+
+        # Scroll area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(4, 4, 4, 4)
+        container_layout.setSpacing(6)
+
+        for tree_type in TreeType:
+            card = TreeCard(tree_type, on_select=self._select_tree)
+            self._cards[tree_type] = card
+            container_layout.addWidget(card)
+
+        container_layout.addStretch()
+        scroll.setWidget(container)
+
+        # Insert before the button_box (which is last in the vertical layout)
+        layout.insertWidget(0, scroll)
+
+    def _select_tree(self, tree_type: TreeType):
+        """Highlight *tree_type* card and deselect all others."""
+        if self._active_type == tree_type:
+            return
+        if self._active_type is not None:
+            self._cards[self._active_type].set_selected(False)
+        self._active_type = tree_type
+        self._cards[tree_type].set_selected(True)
+
+    # ------------------------------------------------------------------
+    # Persist / restore selection
+    # ------------------------------------------------------------------
+
+    def _restore_selection(self):
+        settings = QSettings()
+        saved_type = settings.value("infrared_city/tree_type", None)
+        saved_size = settings.value("infrared_city/tree_size", None)
+
+        # Determine which tree to pre-select
+        restored_type = None
+        if saved_type:
+            for tt in TreeType:
+                if tt.value == saved_type:
+                    restored_type = tt
+                    break
+        if restored_type is None:
+            restored_type = list(TreeType)[0]
+
+        self._select_tree(restored_type)
+
+        # Restore size within that card
+        if saved_size:
+            for ts in TreeSize:
+                if ts.value == saved_size:
+                    self._cards[restored_type].set_size(ts)
+                    break
+
+    # ------------------------------------------------------------------
+    # Accept / reject
+    # ------------------------------------------------------------------
 
     def accept(self):
         """Store selected TreeType and TreeSize, then close dialog."""
         try:
-            # Map current index back to enum values (order is the same as added above)
-            type_index = self.combo_tree_type.currentIndex()
-            size_index = self.combo_tree_size.currentIndex()
+            if self._active_type is None:
+                QMessageBox.warning(self, "No selection", "Please select a tree type.")
+                return
 
-            tree_types = list(TreeType)
-            tree_sizes = list(TreeSize)
-
-            self.selected_tree_type = tree_types[type_index] if 0 <= type_index < len(tree_types) else None
-            self.selected_tree_size = tree_sizes[size_index] if 0 <= size_index < len(tree_sizes) else None
+            self.selected_tree_type = self._active_type
+            self.selected_tree_size = self._cards[self._active_type].current_size()
 
             logger.info(
-                "Tree catalog selection - type: %s, size: %s",
+                "Tree catalog selection – type: %s, size: %s",
                 self.selected_tree_type,
                 self.selected_tree_size,
             )
 
-            # Persist selection so other dialogs (run_simulation, run_multiple) can reuse it
             settings = QSettings()
-            if self.selected_tree_type is not None:
-                settings.setValue("infrared_city/tree_type", self.selected_tree_type.value)
-            if self.selected_tree_size is not None:
-                settings.setValue("infrared_city/tree_size", self.selected_tree_size.value)
-            
-            QMessageBox.information(self, "Success", f"Tree catalog selection saved successfully with type: {self.selected_tree_type} and size: {self.selected_tree_size}")
+            settings.setValue("infrared_city/tree_type", self.selected_tree_type.value)
+            settings.setValue("infrared_city/tree_size", self.selected_tree_size.value)
+
+            QMessageBox.information(
+                self,
+                "Selection saved",
+                f"Tree type:  {self.selected_tree_type}\n"
+                f"Size:          {self.selected_tree_size.value.capitalize()}",
+            )
+
         except Exception as e:
             logger.error("Error while reading tree catalog selection: %s", e, exc_info=True)
             QMessageBox.critical(self, "Error", str(e))
