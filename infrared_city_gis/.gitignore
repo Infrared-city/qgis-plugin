@@ -70,3 +70,10 @@ Thumbs.db
 venv/
 ENV/
 env/
+
+# -----------------------------
+# Plugin runtime dependencies
+# (installed per-platform by deps_bootstrap.py)
+# -----------------------------
+thirdparty/
+.deps_ok
