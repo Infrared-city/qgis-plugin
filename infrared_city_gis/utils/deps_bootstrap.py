@@ -57,41 +57,45 @@ def _find_missing(packages: List[str]) -> List[str]:
 def _pip_install(packages: List[str]):
     if not packages:
         return
-    # Try in-process pip first to avoid launching a wrong executable (e.g., qgis-bin.exe on Windows)
+
+    base_cmd = [
+        "--disable-pip-version-check",
+        "--no-input",
+        "--target",
+        str(THIRDPARTY),
+    ]
+
+    # 1) In-process pip (modern API) — same interpreter, no subprocess needed
     try:
-        import pip  # type: ignore
-        args = [
-            "install",
-            "--disable-pip-version-check",
-            "--no-input",
-            "--target",
-            str(THIRDPARTY),
-        ] + packages
-        rc = pip._internal.main(args)  # type: ignore[attr-defined]
+        from pip._internal.cli.main import main as pip_main  # type: ignore
+        rc = pip_main(["install"] + base_cmd + packages)
         if rc == 0:
             return
     except Exception:
         pass
 
-    # Fallback to subprocess with a reliable Python interpreter
+    # 2) subprocess candidates — sys.executable always first so we use the
+    #    exact same Python/architecture that QGIS is running
     def _candidate_pythons() -> List[str]:
         cands: List[str] = []
         exe = Path(sys.executable) if sys.executable else None
         if exe:
-            name = exe.name.lower()
-            if name.startswith("python"):
-                cands.append(str(exe))
-            else:
-                # Common QGIS on Windows: sys.executable may be qgis-bin.exe; try sibling python executables
+            # Always add sys.executable regardless of its name (covers QGIS on Mac/Windows)
+            cands.append(str(exe))
+            # On Windows QGIS the exe may be qgis-bin.exe; add sibling python executables too
+            if not exe.name.lower().startswith("python"):
                 cands.append(str(exe.with_name("python.exe")))
                 cands.append(str(exe.with_name("pythonw.exe")))
-        # Look on PATH as additional fallbacks
-        for prog in ("python3", "python", "py -3", "py"):
+                # On Mac the Python binary sits in bin/ next to the QGIS binary
+                cands.append(str(exe.parent / "bin" / "python3"))
+                cands.append(str(exe.parent / "python3"))
+        # PATH fallbacks (last resort — may be a different arch/version)
+        for prog in ("python3", "python"):
             p = shutil.which(prog)
             if p:
                 cands.append(p)
         # Deduplicate while preserving order
-        seen = set()
+        seen: set = set()
         uniq: List[str] = []
         for c in cands:
             if c and c not in seen:
@@ -102,19 +106,8 @@ def _pip_install(packages: List[str]):
     last_err: Exception | None = None
     for py in _candidate_pythons():
         try:
-            base_cmd = [
-                py,
-                "-m",
-                "pip",
-                "install",
-                "--disable-pip-version-check",
-                "--no-input",
-                "--target",
-                str(THIRDPARTY),
-            ]
-            cmd = base_cmd + packages
-            env = os.environ.copy()
-            subprocess.check_call(cmd, env=env)
+            cmd = [py, "-m", "pip", "install"] + base_cmd + packages
+            subprocess.check_call(cmd, env=os.environ.copy())
             return
         except Exception as e:
             last_err = e
