@@ -9,7 +9,7 @@
         begin                : 2025-10-13
         git sha              : $Format:%H$
         copyright            : (C) 2025 by infrared.city
-        email                : daniel.lepold@infrared.city
+        email                : connectors@infrared.city
  ***************************************************************************/
 
 /***************************************************************************
@@ -308,15 +308,12 @@ class InfraredCityGIS:
         result = self.dlg.exec_()
         # See if OK was pressed
         if result:  # OK was pressed
-                # 🔹 A dialógusban beállított result_path innen elérhető
                 self.last_geojson_path = getattr(self.dlg, "geojson_path", None)
                 self.last_dotbim_path = getattr(self.dlg, "dotbim_path", None)
                 self.bbox = getattr(self.dlg,"bbox",None)
                 self.crs = "EPSG:4326"
 
                 if self.last_geojson_path and self.bbox and self.last_dotbim_path:
-                    
-                    #logger.info("Geometry fetched successfully")
                     self.iface.messageBar().pushMessage(
                         "InfraredCity",
                         f"Fetched geometry saved to: {self.last_geojson_path} \n "
@@ -326,8 +323,6 @@ class InfraredCityGIS:
                         duration=5
                     )
                 else:
-
-                    #logger.warning("No file path returned from fetch dialog.")
                     self.iface.messageBar().pushWarning(
                         "InfraredCity",
                         "No file path returned from fetch dialog."
@@ -336,7 +331,6 @@ class InfraredCityGIS:
     def run_simulation(self):
         """Run method that performs all the real work"""            
         if not self.last_geojson_path or not self.last_dotbim_path or not self.bbox or not self.crs:
-            #logger.warning("No geometry fetched. Please fetch geometry first.")
             self.iface.messageBar().pushWarning("InfraredCity", "Please select geometry first.")
             return
         

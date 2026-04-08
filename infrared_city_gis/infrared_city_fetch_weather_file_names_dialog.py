@@ -9,7 +9,7 @@
         begin                : 2025-10-13
         git sha              : $Format:%H$
         copyright            : (C) 2025 by infrared.city
-        email                : daniel.lepold@infrared.city
+        email                : connectors@infrared.city
  ***************************************************************************/
 
 /***************************************************************************

@@ -7,6 +7,7 @@ from ..infrared_logger import logger
 from .geometry import get_bbox
 from .geojson2dotbim import process_geojson_file
 from ..exceptions import InfraredAPIError
+from ..constants import INFRARED_API_V2_URL
 
 from datetime import datetime
 
@@ -53,7 +54,7 @@ def extract_height_from_tags(tags):
     return height_estimates.get(building_type, default_height)
 
 def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str):
-    base_url = "https://fbiw2nq5ac.execute-api.eu-central-1.amazonaws.com/v2/utils/ground-material/collect"
+    base_url = f"{INFRARED_API_V2_URL}/utils/ground-material/collect"
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -76,10 +77,6 @@ def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str
         response.raise_for_status()
         
         
-        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
-        vegetation_file = os.path.join(plugin_data_dir, "ground_materials_{date_now}.json")
-
-
         try:
             data = response.json()
             # --- Save response to settings/ground_materials.json ---
@@ -126,7 +123,7 @@ def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str
     possible. Raises RequestException on network errors
     and HTTPError on non-2xx status codes.
     """
-    base_url = "https://fbiw2nq5ac.execute-api.eu-central-1.amazonaws.com/v2/utils/weather/location"
+    base_url = f"{INFRARED_API_V2_URL}/utils/weather/location"
     params = {
         "latitude": lat,
         "longitude": lon,
