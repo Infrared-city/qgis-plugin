@@ -22,27 +22,31 @@
  ***************************************************************************/
 """
 
+import json
 import os
-from qgis.PyQt import uic
-from qgis.PyQt import QtWidgets
+
+from qgis.PyQt import uic, QtWidgets
+from qgis.PyQt.QtCore import QDateTime
 from qgis.PyQt.QtWidgets import QMessageBox
-from .client import (load_dotbim, get_windspeed_payload, process_run_analysis,get_shadow_mask_payload,
+from qgis.core import Qgis, QgsApplication
+from qgis.utils import iface
+
+from .client import (
+    load_dotbim, get_windspeed_payload, process_run_analysis, get_shadow_mask_payload,
     get_daylight_availability_payload, get_direct_sun_hours_payload, get_pwc_payload,
-    get_utci_payload, get_tcs_payload, get_solar_radiation_payload
+    get_utci_payload, get_tcs_payload, get_solar_radiation_payload,
 )
 from .exceptions import InfraredAPIError
+from .infrared_logger import logger
+from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType, GeometryTypes
+from .models.timeframes_parser import (
+    SeasonalTimeFrameConfig, DailyTimeFrameConfig, DailyTimeFrameConfigUTCI,
+    MonthConfig, makeTimeFrameObj, makeTimeFrameObjWithMonth,
+)
+from .services.epw_query import query_infrared_epw, Query_Type
 from .services.fetch import fetch_weather_file_names
 from .services.geometry import get_center_lon_lat_from_bbox, get_center_from_bbox, collect_geometries
-from .infrared_logger import logger
-import json
-from qgis.core import QgsApplication
-from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType, GeometryTypes
-from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, MonthConfig, makeTimeFrameObj,makeTimeFrameObjWithMonth
-from qgis.PyQt.QtCore import QDateTime 
 from .visualization.display import add_geojson_then_raster, deselect_all
-from .services.epw_query import query_infrared_epw, Query_Type
-from qgis.utils import iface
-from qgis.core import Qgis
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -97,7 +101,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     api_key = data.get("api-key", "")
                     self.api_key_input.setText(api_key)
                     self.api_key = api_key
-                    logger.info(f"Loaded API key from user.json: {api_key}")
+                    logger.info("API key loaded from user.json")
             except Exception as e:
                 logger.warning(f"Could not read API key: {e}")
                 QMessageBox.warning(self, "Invalid API Key", "Invalid API key. Please check the input values.")
@@ -376,8 +380,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     QMessageBox.warning(self, "Missing Input", "Please fill in all fields!")
                     return
                 
-                #TODO: hemisphere
-                time_frame = makeTimeFrameObj(isNorthHem=True,season=selected_season.value, hourly=selected_hours.value)
+                time_frame = makeTimeFrameObj(isNorthHem=True, season=selected_season.value, hourly=selected_hours.value)
                 
                 wind_data = query_infrared_epw(
                         file_name=weather_file,
