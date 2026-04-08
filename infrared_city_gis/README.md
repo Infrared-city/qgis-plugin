@@ -13,6 +13,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
   - Solar Radiation
   - Daylight Availability
   - Direct Sun Hours
+  - Sky View Factors
   - Shadow Mask
 - Visualize results as raster layers in QGIS
 - Tree catalog integration for vegetation analysis

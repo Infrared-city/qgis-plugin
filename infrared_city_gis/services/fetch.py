@@ -1,15 +1,16 @@
+import json
 import os
 import time
+from datetime import datetime
+
 import requests
-import json
 from qgis.core import QgsApplication
+
+from ..constants import INFRARED_API_V2_URL
+from ..exceptions import InfraredAPIError
 from ..infrared_logger import logger
 from .geometry import get_bbox
 from .geojson2dotbim import process_geojson_file
-from ..exceptions import InfraredAPIError
-from ..constants import INFRARED_API_V2_URL
-
-from datetime import datetime
 
 def extract_height_from_tags(tags):
     """Extract building height from OSM tags."""
