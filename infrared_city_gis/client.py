@@ -9,8 +9,8 @@ import os
 from qgis.core import QgsApplication
 import time
 from .infrared_logger import logger
-import numpy as np
 from .services.geometry import generate_geotiff, crop_matrix
+from .constants import INFRARED_API_V1_URL
 from .visualization.display import add_geojson_then_raster
 from .models.timeframes_parser import adjustDatetime, makeTimeFrameObjWithMonth
 from .exceptions import InfraredAPIError
@@ -36,8 +36,6 @@ def load_dotbim(dotbim_path):
 
 
 def process_run_analysis(payload, geometry_path, bbox,crs, api_key, analysis_type, do_crop = False):
-    INFRARED_URL = "https://fbiw2nq5ac.execute-api.eu-central-1.amazonaws.com/development-v1"
-    
     logger.info("Processing run analysis endpoint...")
 
     json_data = json.dumps(payload)
@@ -59,7 +57,7 @@ def process_run_analysis(payload, geometry_path, bbox,crs, api_key, analysis_typ
         for attempt in range(1,retries + 1):
             try:
                 response = requests.post(
-                    f"{INFRARED_URL}/api/run-analysis",
+                    f"{INFRARED_API_V1_URL}/api/run-analysis",
                     data=base64_encoded,
                     headers=headers,
                 )
@@ -97,8 +95,6 @@ def process_run_analysis(payload, geometry_path, bbox,crs, api_key, analysis_typ
 
         decoded_result = decode(response.content)
 
-        #matrix = np.array(decoded_result, dtype=np.float32)
-        
         if analysis_type == "pedestrian-wind-comfort":
             matrix = np.array(decoded_result, dtype=str)
         else:

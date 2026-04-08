@@ -7,7 +7,7 @@ InfraredCityGIS
                               -------------------
         begin                : 2025-10-13
         copyright            : (C) 2025 by infrared.city
-        email                : daniel.lepold@infrared.city
+        email                : connectors@infrared.city
         git sha              : $Format:%H$
 """
 
