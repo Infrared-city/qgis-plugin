@@ -380,6 +380,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 time_frame = makeTimeFrameObj(isNorthHem=True, season=selected_season.value, hourly=selected_hours.value)
                 #weather_file = "SRC-TMYx, Hamburg-Schmidt.AP"
                 logger.info(f"Weather file: {weather_file}")
+                logger.info(f"Time frame: {time_frame}")
                 wind_data = query_infrared_epw(
                         file_name=weather_file,
                         type=Query_Type.WIND,

@@ -70,8 +70,7 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         # --- Fetch ---
         try:
             geojson_path, dotbim_path, bbox = fetch_geometry_from_osm(lon, lat, bbox_val)
-            #TODO: apply ground material fetching
-            #ground_materials = fetch_ground_materials(lon, lat, 256,"Rs1MoXnOUn4PPPQ3LT7JZ8LN5J5SvV615rik1JgI")
+            # TODO: apply ground material fetching
             
             if not geojson_path or not dotbim_path or not bbox:
                 logger.error("Failed to fetch geometry")

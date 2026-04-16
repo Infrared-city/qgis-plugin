@@ -1,7 +1,7 @@
 
 from enum import Enum
 from ..exceptions import InfraredAPIError
-
+from ..infrared_logger import logger
 import requests
 
 class Query_Type (str,Enum):
@@ -27,6 +27,8 @@ def query_infrared_epw (file_name: str, type: Query_Type, time_frame: dict, api_
                 "timeFrame": time_frame
             }
         }
+        
+        logger.info(f"Querying epw data for {file_name} with type filters: \n{filters}")
 
         uri = make_uri(file_name)
         response = requests.post(
@@ -38,6 +40,7 @@ def query_infrared_epw (file_name: str, type: Query_Type, time_frame: dict, api_
             raise Exception(f"Error getting epw data for {file_name} {response.text}")
 
         data = response.json()
+        
     except requests.RequestException as e:
         logger.error(f"Epw query request failed: {e}")
         status = e.response.status_code if e.response is not None else None
