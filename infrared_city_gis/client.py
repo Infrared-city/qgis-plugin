@@ -102,13 +102,44 @@ def process_run_analysis(
                     ) from e
 
         logger.info(f"Response received from client, status code: {response.status_code}")
+        logger.info(f"Response headers: {dict(response.headers)}")
+
+        # --- Log & dump raw response JSON; extract minLegend/maxLegend ---
+        min_legend = None
+        max_legend = None
+        try:
+            raw_json = response.json()
+            top_level_keys = list(raw_json.keys())
+            logger.info(f"Response top-level keys: {top_level_keys}")
+            for key in top_level_keys:
+                if key != "result":
+                    logger.info(f"  Response field '{key}': {raw_json[key]}")
+
+            min_legend = raw_json.get("minLegend")
+            max_legend = raw_json.get("maxLegend")
+            logger.info(f"Legend range from API: minLegend={min_legend}, maxLegend={max_legend}")
+
+            # Write full response (without the large 'result' blob) to a debug file
+            debug_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "debug")
+            os.makedirs(debug_dir, exist_ok=True)
+            # debug_path = os.path.join(debug_dir, f"last_response_{analysis_type}.json")
+            # debug_data = {k: v for k, v in raw_json.items() if k != "result"}
+            # with open(debug_path, "w", encoding="utf-8") as f:
+            #     json.dump(debug_data, f, indent=2)
+            logger.info(f"Response debug dump: {debug_path}")
+        except Exception as e:
+            logger.warning(f"Could not parse/dump response JSON for debug: {e}")
 
         decoded_result = decode(response.content)
+        debug_path = os.path.join(debug_dir, f"matrix_last_response_{analysis_type}.json")
+        with open(debug_path, "w", encoding="utf-8") as f:
+            json.dump(decoded_result, f, indent=2)
 
         if analysis_type == "pedestrian-wind-comfort":
             matrix = np.array(decoded_result, dtype=str)
         else:
             matrix = np.array(decoded_result, dtype=np.float32)
+            logger.info(f"Matrix stats — min: {float(np.nanmin(matrix)):.4f}, max: {float(np.nanmax(matrix)):.4f}, shape: {matrix.shape}")
 
         plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
         os.makedirs(plugin_data_dir, exist_ok=True)
@@ -128,7 +159,7 @@ def process_run_analysis(
 
         logger.info(f"Matrix shape: {matrix.shape}")
 
-        return file_path
+        return file_path, min_legend, max_legend
 
     except Exception as e:
         logger.error(f"Error processing tile : {e}")

@@ -37,6 +37,7 @@ from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
 from .infrared_city_run_multiple_simulation_dialog import InfraredCityRunMultipleSimulationDialog
 from .infrared_city_fetch_weather_file_names_dialog import InfraredCityFetchWeatherFileNamesDialog
 from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
+from .infrared_city_save_auth import InfraredCitySaveAuthDialog
 
 import os.path
 from .infrared_logger import logger
@@ -178,12 +179,19 @@ class InfraredCityGIS:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
+        save_auth_icon_path = ':/plugins/infrared_city_gis/icons/login.png'
         fetch_geometry_icon_path = ':/plugins/infrared_city_gis/icons/get_geometry.png'
         select_bbox_icon_path = ':/plugins/infrared_city_gis/icons/select_area.png'
         tree_icon_path = ':/plugins/infrared_city_gis/icons/tree.svg'
         run_single_icon_path = ':/plugins/infrared_city_gis/icons/run_single.svg'
         run_multiple_icon_path = ':/plugins/infrared_city_gis/icons/run_multiple.svg'
         
+        self.add_action(
+            save_auth_icon_path,
+            text=self.tr(u'Save API Key'),
+            callback=self.save_api_key,
+            parent=self.iface.mainWindow()
+        )
         
         self.add_action(
             fetch_geometry_icon_path,
@@ -232,7 +240,7 @@ class InfraredCityGIS:
 
         self.dlg = InfraredCityRunMultipleSimulationDialog()
         
-        if not getattr(self.dlg, "_init_ok", True):
+        if not getattr(self.dlg, "_init_ok", False):
             logger.warning("Multiple simulations dialog initialization failed")
             return
 
@@ -296,7 +304,21 @@ class InfraredCityGIS:
         if result:
             logger.info("Tree type selected successfully")
         else:
-            logger.error("Tree type selection cancelled")
+            logger.info("Tree type selection cancelled")
+    
+    def save_api_key(self):
+        """Open the API key save dialog."""
+        self.dlg = InfraredCitySaveAuthDialog(self.iface.mainWindow())
+        
+        # show the dialog
+        self.dlg.show()
+        # Run the dialog event loop
+        result = self.dlg.exec_()
+        
+        if result:
+            logger.info("API key save dialog closed successfully")
+        else:
+            logger.info("API key save dialog cancelled")
     
     def fetch_geometry(self):
         """Run method that performs all the real work"""
@@ -338,6 +360,8 @@ class InfraredCityGIS:
         self.dlg = InfraredCityRunSimulationDialog(dotbim_path=self.last_dotbim_path,geojson_path=self.last_geojson_path,bbox=self.bbox,crs=self.crs)
         logger.info("Simulation dialog created")
 
+        if not self.dlg._init_ok:
+            return
 
         # show the dialog
         self.dlg.show()

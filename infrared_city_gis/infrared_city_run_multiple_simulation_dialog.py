@@ -109,13 +109,19 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             try:
                 with open(user_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    api_key = data.get("api-key", "")
-                    self.api_key_input.setText(api_key)
-                    self.api_key = api_key
-                    logger.info(f"Loaded API key from user.json: {api_key}")
+                    self.api_key = data.get("api-key", "")
+                    logger.info("API key loaded from user.json")
             except Exception as e:
                 logger.warning(f"Could not read API key: {e}")
-                QMessageBox.warning(self, "Invalid API Key", "Invalid API key. Please check the input values.")
+
+        if not self.api_key:
+            QMessageBox.warning(
+                self,
+                "Missing API Key",
+                "No API key found. Please save your API key first via the 'Save API Key' menu."
+            )
+            self.reject()
+            return
 
         logger.info("Dialog loaded")
         self._init_ok = True
@@ -202,13 +208,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
                 self.legend_min_input_tci.setEnabled(False)
                 self.legend_max_input_tci.setEnabled(False)
-
-                self.legend_min_enable_tci.toggled.connect(
-                    self.legend_min_input_tci.setEnabled
-                )
-                self.legend_max_enable_tci.toggled.connect(
-                    self.legend_max_input_tci.setEnabled
-                )
+                self.legend_min_enable_tci.toggled.connect(self.legend_min_input_tci.setEnabled)
+                self.legend_max_enable_tci.toggled.connect(self.legend_max_input_tci.setEnabled)
 
                 self.month_dropdown_tci.clear()
                 for month in MonthConfig:
@@ -300,21 +301,13 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             selected_legend_max = None
 
 
-            plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
-            os.makedirs(plugin_data_dir, exist_ok=True)
-            user_file = os.path.join(plugin_data_dir, "user.json")
-
-            self.api_key = self.api_key_input.text().strip()
-            if self.api_key:
-                try:
-                    with open(user_file, "w", encoding="utf-8") as f:
-                        json.dump({"api-key": self.api_key}, f, indent=2)
-                        logger.info("API key saved successfully.")
-                except Exception as e:
-                    logger.error(f"Failed to save API key: {e}")
-            else:
-                logger.warning("API key is empty. Please fill in the API key.")
-                QMessageBox.warning(self, "Missing API Key", "Please fill in the API key.")
+            if not self.api_key:
+                logger.warning("API key is empty.")
+                QMessageBox.warning(
+                    self,
+                    "Missing API Key",
+                    "No API key found. Please save your API key first via the 'Save API Key' menu."
+                )
                 return
 
             # ---------  Preparing payloads -----------------
@@ -338,6 +331,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     selected_season = self.season_dropdown_pwc.currentData()   
                     selected_hours = self.hours_dropdown_pwc.currentData()
                     weather_file = self.weather_file_input_pwc.currentText().strip()
+                    #weather_file = "SRC-TMYx, Hamburg-Schmidt.AP"
                     logger.info(f"Weather file: {weather_file}")
 
                 except AttributeError:
@@ -358,17 +352,12 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
                 # Validation
                 try:
-                    selected_month = self.month_dropdown_tci.currentData()      
+                    selected_month = self.month_dropdown_tci.currentData()
                     selected_hours = self.hours_dropdown_tci.currentData()
                     if self.legend_min_enable_tci.isChecked():
-                        selected_legend_min = self.legend_min_input_tci.value()
-                    else:
-                        selected_legend_min = None
+                        self.min_legend_value = self.legend_min_input_tci.value()
                     if self.legend_max_enable_tci.isChecked():
-                        selected_legend_max = self.legend_max_input_tci.value()
-                    else:
-                        selected_legend_max = None
-
+                        self.max_legend_value = self.legend_max_input_tci.value()
                     weather_file = self.weather_file_input_tci.currentText().strip()
                     logger.info(f"Weather file: {weather_file}")
 
@@ -516,15 +505,32 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
                     # Run simulation
                     logger.info("Starting simulation for tile %d", idx)
-                    self.geotiff_path = process_run_analysis(
+                    self.geotiff_path, api_min_legend, api_max_legend = process_run_analysis(
                         payload=payload,
                         geometry_path=self.dotbim_path,
                         bbox=bbox_512,
                         crs=crs_authid,
                         api_key=self.api_key,
                         analysis_type=self.analysis_type.value
-                    )                
+                    )
                     logger.info("Simulation finished for tile %d", idx)
+
+                    if self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
+                        selected_legend_min = self.min_legend_value if self.legend_min_enable_tci.isChecked() else api_min_legend
+                        selected_legend_max = self.max_legend_value if self.legend_max_enable_tci.isChecked() else api_max_legend
+                        logger.info(f"TCI tile {idx} legend: min={selected_legend_min}, max={selected_legend_max}")
+                    elif self.analysis_type in {
+                        AnalysisType.SOLAR_RADIATION,
+                        AnalysisType.DAYLIGHT_AVAILABILITY,
+                        AnalysisType.DIRECT_SUN_HOURS,
+                        AnalysisType.SKY_VIEW_FACTORS,
+                    }:
+                        selected_legend_min = api_min_legend
+                        selected_legend_max = api_max_legend
+                        logger.info(f"API legend range for tile {idx}: min={selected_legend_min}, max={selected_legend_max}")
+                    else:
+                        selected_legend_min = None
+                        selected_legend_max = None
 
                     # Crop 512x512 GeoTIFF to 256x256 around the tile center and display
                     try:
@@ -533,10 +539,12 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                             logger.error(f"Failed to open GeoTIFF: {self.geotiff_path}")
                             continue  
                         band = ds.GetRasterBand(1)
-                        if self.analysis_type == AnalysisType.PEDESTRIAN_WIND_COMFORT  :
-                            matrix = band.ReadAsArray().astype(str)
-                        else:
-                            matrix = band.ReadAsArray().astype(np.float32)
+                        # Always read as float32 — for PWC the GeoTIFF already
+                        # contains mapped integer values (1=A … 5=E) with NaN for
+                        # buildings.  Reading as str would turn NaN→"nan" which
+                        # map_categories cannot filter, causing buildings to receive
+                        # a spurious category colour.
+                        matrix = band.ReadAsArray().astype(np.float32)
                         
                         ds = None  
 

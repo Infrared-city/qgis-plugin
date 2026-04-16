@@ -57,6 +57,8 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None, dotbim_path=None, geojson_path=None ,bbox=None,crs=None):
         super().__init__(parent)
         self.setupUi(self)
+        
+        self._init_ok = False
 
         self.dotbim_path = dotbim_path
         self.geojson_path = geojson_path
@@ -98,13 +100,19 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             try:
                 with open(user_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    api_key = data.get("api-key", "")
-                    self.api_key_input.setText(api_key)
-                    self.api_key = api_key
+                    self.api_key = data.get("api-key", "")
                     logger.info("API key loaded from user.json")
             except Exception as e:
                 logger.warning(f"Could not read API key: {e}")
-                QMessageBox.warning(self, "Invalid API Key", "Invalid API key. Please check the input values.")
+
+        if not self.api_key:
+            QMessageBox.warning(
+                self,
+                "Missing API Key",
+                "No API key found. Please save your API key first via the 'Save API Key' menu."
+            )
+            self.reject()
+            return
 
 
 
@@ -113,6 +121,8 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         logger.info("Geojson path: %s", self.geojson_path)
         logger.info("Bbox: %s", self.bbox)
         logger.info("CRS: %s", self.crs)
+        
+        self._init_ok = True
 
 
 
@@ -200,13 +210,8 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
                 self.legend_min_input_tci.setEnabled(False)
                 self.legend_max_input_tci.setEnabled(False)
-
-                self.legend_min_enable_tci.toggled.connect(
-                    self.legend_min_input_tci.setEnabled
-                )
-                self.legend_max_enable_tci.toggled.connect(
-                    self.legend_max_input_tci.setEnabled
-                )
+                self.legend_min_enable_tci.toggled.connect(self.legend_min_input_tci.setEnabled)
+                self.legend_max_enable_tci.toggled.connect(self.legend_max_input_tci.setEnabled)
 
                 self.month_dropdown_tci.clear()
                 for month in MonthConfig:
@@ -334,21 +339,13 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.sub_analysis_type = None
 
 
-            plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
-            os.makedirs(plugin_data_dir, exist_ok=True)
-            user_file = os.path.join(plugin_data_dir, "user.json")
-
-            self.api_key = self.api_key_input.text().strip()
-            if self.api_key:
-                try:
-                    with open(user_file, "w", encoding="utf-8") as f:
-                        json.dump({"api-key": self.api_key}, f, indent=2)
-                        logger.info("API key saved successfully.")
-                except Exception as e:
-                    logger.error(f"Failed to save API key: {e}")
-            else:
-                logger.warning("API key is empty. Please fill in the API key.")
-                QMessageBox.warning(self, "Missing API Key", "Please fill in the API key.")
+            if not self.api_key:
+                logger.warning("API key is empty.")
+                QMessageBox.warning(
+                    self,
+                    "Missing API Key",
+                    "No API key found. Please save your API key first via the 'Save API Key' menu."
+                )
                 return
 
 
@@ -381,7 +378,8 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     return
                 
                 time_frame = makeTimeFrameObj(isNorthHem=True, season=selected_season.value, hourly=selected_hours.value)
-                
+                #weather_file = "SRC-TMYx, Hamburg-Schmidt.AP"
+                logger.info(f"Weather file: {weather_file}")
                 wind_data = query_infrared_epw(
                         file_name=weather_file,
                         type=Query_Type.WIND,
@@ -394,15 +392,12 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
                 # Validation
                 try:
-                    selected_month = self.month_dropdown_tci.currentData()      
+                    selected_month = self.month_dropdown_tci.currentData()
                     selected_hours = self.hours_dropdown_tci.currentData()
                     if self.legend_min_enable_tci.isChecked():
                         self.selected_legend_min = self.legend_min_input_tci.value()
-
                     if self.legend_max_enable_tci.isChecked():
                         self.selected_legend_max = self.legend_max_input_tci.value()
-
-
                     weather_file = self.weather_file_input_tci.currentText().strip()
                     logger.info(f"Weather file: {weather_file}")
 
@@ -533,7 +528,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.warning("Vegetation data is empty")               
 
             # Run simulation
-            self.geotiff_path = process_run_analysis(
+            self.geotiff_path, api_min_legend, api_max_legend = process_run_analysis(
                 payload=payload,
                 geometry_path=self.dotbim_path,
                 bbox=self.bbox,
@@ -541,21 +536,40 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 api_key=self.api_key,
                 analysis_type=self.analysis_type.value
             )
-                
+
             if not self.geotiff_path:
                 logger.error("Simulation failed to produce a geotiff path.")
                 QMessageBox.warning(self, "Simulation Failed", "Simulation failed to produce a result.")
                 return
-            
+
+            # Determine legend min/max to use for display
+            if self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
+                # User checkbox overrides API value; fall back to API if not checked
+                min_legend_value = self.selected_legend_min if self.legend_min_enable_tci.isChecked() else api_min_legend
+                max_legend_value = self.selected_legend_max if self.legend_max_enable_tci.isChecked() else api_max_legend
+                logger.info(f"TCI legend: min={min_legend_value}, max={max_legend_value} (user override: min={self.legend_min_enable_tci.isChecked()}, max={self.legend_max_enable_tci.isChecked()})")
+            elif self.analysis_type in {
+                AnalysisType.SOLAR_RADIATION,
+                AnalysisType.DAYLIGHT_AVAILABILITY,
+                AnalysisType.DIRECT_SUN_HOURS,
+                AnalysisType.SKY_VIEW_FACTORS,
+            }:
+                min_legend_value = api_min_legend
+                max_legend_value = api_max_legend
+                logger.info(f"Using API legend range: min={min_legend_value}, max={max_legend_value}")
+            else:
+                min_legend_value = None
+                max_legend_value = None
+
             # Display results
             add_geojson_then_raster(
-                geojson_path=self.geojson_path, 
-                geotiff_path=self.geotiff_path, 
+                geojson_path=self.geojson_path,
+                geotiff_path=self.geotiff_path,
                 analysis_type=self.analysis_type.value,
                 sub_analysis_type=self.sub_analysis_type,
                 raster_opacity=0.7,
-                min_legend_value=self.selected_legend_min,
-                max_legend_value=self.selected_legend_max)
+                min_legend_value=min_legend_value,
+                max_legend_value=max_legend_value)
         
         
             super().accept()

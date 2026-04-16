@@ -1,389 +1,98 @@
-import os
+"""Geometry collection for Infrared City simulation tiles.
+
+Other helpers have been split into dedicated modules:
+  - geotiff.py  : crop_matrix, map_categories, generate_geotiff, _to_json_primitive
+  - tiles.py    : get_bbox, tile center generation, CRS/bbox helpers
+"""
+
 import json
-import math
-from typing import List, Tuple
+import os
+from datetime import datetime
+
 import numpy as np
-from shapely.geometry import Polygon
-from ..infrared_logger import logger
-from pyproj import Geod
-import uuid
-import os
-import json
-from qgis.PyQt import uic
-from qgis.PyQt import QtWidgets
-from qgis.PyQt.QtWidgets import QMessageBox
 from qgis.core import (
-    QgsProject,
-    QgsVectorLayer,
-    QgsFields,
-    QgsField,
-    QgsFeature,
+    QgsApplication,
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
+    QgsFeatureRequest,
     QgsGeometry,
     QgsPointXY,
+    QgsProject,
     QgsRectangle,
-    QgsCoordinateTransform,
-    QgsCoordinateReferenceSystem,
-    QgsApplication,
     QgsUnitTypes,
+    QgsVectorLayer,
 )
-from qgis.utils import iface
-from datetime import datetime
-from qgis.PyQt.QtCore import QVariant
-from .geojson2dotbim import process_geojson_file, convert_tree_to_dotbim
-from osgeo import gdal, osr
-import numpy as np
-import gzip
-import base64
+
+from ..infrared_logger import logger
 from ..models.analysis import GeometryTypes
+from .geojson2dotbim import convert_tree_to_dotbim, process_geojson_file
+from .geotiff import (  # noqa: F401 — re-exported for backward compat
+    _to_json_primitive,
+    crop_matrix,
+    generate_geotiff,
+    map_categories,
+)
+from .tiles import (  # noqa: F401 — re-exported for backward compat
+    collect_tile_centers_from_selection,
+    generate_tile_centers,
+    get_bbox,
+    get_center_from_bbox,
+    get_center_lon_lat_from_bbox,
+    get_selected_bbox,
+    get_selected_crs,
+    plot_tile_centers,
+)
 
 
+def collect_geometries(center_x, center_y, idx, geometry_type: GeometryTypes = GeometryTypes.BUILDINGS):
+    """Collect geometries for a tile center from all matching vector layers.
 
-def convert_to_local_coords(coords: List[Tuple[float, float]], center_lat: float, center_lon: float) -> List[List[float]]:
+    geometry_type:
+        - BUILDINGS: prefers layers with 'building'/'buildings' in name.
+        - TREES:     prefers layers with 'tree'/'trees'/'vegetation' in name.
+
+    Returns (geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256) or None.
     """
-    Convert lon/lat list -> local meters (x east, y north) relative to center (center_lon, center_lat).
-    Uses spherical approx: 1 deg lat ~111320 m, lon scaled by cos(lat).
-    Returns list of [x, y] pairs.
-    """
-    local_coords = []
-    k_lat = 111320.0
-    k_lon = 111320.0 * math.cos(math.radians(center_lat))
-    for lon, lat in coords:
-        x = (lon - center_lon) * k_lon
-        y = (lat - center_lat) * k_lat
-        local_coords.append([float(x), float(y)])
-    return local_coords
-
-def create_building_extrusion(polygon_coords_local: List[List[float]], height: float):
-    """
-    Given polygon coords in local meters (list of [x,y]), create vertices and triangle indices:
-    returns (vertices_list, indices_list) or (None, None) on failure.
-    vertices_list is flat [x,y,z, x,y,z, ...] bottom then top.
-    """
-    if len(polygon_coords_local) < 3:
-        return None, None
-    try:
-        poly = Polygon(polygon_coords_local)
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-            if not poly.is_valid:
-                return None, None
-        coords = list(poly.exterior.coords[:-1])  # drop closing duplicate
-        n = len(coords)
-        if n < 3:
-            return None, None
-
-        vertices = []
-        # bottom vertices (z=0)
-        for x, y in coords:
-            vertices.extend([float(x), float(y), 0.0])
-        # top vertices (z=height)
-        for x, y in coords:
-            vertices.extend([float(x), float(y), float(height)])
-
-        indices = []
-        # bottom face (fan)
-        for i in range(1, n - 1):
-            indices.extend([0, i, i + 1])
-        # top face (fan reversed winding)
-        for i in range(1, n - 1):
-            indices.extend([n, n + i + 1, n + i])
-        # sides (two triangles per edge)
-        for i in range(n):
-            ni = (i + 1) % n
-            indices.extend([i, ni, i + n])
-            indices.extend([ni, ni + n, i + n])
-
-        # basic sanity
-        if len(vertices) == 0 or len(indices) == 0:
-            return None, None
-
-        return vertices, indices
-    except Exception as e:
-        print(f"[create_building_extrusion] error: {e}")
-        return None, None
-
-def update_dotbim(data,bbox_size_meters=512):
-    shiftSize = bbox_size_meters / 2
-    logger.info("Updating geometry...")
-
-    fixed_data = {}
-
-    for key, mesh in data.items():
-        coords = np.array(mesh.get("coordinates", [])).reshape(-1, 3)
-        indices = mesh.get("indices", [])
-
-        if coords.size == 0 or len(indices) == 0:
-            continue
-
-        #  skip if all Z <=1
-        if np.max(coords[:, 2]) <= 1.0:
-            continue
-
-
-        # X,Y shift
-        coords[:, 0] += shiftSize
-        coords[:, 1] += shiftSize
-
-        mesh["coordinates"] = coords.flatten().tolist()
-        fixed_data[key] = mesh
-
-    # if there are valid buildings left, save them
-    return fixed_data
-
-def get_bbox(center_lon, center_lat, box_size_meters=512):
-    """Return bounding box [minLon, minLat, maxLon, maxLat] around center point."""
-    logger.info("Getting bounding box...")
-    
-    half = box_size_meters / 2  # meters
-    geod = Geod(ellps="WGS84")
-    
-    # North
-    _, lat_n, _ = geod.fwd(center_lon, center_lat, 0, half)
-    # South
-    _, lat_s, _ = geod.fwd(center_lon, center_lat, 180, half)
-    # East
-    lon_e, _, _ = geod.fwd(center_lon, center_lat, 90, half)
-    # West
-    lon_w, _, _ = geod.fwd(center_lon, center_lat, 270, half)  # use 270 instead of -90
-    
-    return [lon_w, lat_s, lon_e, lat_n]
-
-
-def sanitize_name(s: str) -> str:
-    return ''.join(c if (c.isalnum() or c in "-_") else "-" for c in s)
-
-def geojson_to_dotbim(in_path: str, center_lon: float, center_lat: float, bbox_size_meters=512):
-    """
-    Read GeoJSON (features polygons) and produce dotbim-like JSON.
-    Returns (buildings_2d_list, dotbim_dict)
-    """
-    with open(in_path, "r", encoding="utf-8") as f:
-        gj = json.load(f)
-
-    features = gj.get("features", [])
-    buildings_2d = []
-    dotbim_data = {}
-
-    for idx, feat in enumerate(features):
-        geom = feat.get("geometry")
-        props = feat.get("properties", {}) or {}
-        if geom is None:
-            continue
-        gtype = geom.get("type")
-        coords = geom.get("coordinates")
-
-        # handle Polygon or MultiPolygon (take first polygon of MultiPolygon)
-        poly_coords_ll = None
-        if gtype == "Polygon":
-            # coordinates: [ [ [lon,lat], ... ] , ... ]
-            if len(coords) > 0 and len(coords[0]) >= 3:
-                poly_coords_ll = coords[0]
-        elif gtype == "MultiPolygon":
-            if len(coords) > 0 and len(coords[0]) > 0 and len(coords[0][0]) >= 3:
-                poly_coords_ll = coords[0][0]
-        else:
-            # skip points/lines etc.
-            continue
-
-        if not poly_coords_ll:
-            continue
-
-        # ensure polygon is closed and valid list of lon,lat
-        if poly_coords_ll[0] != poly_coords_ll[-1]:
-            poly_coords_ll = poly_coords_ll + [poly_coords_ll[0]]
-
-        # read height from properties; fallback to 3.0
-        height = props.get("height", props.get("building:height", None))
-        try:
-            if height is None:
-                h_val = 3.0
-            else:
-                # try numeric parsing (strip units)
-                if isinstance(height, (int, float)):
-                    h_val = float(height)
-                else:
-                    hs = str(height)
-                    if "m" in hs:
-                        h_val = float(hs.replace("m","").strip())
-                    elif "ft" in hs or "'" in hs:
-                        h_f = float(hs.replace("ft","").replace("'","").strip())
-                        h_val = h_f * 0.3048
-                    else:
-                        h_val = float(hs)
-        except Exception:
-            h_val = 3.0
-
-        # convert to local meters relative to center
-        # poly_coords_ll is list of [lon,lat]
-        poly_lonlat = [(float(p[0]), float(p[1])) for p in poly_coords_ll]
-        local_coords = convert_to_local_coords(poly_lonlat, center_lat, center_lon)
-
-        # store 2D for plotting
-        buildings_2d.append({
-            "coords": local_coords,
-            "height": float(h_val),
-            "source_idx": idx
-        })
-
-        # create extrusion mesh (in local meters)
-        verts, inds = create_building_extrusion(local_coords, h_val)
-        if verts and inds:
-            # name = props.get("id") or props.get("osm_id")
-            # ame = sanitize_name(str(name))
-            # if name == "" or name is None:
-            name = str(uuid.uuid4())
-
-            dotbim_data[name] = {
-                "mesh_id": len(dotbim_data),
-                "coordinates": verts,
-                "indices": inds
-            }
-
-    sifted_dotbim_data = update_dotbim(dotbim_data, bbox_size_meters)
-    logger.info("DotBIM updated")
-
-    return sifted_dotbim_data
-
-def crop_matrix(matrix: np.ndarray, core_size=256):
-    h, w = matrix.shape
-    start_row = (h - core_size) // 2
-    start_col = (w - core_size) // 2
-    return matrix[start_row:start_row + core_size, start_col:start_col + core_size]
-
-def map_categories(matrix: np.ndarray):
-    unique_cats = np.unique(matrix)
-    filtered_cats = [cat for cat in unique_cats if cat != "None"]
-
-    mapping = {cat: i for i, cat in enumerate(filtered_cats, start=1)}
-    mapping["NaN"] = np.nan
-
-    mapped = np.full(matrix.shape, np.nan, dtype=np.float32)
-
-    for cat, idx in mapping.items():
-        mapped[matrix == cat] = idx
-        
-    return mapped, mapping
-
-
-def _to_json_primitive(value):
-    """Recursively convert QGIS/Qt types (e.g. QVariant) to JSON-serializable
-    Python primitives. Handles nested lists/tuples/dicts.
-    """
-    # Unwrap QVariant
-    if isinstance(value, QVariant):
-        try:
-            if hasattr(value, "value"):
-                value = value.value()
-            else:
-                # In some QGIS versions QVariant behaves like the inner value already
-                value = value
-        except Exception:
-            return str(value)
-
-    # Primitive types are fine
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-
-    # Lists / tuples: convert elements
-    if isinstance(value, (list, tuple)):
-        return [_to_json_primitive(v) for v in value]
-
-    # Dicts: convert values (and keys to str just in case)
-    if isinstance(value, dict):
-        return {str(k): _to_json_primitive(v) for k, v in value.items()}
-
-    # Fallback: string representation for any other type (e.g. Qgs* objects)
-    return str(value)
-    
-def generate_geotiff(
-    matrix: np.ndarray,
-    bbox: tuple,
-    crs: str,
-    output_path: str,
-    simulation_type: str = "unknown",
-    criteria: str = "unknown",
-):
-    logger.info(f"Generate_geotiff bbox: {bbox}, crs: {crs}, output_path: {output_path}, simulation_type: {simulation_type}, criteria: {criteria}")
-    
-    west, south, east, north = bbox
-    height, width = matrix.shape
-    pixel_width = (east - west) / width
-    pixel_height = (north - south) / height
-    geotransform = (west, pixel_width, 0, north, 0, -pixel_height)
-    
-    driver = gdal.GetDriverByName("GTiff")
- 
-    # On Windows, ensure existing file is removed before Create
-    if os.path.exists(output_path):
-        try:
-            os.remove(output_path)
-        except Exception as e:
-            logger.warning("Failed to remove existing GeoTIFF %s: %s", output_path, e)
- 
-    ds = driver.Create(output_path, width, height, 1, gdal.GDT_Float32)
-    if ds is None:
-        raise RuntimeError(f"Failed to create GeoTIFF at {output_path}")
-    
-    ds.SetGeoTransform(geotransform)
-    srs = osr.SpatialReference()
-    srs.SetFromUserInput(crs)
-    ds.SetProjection(srs.ExportToWkt())
-    band = ds.GetRasterBand(1)
-    if simulation_type == "pedestrian-wind-comfort":
-        # index mapping
-        mapped_matrix, mapping_dict = map_categories(matrix)
-        band.WriteArray(mapped_matrix.astype(np.float32))
-        band.SetDescription(simulation_type)
-        band.SetNoDataValue(np.nan)
-        # metadata
-        md = {
-            "simulation_type": simulation_type,
-            "category_mapping": str(mapping_dict),
-            "criteria": criteria,
-            "no_data": str(np.nan),
-            "AREA_OR_POINT": "Point",
-        }
-        ds.SetMetadata(md)
-    else:
-        band.WriteArray(matrix.astype(np.float32))
-        band.SetDescription(simulation_type)
-        band.SetNoDataValue(np.nan)
-        md = {
-            "simulation_type": simulation_type,
-            "no_data": str(np.nan),
-            "AREA_OR_POINT": "Point",
-        }
-        ds.SetMetadata(md)
-    band.FlushCache()
-    ds = None
-
-def collect_geometry_data_by_tile(center_x, center_y, idx):
     date_now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-
     wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+    project = QgsProject.instance()
 
-    layer = iface.activeLayer()
-    if layer is None or not isinstance(layer, QgsVectorLayer):
-        for lyr in QgsProject.instance().mapLayers().values():
-            if isinstance(lyr, QgsVectorLayer):
-                layer = lyr
-                break
-
-    if layer is None or not isinstance(layer, QgsVectorLayer):
-        logger.error("No valid vector layer found.")
+    all_vector_layers = [
+        lyr for lyr in project.mapLayers().values()
+        if isinstance(lyr, QgsVectorLayer)
+    ]
+    if not all_vector_layers:
+        logger.error("No vector layers found in project.")
         return None
 
-    layer_crs = layer.crs()
+    if geometry_type == GeometryTypes.TREES:
+        keywords = ["tree", "trees", "vegetation"]
+    else:
+        keywords = ["building", "buildings"]
+
+    target_layers = [
+        lyr for lyr in all_vector_layers
+        if any(k in lyr.name().lower() for k in keywords)
+    ]
+    if not target_layers:
+        logger.warning(
+            "No layers matched geometry_type '%s'; falling back to all vector layers.",
+            geometry_type,
+        )
+        target_layers = all_vector_layers
+
+    ref_layer = target_layers[0]
+    ref_crs = ref_layer.crs()
 
     try:
-        transform_to_wgs84 = QgsCoordinateTransform(layer_crs, wgs84, QgsProject.instance())
+        transform_to_wgs84 = QgsCoordinateTransform(ref_crs, wgs84, project)
         pt_wgs84 = transform_to_wgs84.transform(QgsPointXY(center_x, center_y))
     except Exception as e:
         logger.error("Transform tile center to WGS84 failed: %s", e)
         return None
 
     center_lon, center_lat = pt_wgs84.x(), pt_wgs84.y()
-    logger.info("Tile center (WGS84): %.6f, %.6f", center_lon, center_lat)
+    logger.info("[collect_geometries] Tile center (WGS84): %.6f, %.6f", center_lon, center_lat)
 
     try:
         xmin, ymin, xmax, ymax = get_bbox(center_lon, center_lat, 512)
@@ -392,189 +101,18 @@ def collect_geometry_data_by_tile(center_x, center_y, idx):
         logger.error("get_bbox failed: %s", e)
         return None
 
-    if layer_crs.authid() != "EPSG:4326":
-        transform_bbox = QgsCoordinateTransform(wgs84, layer_crs, QgsProject.instance())
-        bbox_rect_layer = transform_bbox.transformBoundingBox(bbox_rect_wgs84)
-    else:
-        bbox_rect_layer = bbox_rect_wgs84
-
-    try:
-        layer.removeSelection()
-        layer.selectByRect(bbox_rect_layer, QgsVectorLayer.SetSelection)
-        count = layer.selectedFeatureCount()
-        logger.info("Tile %d: selected %d features.", idx, count)
-    except Exception as e:
-        logger.error("Selection failed for tile %d: %s", idx, e)
-        return None
-
-    selected_features = layer.selectedFeatures()
-    if not selected_features:
-        logger.info("Tile %d: no features selected, skipping.", idx)
-        return None
-    
-    logger.info("Tile %d: processing %d selected features.", idx, len(selected_features))
-    
-    geojson_dict = {
-        "type": "FeatureCollection",
-        "features": []
-    }
-
-    fields = [field.name() for field in layer.fields()]
-
-    for feat in selected_features:
-        geom = feat.geometry()
-        geom_wgs84 = QgsGeometry(geom)
-        if layer_crs.authid() != "EPSG:4326":
-            transform_to_wgs84_back = QgsCoordinateTransform(layer_crs, wgs84, QgsProject.instance())
-            geom_wgs84.transform(transform_to_wgs84_back)
-
-        # Collect raw attribute values (may contain QVariant)
-        attr_values = feat.attributes()
-        raw_properties = {fields[i]: attr_values[i] for i in range(len(fields))}
-
-        # Convert attributes (possibly containing QVariant and nested structures)
-        # to JSON-serializable primitives.
-        properties_dict = {key: _to_json_primitive(val) for key, val in raw_properties.items()}
-
-        geom_bbox = geom.boundingBox()
-        height = geom_bbox.height()
-
-        if layer_crs.mapUnits() == QgsUnitTypes.DistanceDegrees:
-            height *= 111_000
-
-        properties_dict["height"] = round(height, 2)
-
-        geojson_dict["features"].append({
-            "type": "Feature",
-            "geometry": json.loads(geom_wgs84.asJson()),
-            "properties": properties_dict
-        })
-
-    plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
-    os.makedirs(plugin_data_dir, exist_ok=True)
-    geojson_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{date_now}_tile_{idx}.geojson")
-
-    with open(geojson_path, "w", encoding="utf-8") as f:
-        json.dump(geojson_dict, f, ensure_ascii=False, indent=2)
-
-    dotbim_data = process_geojson_file(geojson_dict, center_lon, center_lat, "EPSG:4326")
-    dotbim_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{date_now}_tile_{idx}.bim")
-
-    with open(dotbim_path, "w", encoding="utf-8") as f:
-        json.dump(dotbim_data, f, ensure_ascii=False, indent=2)
-
-    logger.info("Tile %d saved to %s and %s", idx, geojson_path, dotbim_path)
-
-    # 512x512 bbox in layer CRS (for OGC API)
-    bbox_512 = (
-        bbox_rect_layer.xMinimum(),
-        bbox_rect_layer.yMinimum(),
-        bbox_rect_layer.xMaximum(),
-        bbox_rect_layer.yMaximum(),
-    )
-
-    # 256x256 bbox in the same CRS, centered on the tile center
-    display_tile_size = 256.0
-    half_disp = display_tile_size / 2.0
-    bbox_256 = (
-        center_x - half_disp,
-        center_y - half_disp,
-        center_x + half_disp,
-        center_y + half_disp,
-    )
-
-    crs_authid = layer_crs.authid()
-
-    logger.info(f"Tile {idx}: CRS={crs_authid}, bbox_512={bbox_512}, bbox_256={bbox_256}")
-
-    return geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256
-
-
-def collect_geometries(center_x, center_y, idx, geometry_type: GeometryTypes = GeometryTypes.BUILDINGS):
-    """Collect geometries for a tile center from multiple layers.
-
-    geometry_type:
-        - "buildings" (default): prefers layers whose name contains
-          'building'/'buildings'.
-        - "trees": prefers layers with 'tree'/'trees'/'vegetation' in the name.
-
-    Returns the same tuple as collect_geometry_data_by_tile:
-        (geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256)
-    or None if no geometries were found.
-    """
-
-    date_now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
-
-    project = QgsProject.instance()
-    all_vector_layers = [
-        lyr for lyr in project.mapLayers().values()
-        if isinstance(lyr, QgsVectorLayer)
-    ]
-
-    if not all_vector_layers:
-        logger.error("No vector layers found in project.")
-        return None
-
-    if geometry_type  == GeometryTypes.TREES:
-        keywords = ["tree", "trees", "vegetation"]
-    elif geometry_type == GeometryTypes.BUILDINGS:
-        keywords = ["building", "buildings"]
-
-    target_layers = [
-        lyr for lyr in all_vector_layers
-        if any(k in lyr.name().lower() for k in keywords)
-    ]
-
-    # If no specific target layers matched, fall back to all vector layers
-    if not target_layers:
-        logger.warning(
-            "No layers matched geometry_type '%s'; falling back to all vector layers.",
-            geometry_type,
-        )
-        target_layers = all_vector_layers
-
-    # Use the first target layer as reference CRS for the input center point
-    ref_layer = target_layers[0]
-    ref_crs = ref_layer.crs()
-
-    try:
-        transform_to_wgs84 = QgsCoordinateTransform(ref_crs, wgs84, project)
-        pt_wgs84 = transform_to_wgs84.transform(QgsPointXY(center_x, center_y))
-    except Exception as e:
-        logger.error("Transform tile center to WGS84 failed (collect_geometries): %s", e)
-        return None
-
-    center_lon, center_lat = pt_wgs84.x(), pt_wgs84.y()
-    logger.info(
-        "[collect_geometries] Tile center (WGS84): %.6f, %.6f", center_lon, center_lat
-    )
-
-    try:
-        xmin, ymin, xmax, ymax = get_bbox(center_lon, center_lat, 512)
-        bbox_rect_wgs84 = QgsRectangle(xmin, ymin, xmax, ymax)
-    except Exception as e:
-        logger.error("get_bbox failed in collect_geometries: %s", e)
-        return None
-
-    # Reference 512x512 bbox in ref_layer CRS (for OGC API)
     if ref_crs.authid() != "EPSG:4326":
         transform_bbox_ref = QgsCoordinateTransform(wgs84, ref_crs, project)
         bbox_rect_ref = transform_bbox_ref.transformBoundingBox(bbox_rect_wgs84)
     else:
         bbox_rect_ref = bbox_rect_wgs84
 
-    geojson_dict = {
-        "type": "FeatureCollection",
-        "features": []
-    }
-
+    geojson_dict = {"type": "FeatureCollection", "features": []}
     total_features = 0
 
     for layer in target_layers:
         layer_crs = layer.crs()
 
-        # Transform bbox to this layer's CRS
         if layer_crs.authid() != "EPSG:4326":
             try:
                 transform_bbox = QgsCoordinateTransform(wgs84, layer_crs, project)
@@ -586,30 +124,29 @@ def collect_geometries(center_x, center_y, idx, geometry_type: GeometryTypes = G
             bbox_rect_layer = bbox_rect_wgs84
 
         try:
-            layer.removeSelection()
-            layer.selectByRect(bbox_rect_layer, QgsVectorLayer.SetSelection)
-            selected_features = layer.selectedFeatures()
-            if not selected_features:
-                logger.info(
-                    "[collect_geometries] Layer '%s': no features in tile bbox.",
-                    layer.name(),
-                )
-                continue
-        except Exception as e:
-            logger.error(
-                "Selection failed for layer %s in tile %d: %s",
-                layer.name(),
-                idx,
-                e,
-            )
-            continue
+            # setFilterRect casts a wide net; then filter with exact intersects.
+            # (selectByRect uses GEOS ExactIntersect and can miss large buildings.)
+            bbox_geom = QgsGeometry.fromRect(bbox_rect_layer)
+            candidates = list(layer.getFeatures(QgsFeatureRequest().setFilterRect(bbox_rect_layer)))
+            selected_features = []
+            for feat in candidates:
+                try:
+                    if feat.geometry().intersects(bbox_geom):
+                        selected_features.append(feat)
+                except Exception:
+                    selected_features.append(feat)  # accept on invalid geometry
 
-        logger.info(
-            "[collect_geometries] Layer '%s': processing %d features for tile %d.",
-            layer.name(),
-            len(selected_features),
-            idx,
-        )
+            if not selected_features:
+                logger.info("[collect_geometries] Layer '%s': no features in tile bbox.", layer.name())
+                continue
+
+            logger.info(
+                "[collect_geometries] Layer '%s': %d candidates, %d intersecting.",
+                layer.name(), len(candidates), len(selected_features),
+            )
+        except Exception as e:
+            logger.error("Selection failed for layer %s tile %d: %s", layer.name(), idx, e)
+            continue
 
         fields = [field.name() for field in layer.fields()]
 
@@ -617,35 +154,29 @@ def collect_geometries(center_x, center_y, idx, geometry_type: GeometryTypes = G
             geom = feat.geometry()
             geom_wgs84 = QgsGeometry(geom)
             if layer_crs.authid() != "EPSG:4326":
-                transform_to_wgs84_back = QgsCoordinateTransform(layer_crs, wgs84, project)
-                geom_wgs84.transform(transform_to_wgs84_back)
+                t = QgsCoordinateTransform(layer_crs, wgs84, project)
+                geom_wgs84.transform(t)
 
             attr_values = feat.attributes()
-            raw_properties = {fields[i]: attr_values[i] for i in range(len(fields))}
-            properties_dict = {key: _to_json_primitive(val) for key, val in raw_properties.items()}
+            raw_props = {fields[i]: attr_values[i] for i in range(len(fields))}
+            props = {k: _to_json_primitive(v) for k, v in raw_props.items()}
+            props["source_layer"] = layer.name()
+            props["geometry_type"] = geometry_type.value
 
-            # Optional: tag by source layer and geometry_type
-            properties_dict["source_layer"] = layer.name()
-            properties_dict["geometry_type"] = geometry_type.value
-
-            geom_bbox = geom.boundingBox()
-            height = geom_bbox.height()
-
+            h = geom.boundingBox().height()
             if layer_crs.mapUnits() == QgsUnitTypes.DistanceDegrees:
-                height *= 111_000
-
-            properties_dict["height"] = round(height, 2)
+                h *= 111_000
+            props["height"] = round(h, 2)
 
             geojson_dict["features"].append({
                 "type": "Feature",
                 "geometry": json.loads(geom_wgs84.asJson()),
-                "properties": properties_dict
+                "properties": props,
             })
-
             total_features += 1
 
     if total_features == 0:
-        logger.info("[collect_geometries] Tile %d: no features found on any layer.", idx)
+        logger.info("[collect_geometries] Tile %d: no features found.", idx)
         return None
 
     plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
@@ -655,285 +186,49 @@ def collect_geometries(center_x, center_y, idx, geometry_type: GeometryTypes = G
         plugin_data_dir,
         f"infrared_city_geometries_{geometry_type.value}_{date_now}_tile_{idx}.geojson",
     )
-
     with open(geojson_path, "w", encoding="utf-8") as f:
         json.dump(geojson_dict, f, ensure_ascii=False, indent=2)
 
     if geometry_type == GeometryTypes.BUILDINGS:
         dotbim_data = process_geojson_file(geojson_dict, center_lon, center_lat, "EPSG:4326")
-    
-    if geometry_type == GeometryTypes.TREES:
+    else:
         dotbim_data = convert_tree_to_dotbim(geojson_dict, center_lon, center_lat, "EPSG:4326")
-        logger.info("Trees converted to dotbim for tile: %d", idx)
-    
+        logger.info("Trees converted to dotbim for tile %d", idx)
+
     dotbim_path = os.path.join(
         plugin_data_dir,
         f"infrared_city_geometries_{geometry_type.value}_{date_now}_tile_{idx}.bim",
     )
-
     with open(dotbim_path, "w", encoding="utf-8") as f:
         json.dump(dotbim_data, f, ensure_ascii=False, indent=2)
 
     logger.info(
-        "[collect_geometries] Tile %d saved to %s and %s (features: %d), trees: %s",
-        idx,
-        geojson_path,
-        dotbim_path,
-        total_features,
-        geometry_type == GeometryTypes.TREES,
+        "[collect_geometries] Tile %d: %d features → %s",
+        idx, total_features, geojson_path,
     )
 
-    # 512x512 bbox in reference layer CRS 
     bbox_512 = (
-        bbox_rect_ref.xMinimum(),
-        bbox_rect_ref.yMinimum(),
-        bbox_rect_ref.xMaximum(),
-        bbox_rect_ref.yMaximum(),
+        bbox_rect_ref.xMinimum(), bbox_rect_ref.yMinimum(),
+        bbox_rect_ref.xMaximum(), bbox_rect_ref.yMaximum(),
     )
 
-    # 256x256 bbox in the same CRS, centered on the tile center
-    display_tile_size = 256.0
-    half_disp = display_tile_size / 2.0
+    half = 128.0  # 256m tile → 128m half
     if ref_crs.isGeographic():
-        # Local azimuthal equidistant projection centered on the tile
-        cx_center = (bbox_rect_ref.xMinimum() + bbox_rect_ref.xMaximum()) / 2.0
-        cy_center = (bbox_rect_ref.yMinimum() + bbox_rect_ref.yMaximum()) / 2.0
+        cx = (bbox_rect_ref.xMinimum() + bbox_rect_ref.xMaximum()) / 2.0
+        cy = (bbox_rect_ref.yMinimum() + bbox_rect_ref.yMaximum()) / 2.0
         local_crs = QgsCoordinateReferenceSystem.fromProj4(
-            f"+proj=aeqd +lat_0={cy_center} +lon_0={cx_center} +ellps=WGS84 +units=m +type=crs"
+            f"+proj=aeqd +lat_0={cy} +lon_0={cx} +ellps=WGS84 +units=m +type=crs"
         )
-        # Transform to local projection
-        transform_to_local = QgsCoordinateTransform(ref_crs, local_crs, QgsProject.instance())
-        center_x_m, center_y_m = transform_to_local.transform(center_x, center_y)
- 
-        # 256 meter tile in local projection
-        bbox_256_m = (
-            center_x_m - half_disp,
-            center_y_m - half_disp,
-            center_x_m + half_disp,
-            center_y_m + half_disp,
-        )
-        
-        
-        transform_back = QgsCoordinateTransform(local_crs, ref_crs, QgsProject.instance())
-        bbox_256 = []
-        for x, y in [
-            (bbox_256_m[0], bbox_256_m[1]),
-            (bbox_256_m[2], bbox_256_m[3])
-        ]:
-            x_orig, y_orig = transform_back.transform(x, y)
-            bbox_256.extend([x_orig, y_orig])
+        to_local = QgsCoordinateTransform(ref_crs, local_crs, project)
+        cx_m, cy_m = to_local.transform(center_x, center_y)
+        to_ref = QgsCoordinateTransform(local_crs, ref_crs, project)
+        sw = to_ref.transform(cx_m - half, cy_m - half)
+        ne = to_ref.transform(cx_m + half, cy_m + half)
+        bbox_256 = (sw.x(), sw.y(), ne.x(), ne.y())
     else:
-        # If projected CRS
-        bbox_256 = (
-            center_x - half_disp,
-            center_y - half_disp,
-            center_x + half_disp,
-            center_y + half_disp,
-        )
-    
-    crs_authid = ref_crs.authid()
+        bbox_256 = (center_x - half, center_y - half, center_x + half, center_y + half)
 
-    logger.info(
-        f"[collect_geometries] Tile {idx}: CRS={crs_authid}, bbox_512={bbox_512}, bbox_256={bbox_256}"
-    )
+    crs_authid = ref_crs.authid()
+    logger.info("[collect_geometries] Tile %d: CRS=%s bbox_512=%s bbox_256=%s", idx, crs_authid, bbox_512, bbox_256)
 
     return geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256
-
-
-def get_selected_crs():
-    layer = iface.activeLayer()
-    if layer is None:
-        
-        logger.warning("No active layer found")
-        return None 
-    layer_crs = layer.crs()
-    logger.info(f"Selected crs: {layer_crs.authid()}")
-    return layer_crs.authid()
-
-def get_selected_bbox():
-
-    layer = iface.activeLayer()
-    if layer is None:
-        
-        logger.warning("No active layer found")
-        return None
-
-    selected = layer.selectedFeatures()
-    if not selected:
-        logger.warning("No selected features found in the active layer")
-        return None
-
-    # Get bbox from first selected feature
-    geom = selected[0].geometry()
-    if geom is None or geom.isEmpty():
-        logger.warning("First selected geometry is empty")
-        return None
-    bbox = geom.boundingBox()
-
-    # If multiple features are selected, combine their bboxes
-    for feat in selected[1:]:
-        g = feat.geometry()
-        if g is None or g.isEmpty():
-            logger.debug("Skipping empty geometry in bbox combination")
-            continue
-        bbox.combineExtentWith(g.boundingBox())
-
-    west  = bbox.xMinimum()
-    south = bbox.yMinimum()
-    east  = bbox.xMaximum()
-    north = bbox.yMaximum()
-    
-    logger.info(f"Selected bbox: {west}, {south}, {east}, {north}")
-
-    return west, south, east, north
-
-def generate_tile_centers(west, south, east, north, tile_size=256):
-
-    width = east - west
-    height = north - south
-
-    if width <= 0 or height <= 0:
-        logger.error(f"Wrong bbox: width={width}, height={height} for ({west}, {south}, {east}, {north})")
-        return []
-
-    # How many tiles in X/Y directions, rounded up
-    nx = math.ceil(width / tile_size)
-    ny = math.ceil(height / tile_size)
-
-    centers = []
-
-    for j in range(ny):          # Y direction (row index)
-        cy = north - (j + 0.5) * tile_size
-        for i in range(nx):      # X direction (column index)
-            cx = west + (i + 0.5) * tile_size
-            centers.append((cx, cy))
-
-    return centers
-
-def collect_tile_centers_from_selection():
-    layer = iface.activeLayer()
-    if not layer:
-        return []
- 
-    w, s, e, n = get_selected_bbox()
-    selected = layer.selectedFeatures()
-    geom_union = QgsGeometry.unaryUnion(
-        [f.geometry() for f in selected if f.geometry() and not f.geometry().isEmpty()]
-    )
- 
-    layer_crs = layer.crs()
-    tile_size_m = 256.0
-    half = tile_size_m / 2.0
- 
-    if layer_crs.isGeographic():
-        # Helyi AEQD vetület a bbox középpontjára
-        cx_center = (w + e) / 2.0
-        cy_center = (s + n) / 2.0
-        target_crs = QgsCoordinateReferenceSystem.fromProj4(
-            f"+proj=aeqd +lat_0={cy_center} +lon_0={cx_center} +ellps=WGS84 +units=m +type=crs"
-        )
-        # Koordinátátalakítás méterbe
-        transform_to_meters = QgsCoordinateTransform(layer_crs, target_crs, QgsProject.instance())
-        w_m, s_m = transform_to_meters.transform(w, s)
-        e_m, n_m = transform_to_meters.transform(e, n)
-        # Tile‑centerek generálása méterben
-        tile_centers_m = generate_tile_centers(w_m, s_m, e_m, n_m)
- 
-        # Selection geometria áttranszformálása méterbe
-        transform_geom = QgsCoordinateTransform(layer_crs, target_crs, QgsProject.instance())
-        geom_union_m = QgsGeometry(geom_union)
-        geom_union_m.transform(transform_geom)
- 
-        # Szűrés méterben
-        filtered_m = []
-        for cx_m, cy_m in tile_centers_m:
-            rect = QgsRectangle(
-                cx_m - half,
-                cy_m - half,
-                cx_m + half,
-                cy_m + half,
-            )
-            if geom_union_m.intersects(QgsGeometry.fromRect(rect)):
-                filtered_m.append((cx_m, cy_m))
- 
-        # Eredmény visszaalakítása a réteg CRS‑ébe
-        transform_back = QgsCoordinateTransform(target_crs, layer_crs, QgsProject.instance())
-        filtered = []
-        for cx_m, cy_m in filtered_m:
-            cx_layer, cy_layer = transform_back.transform(cx_m, cy_m)
-            filtered.append((cx_layer, cy_layer))
-    else:
-        # Már méter‑alapú CRS: nincs vetítés
-        tile_centers_layer_crs = generate_tile_centers(w, s, e, n)
-        filtered = []
-        for cx, cy in tile_centers_layer_crs:
-            rect = QgsRectangle(
-                cx - half,
-                cy - half,
-                cx + half,
-                cy + half,
-            )
-            if geom_union.intersects(QgsGeometry.fromRect(rect)):
-                filtered.append((cx, cy))
- 
-    return filtered
-
-def plot_tile_centers(tile_centers):
-    """Create a temporary point layer with the given tile centers and add it to the project."""
-
-    if not tile_centers:
-        logger.warning("plot_tile_centers called with empty tile_centers list")
-        return
-
-    layer = iface.activeLayer()
-    if layer is not None:
-        crs = layer.crs()
-    else:
-        crs = QgsProject.instance().crs()
-
-    vlayer = QgsVectorLayer(f"Point?crs={crs.authid()}", f"Tile centers: {len(tile_centers)}", "memory")
-    pr = vlayer.dataProvider()
-
-    fields = QgsFields()
-    fields.append(QgsField("id", QVariant.Int))
-    pr.addAttributes(fields)
-    vlayer.updateFields()
-
-    feats = []
-    for idx, (cx, cy) in enumerate(tile_centers):
-        feat = QgsFeature()
-        feat.setFields(fields)
-        feat.setAttribute("id", idx)
-        feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(cx, cy)))
-        feats.append(feat)
-
-    pr.addFeatures(feats)
-    vlayer.updateExtents()
-
-    QgsProject.instance().addMapLayer(vlayer)
-
-def get_center_lon_lat_from_bbox(bbox, crs_authid: str):
-    """Return bbox center as lon/lat in EPSG:4326.
-
-    `bbox` is (west, south, east, north) in the layer CRS given by `crs_authid`.
-    If the CRS is not EPSG:4326, the bbox is transformed to WGS84 first using
-    QgsCoordinateTransform, then the center is computed.
-    """
-    w, s, e, n = bbox
-    layer_rect = QgsRectangle(w, s, e, n)
-
-    if crs_authid and crs_authid != "EPSG:4326":
-        layer_crs = QgsCoordinateReferenceSystem(crs_authid)
-        wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
-        transform = QgsCoordinateTransform(layer_crs, wgs84, QgsProject.instance())
-        bbox_rect_wgs84 = transform.transformBoundingBox(layer_rect)
-    else:
-        bbox_rect_wgs84 = layer_rect
-
-    center_lon = (bbox_rect_wgs84.xMinimum() + bbox_rect_wgs84.xMaximum()) / 2
-    center_lat = (bbox_rect_wgs84.yMinimum() + bbox_rect_wgs84.yMaximum()) / 2
-    return center_lon, center_lat
-
-def get_center_from_bbox(bbox):
-    w, s, e, n = bbox
-    return (w + e) / 2, (s + n) / 2
