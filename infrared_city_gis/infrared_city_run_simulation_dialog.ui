@@ -15,26 +15,6 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <widget class="QLabel" name="label_api_key">
-     <property name="maximumSize">
-      <size>
-       <width>16777215</width>
-       <height>19</height>
-      </size>
-     </property>
-     <property name="text">
-      <string>Infrared.city API key:</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QLineEdit" name="api_key_input">
-     <property name="placeholderText">
-      <string>Enter your Infrared.city API key</string>
-     </property>
-    </widget>
-   </item>
-   <item>
     <widget class="QLabel" name="label_analysis_type">
      <property name="minimumSize">
       <size>
@@ -238,45 +218,26 @@
           <item row="3" column="1">
            <widget class="QWidget" name="legend_min_container_tci" native="true">
             <layout class="QHBoxLayout" name="horizontalLayoutLegendMin">
-             <property name="leftMargin">
-              <number>0</number>
-             </property>
-             <property name="topMargin">
-              <number>0</number>
-             </property>
-             <property name="rightMargin">
-              <number>0</number>
-             </property>
-             <property name="bottomMargin">
-              <number>0</number>
-             </property>
+             <property name="leftMargin"><number>0</number></property>
+             <property name="topMargin"><number>0</number></property>
+             <property name="rightMargin"><number>0</number></property>
+             <property name="bottomMargin"><number>0</number></property>
              <item>
               <widget class="QCheckBox" name="legend_min_enable_tci">
-               <property name="text">
-                <string/>
-               </property>
+               <property name="text"><string/></property>
               </widget>
              </item>
              <item>
               <widget class="QDoubleSpinBox" name="legend_min_input_tci">
-               <property name="minimum">
-                <double>-9999.000000000000000</double>
-               </property>
-               <property name="maximum">
-                <double>9999.000000000000000</double>
-               </property>
-               <property name="decimals">
-                <number>2</number>
-               </property>
-               <property name="singleStep">
-                <double>0.100000000000000</double>
-               </property>
+               <property name="minimum"><double>-9999.000000000000000</double></property>
+               <property name="maximum"><double>9999.000000000000000</double></property>
+               <property name="decimals"><number>2</number></property>
+               <property name="singleStep"><double>0.100000000000000</double></property>
               </widget>
              </item>
             </layout>
            </widget>
           </item>
-
           <item row="4" column="0">
            <widget class="QLabel" name="label_legend_max_tci">
             <property name="text">
@@ -287,39 +248,21 @@
           <item row="4" column="1">
            <widget class="QWidget" name="legend_max_container_tci" native="true">
             <layout class="QHBoxLayout" name="horizontalLayoutLegendMax">
-             <property name="leftMargin">
-              <number>0</number>
-             </property>
-             <property name="topMargin">
-              <number>0</number>
-             </property>
-             <property name="rightMargin">
-              <number>0</number>
-             </property>
-             <property name="bottomMargin">
-              <number>0</number>
-             </property>
+             <property name="leftMargin"><number>0</number></property>
+             <property name="topMargin"><number>0</number></property>
+             <property name="rightMargin"><number>0</number></property>
+             <property name="bottomMargin"><number>0</number></property>
              <item>
               <widget class="QCheckBox" name="legend_max_enable_tci">
-               <property name="text">
-                <string/>
-               </property>
+               <property name="text"><string/></property>
               </widget>
              </item>
              <item>
               <widget class="QDoubleSpinBox" name="legend_max_input_tci">
-               <property name="minimum">
-                <double>-9999.000000000000000</double>
-               </property>
-               <property name="maximum">
-                <double>9999.000000000000000</double>
-               </property>
-               <property name="decimals">
-                <number>2</number>
-               </property>
-               <property name="singleStep">
-                <double>0.100000000000000</double>
-               </property>
+               <property name="minimum"><double>-9999.000000000000000</double></property>
+               <property name="maximum"><double>9999.000000000000000</double></property>
+               <property name="decimals"><number>2</number></property>
+               <property name="singleStep"><double>0.100000000000000</double></property>
               </widget>
              </item>
             </layout>
