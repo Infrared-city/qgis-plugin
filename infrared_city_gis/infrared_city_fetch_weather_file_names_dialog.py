@@ -60,7 +60,7 @@ class InfraredCityFetchWeatherFileNamesDialog(QtWidgets.QDialog, FORM_CLASS):
                     api_key = data.get("api-key", "")
                     self.api_key_input.setText(api_key)
                     self.api_key = api_key
-                    logger.info(f"Loaded API key from user.json: {api_key}")
+                    logger.info(f"API key was loaded from user input.")
             except Exception as e:
                 logger.warning(f"Could not read API key: {e}")
                 QMessageBox.warning(self, "Invalid API Key", "Invalid API key. Please check the input values.")

@@ -24,6 +24,7 @@ def add_geojson_then_raster(
     raster_opacity=0.7,
     min_legend_value=None,
     max_legend_value=None,
+    tile_id=None
 ):
     logger.info("Adding GeoJSON layer: %s", geojson_path)
     logger.info("Adding GeoTIFF layer: %s", geotiff_path)
@@ -51,7 +52,7 @@ def add_geojson_then_raster(
     QgsProject.instance().addMapLayer(vlayer)
 
     # --- GeoTIFF layer ---
-    rlayer = QgsRasterLayer(geotiff_path, f"Infrared Result - {analysis_type}", "gdal")
+    rlayer = QgsRasterLayer(geotiff_path, f"IC result - {analysis_type}{tile_id}", "gdal")
     if not rlayer.isValid():
         raise RuntimeError(f"GeoTIFF layer loading failed: {geotiff_path}")
 

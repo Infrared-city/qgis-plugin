@@ -22,33 +22,29 @@
  ***************************************************************************/
 """
 
+import json
 import os
-from qgis.PyQt import uic
-from qgis.PyQt import QtWidgets
-from qgis.PyQt.QtWidgets import QMessageBox
-from .client import (
-    process_run_analysis,
-    load_dotbim,get_windspeed_payload, get_pwc_payload, get_utci_payload,
-    get_tcs_payload, get_shadow_mask_payload, get_daylight_availability_payload,
-    get_direct_sun_hours_payload, get_solar_radiation_payload
-)
+
+from qgis.core import Qgis, QgsApplication
+from qgis.PyQt import QtWidgets, uic
+from qgis.PyQt.QtCore import QDateTime
+from qgis.PyQt.QtWidgets import QApplication, QMessageBox
+from qgis.utils import iface
+
 from .exceptions import InfraredAPIError
 from .infrared_logger import logger
-import json
-from qgis.core import QgsApplication
-from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType, GeometryTypes
-from .models.timeframes_parser import SeasonalTimeFrameConfig, DailyTimeFrameConfig,DailyTimeFrameConfigUTCI, MonthConfig, makeTimeFrameObj,makeTimeFrameObjWithMonth
-from .services.geometry import collect_tile_centers_from_selection, collect_geometries, crop_matrix, generate_geotiff
-from .visualization.display import add_geojson_then_raster, deselect_all
-from qgis.utils import iface
-from qgis.core import Qgis
-from qgis.PyQt.QtWidgets import QApplication
-from qgis.PyQt.QtCore import QDateTime 
+from .models.analysis import AnalysisType, GeometryTypes, PedestrianWindComfortType, ThermalComfortStatisticsType
+from .models.timeframes_parser import (
+    DailyTimeFrameConfig, DailyTimeFrameConfigUTCI, MonthConfig,
+    SeasonalTimeFrameConfig, makeTimeFrameObj, makeTimeFrameObjWithMonth,
+)
+from .services.epw_query import Query_Type, query_infrared_epw
 from .services.fetch import fetch_weather_file_names
-from .services.geometry import get_center_lon_lat_from_bbox, get_selected_bbox, get_selected_crs,plot_tile_centers
-from .services.epw_query import query_infrared_epw, Query_Type
-from osgeo import gdal
-import numpy as np
+from .services.geometry import (
+    collect_tile_centers_from_selection,
+    get_center_lon_lat_from_bbox, get_selected_bbox, get_selected_crs, plot_tile_centers,
+)
+from .services.multi_sim_runner import build_payload, run_tiles
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -123,7 +119,14 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.reject()
             return
 
-        logger.info("Dialog loaded")
+        try:
+            tile_centers = collect_tile_centers_from_selection()
+            tile_count = len(tile_centers) if tile_centers else 0
+        except Exception:
+            tile_count = 0
+
+        self.setWindowTitle(f"Run Multiple Simulations — {tile_count} tile{'s' if tile_count != 1 else ''} selected")
+        logger.info("Dialog loaded, tile count: %d", tile_count)
         self._init_ok = True
 
     def on_analysis_changed(self, text):
@@ -287,320 +290,25 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.error("Failed to populate shadow mask dialog elements: %s", str(e), exc_info=True)
     
     def accept(self):
-        
-        try: 
+        try:
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
-            logger.info(f"Accept called. Sender: {self.sender()}")
             tile_centers = collect_tile_centers_from_selection()
-            
             plot_tile_centers(tile_centers)
 
             self.analysis_type = self.analysis_type_dropdown.currentData()
             self.sub_analysis_type = None
-            selected_legend_min = None
-            selected_legend_max = None
-
 
             if not self.api_key:
-                logger.warning("API key is empty.")
-                QMessageBox.warning(
-                    self,
-                    "Missing API Key",
-                    "No API key found. Please save your API key first via the 'Save API Key' menu."
-                )
+                QMessageBox.warning(self, "Missing API Key",
+                    "No API key found. Please save your API key first via the 'Save API Key' menu.")
                 return
 
-            # ---------  Preparing payloads -----------------
-            if self.analysis_type == AnalysisType.WIND_SPEED:
-                # Validation
-                wind_speed = self.wind_speed_input.value()
-                wind_direction = self.wind_direction_input.value()
-                
-                if  (wind_speed <= 0 or wind_direction < 0 or wind_direction > 360):
-                    logger.warning("Invalid parameters. Please check the input values.")
-                    QMessageBox.warning(self, "Invalid Parameters", "Wind speed must be >0 and direction between 0-360°.")
-                    return
+            payload = build_payload(self)
+            if payload is None:
+                return
 
-                payload = get_windspeed_payload(wind_direction, wind_speed)            
-        
-            elif self.analysis_type == AnalysisType.PEDESTRIAN_WIND_COMFORT:
-                # Validation
-                try:
-                    pwc_type = self.pwc_type_dropdown.currentData()
-                    self.sub_analysis_type = pwc_type
-                    selected_season = self.season_dropdown_pwc.currentData()   
-                    selected_hours = self.hours_dropdown_pwc.currentData()
-                    weather_file = self.weather_file_input_pwc.currentText().strip()
-                    #weather_file = "SRC-TMYx, Hamburg-Schmidt.AP"
-                    logger.info(f"Weather file: {weather_file}")
-
-                except AttributeError:
-                    logger.warning("Missing input")
-                    QMessageBox.warning(self, "Missing Input", "Please fill in all fields!")
-                    return
-
-                #TODO: hemisphere
-                time_frame = makeTimeFrameObj(isNorthHem=True,season=selected_season.value, hourly=selected_hours.value)
-                wind_data = query_infrared_epw(
-                        file_name=weather_file,
-                        type=Query_Type.WIND,
-                        time_frame=time_frame,
-                        api_key=self.api_key
-                    )
-                payload = get_pwc_payload(wind_data,self.sub_analysis_type.value)
-            
-            elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
-                # Validation
-                try:
-                    selected_month = self.month_dropdown_tci.currentData()
-                    selected_hours = self.hours_dropdown_tci.currentData()
-                    if self.legend_min_enable_tci.isChecked():
-                        self.min_legend_value = self.legend_min_input_tci.value()
-                    if self.legend_max_enable_tci.isChecked():
-                        self.max_legend_value = self.legend_max_input_tci.value()
-                    weather_file = self.weather_file_input_tci.currentText().strip()
-                    logger.info(f"Weather file: {weather_file}")
-
-                except AttributeError:
-                    logger.warning(f"Missing input, Selected season and hours are required.")
-                    QMessageBox.warning(self, "Missing Input", "Selected season and hours are required.")
-                    selected_legend_min = None
-                    selected_legend_max = None
-                    return
-                
-                time_frame = makeTimeFrameObjWithMonth(month=selected_month.number, hourly=selected_hours.value)
-                weather_data = query_infrared_epw(
-                        file_name=weather_file,
-                        type=Query_Type.UTCI,
-                        time_frame=time_frame,
-                        api_key=self.api_key
-                    )
-                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
-                payload = get_utci_payload(weather_data,center_lon, center_lat, time_frame)
-
-            elif self.analysis_type == AnalysisType.THERMAL_COMFORT_STATISTICS:
-                # Validation
-                try:
-                    selected_season = self.season_dropdown_tcs.currentData()
-                    selected_hours = self.hours_dropdown_tcs.currentData()
-                    selected_tcs_type = self.tcs_type_dropdown.currentData()
-
-                    weather_file = self.weather_file_input_tcs.currentText().strip()
-                    logger.info(f"Weather file: {weather_file}")
-
-                except AttributeError:
-                    logger.warning("Missing input. TCS type is required.")
-                    QMessageBox.warning(self, "Missing Input", "TCS type is required.")
-                    return
-
-                time_frame = makeTimeFrameObj(isNorthHem=True,season=selected_season.value,hourly=selected_hours.value,analysis_type=self.analysis_type)
-                weather_data = query_infrared_epw(
-                        file_name=weather_file,
-                        type=Query_Type.UTCI,
-                        time_frame=time_frame,
-                        api_key=self.api_key
-                    )
-                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
-                payload = get_tcs_payload(weather_data,center_lon,center_lat,time_frame,selected_tcs_type.value)
-
-            elif self.analysis_type == AnalysisType.SOLAR_RADIATION:
-                # Validation
-                try:
-                    selected_month = self.month_dropdown_sr.currentData()      
-                    selected_hours = self.hours_dropdown_sr.currentData()
-                    
-
-                    weather_file = self.weather_file_input_sr.currentText().strip()
-                    logger.info(f"Weather file: {weather_file}")
-
-
-                except AttributeError:
-                    logger.warning(f"Missing input, Selected month and hours are required.")
-                    QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
-                    return
-                
-                time_frame = makeTimeFrameObjWithMonth(month=selected_month.number, hourly=selected_hours.value)
-                weather_data = query_infrared_epw(
-                        file_name=weather_file,
-                        type=Query_Type.UTCI,
-                        time_frame=time_frame,
-                        api_key=self.api_key
-                    )
-                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
-                payload = get_solar_radiation_payload(weather_data,center_lon, center_lat, time_frame)
-            
-            elif self.analysis_type == AnalysisType.DAYLIGHT_AVAILABILITY:
-                selected_month = self.month_dropdown_da.currentData()      
-                selected_hours = self.hours_dropdown_da.currentData()
-                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
-                payload = get_daylight_availability_payload(month=selected_month.number, hourly=selected_hours.value, lon=center_lon, lat=center_lat)
-
-            elif self.analysis_type == AnalysisType.DIRECT_SUN_HOURS:
-                selected_month = self.month_dropdown_dsh.currentData()      
-                selected_hours = self.hours_dropdown_dsh.currentData()            
-                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
-                payload = get_direct_sun_hours_payload(month=selected_month.number, hourly=selected_hours.value, lon=center_lon, lat=center_lat)
-
-            elif self.analysis_type == AnalysisType.SKY_VIEW_FACTORS:
-                payload = { "analysis-type": self.analysis_type.value, "geometries": None}  
-
-            elif self.analysis_type == AnalysisType.SHADOW_MASK:
-
-                try:
-                    selected_datetime = self.datetime_dropdown.currentData()
-                except AttributeError:
-                    logger.warning(f"Missing input, Selected datetime is required.")
-                    QMessageBox.warning(self, "Missing Input", "Selected datetime is required.")
-                    return
-                
-                datetime_str = selected_datetime.strftime("%Y-%m-%dT%H:%M:%S+02:00")
-                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
-                payload = get_shadow_mask_payload(datetime_str, center_lon, center_lat)
-            
-            logger.info(f"\n✨ ✨ ✨ ✨\nPayload: \n{payload}\n✨ ✨ ✨ ✨")
-
-
-            iface.messageBar().pushMessage(
-                            "InfraredCity",
-                            f"Starting simulation for {len(tile_centers)} tiles.",
-                            level=Qgis.Info,
-                            duration=3
-                        )
-            
-            QApplication.processEvents()
-
-            for idx, (center_x, center_y) in enumerate(tile_centers):
-                logger.info("Processing tile center %d: %s, %s", idx, center_x, center_y)
-                #res = collect_geometry_data_by_tile(center_x, center_y, idx)
-                buildings = collect_geometries(center_x, center_y, idx, geometry_type=GeometryTypes.BUILDINGS)
-                trees = collect_geometries(center_x, center_y, idx, geometry_type=GeometryTypes.TREES)   
-                tree_dotbim = None
-                if not buildings:
-                    continue
-
-                geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256 = buildings
-                logger.info("Buildings found for tile: %d", idx)
-                logger.info(f"Bounding box 512: {bbox_512}, CRS authid: {crs_authid}, Bounding box 256: {bbox_256}")
-                if trees:
-                    geojson_path_trees, dotbim_path_trees, bbox_512_trees, crs_authid_trees, bbox_256_trees = trees
-                    logger.info("Trees found for tile: %d", idx)
-                    
-                    tree_dotbim =  load_dotbim(dotbim_path_trees)
-                    logger.info("Tree dotbim was loaded")
-                
-                # Crop 512x512 GeoTIFF to 256x256 around the tile center and display
-                try:
-                    self.dotbim_path = dotbim_path
-                    payload["geometries"] = None
-                    # Load dotbim
-                    dotbim = load_dotbim(self.dotbim_path)
-                    if dotbim is None or len(dotbim) == 0:
-                        logger.error("Failed to load dotbim: %s", self.dotbim_path)
-                        raise Exception("No selected building geometry was found.")
-                        
-                    payload["geometries"] = dotbim
-                    
-                    if tree_dotbim is not None:
-                        payload["vegetation"] = tree_dotbim
-
-                    # Run simulation
-                    logger.info("Starting simulation for tile %d", idx)
-                    self.geotiff_path, api_min_legend, api_max_legend = process_run_analysis(
-                        payload=payload,
-                        geometry_path=self.dotbim_path,
-                        bbox=bbox_512,
-                        crs=crs_authid,
-                        api_key=self.api_key,
-                        analysis_type=self.analysis_type.value
-                    )
-                    logger.info("Simulation finished for tile %d", idx)
-
-                    if self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
-                        selected_legend_min = self.min_legend_value if self.legend_min_enable_tci.isChecked() else api_min_legend
-                        selected_legend_max = self.max_legend_value if self.legend_max_enable_tci.isChecked() else api_max_legend
-                        logger.info(f"TCI tile {idx} legend: min={selected_legend_min}, max={selected_legend_max}")
-                    elif self.analysis_type in {
-                        AnalysisType.SOLAR_RADIATION,
-                        AnalysisType.DAYLIGHT_AVAILABILITY,
-                        AnalysisType.DIRECT_SUN_HOURS,
-                        AnalysisType.SKY_VIEW_FACTORS,
-                    }:
-                        selected_legend_min = api_min_legend
-                        selected_legend_max = api_max_legend
-                        logger.info(f"API legend range for tile {idx}: min={selected_legend_min}, max={selected_legend_max}")
-                    else:
-                        selected_legend_min = None
-                        selected_legend_max = None
-
-                    # Crop 512x512 GeoTIFF to 256x256 around the tile center and display
-                    try:
-                        ds = gdal.Open(self.geotiff_path)
-                        if ds is None:
-                            logger.error(f"Failed to open GeoTIFF: {self.geotiff_path}")
-                            continue  
-                        band = ds.GetRasterBand(1)
-                        # Always read as float32 — for PWC the GeoTIFF already
-                        # contains mapped integer values (1=A … 5=E) with NaN for
-                        # buildings.  Reading as str would turn NaN→"nan" which
-                        # map_categories cannot filter, causing buildings to receive
-                        # a spurious category colour.
-                        matrix = band.ReadAsArray().astype(np.float32)
-                        
-                        ds = None  
-
-                        cropped_matrix = crop_matrix(matrix, core_size=256)
-                        sub_bbox = bbox_256
-
-                        base_name = os.path.splitext(os.path.basename(self.geotiff_path))[0]
-                        plugin_data_dir = os.path.dirname(self.geotiff_path)
-                        cropped_geotiff_path = os.path.join(plugin_data_dir, f"{base_name}_crop.tif")
-
-                        generate_geotiff(
-                            cropped_matrix,
-                            sub_bbox,
-                            crs_authid,
-                            cropped_geotiff_path,
-                            simulation_type=self.analysis_type.value,
-                        )
-
-                        add_geojson_then_raster(
-                            geojson_path=geojson_path,
-                            geotiff_path=cropped_geotiff_path,
-                            analysis_type=self.analysis_type.value,
-                            sub_analysis_type=self.sub_analysis_type.value if self.sub_analysis_type is not None else None,
-                            min_legend_value=selected_legend_min,
-                            max_legend_value=selected_legend_max
-                        )
-                        
-                        deselect_all()
-                        
-                        logger.info("Cropped Geotiff visualized for tile %d", idx)
-
-                        iface.messageBar().pushMessage(
-                            "InfraredCity",
-                            f"Tile {idx+1}/{len(tile_centers)} processed successfully, saved to {cropped_geotiff_path}",
-                            level=Qgis.Success,
-                            duration=3
-                        )
-
-                        iface.mapCanvas().refresh()
-                        QApplication.processEvents()
-                    except Exception as e_crop:
-                        logger.error("Failed to crop/display GeoTIFF for tile %d: %s", idx, e_crop)
-                except Exception as e:
-                    logger.error("Simulation failed for tile %d: %s", idx, e)
-
-                    iface.messageBar().pushMessage(
-                            "InfraredCity",
-                            f"Error processing tile {idx+1}/{len(tile_centers)}: {str(e)}",
-                            level=Qgis.Warning,
-                            duration=5
-                        )
-                    
-                    QApplication.processEvents()
-                        
-                logger.info(f"Processed tile: {idx+1}/{len(tile_centers)}.")
-                
+            logger.info("Payload built: %s", {k: v for k, v in payload.items() if k != "geometries"})
+            run_tiles(self, payload, tile_centers)
             super().accept()
         
         except InfraredAPIError as e:
