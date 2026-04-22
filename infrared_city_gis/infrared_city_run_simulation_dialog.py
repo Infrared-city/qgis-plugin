@@ -387,7 +387,9 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                         time_frame=time_frame,
                         api_key=self.api_key
                     )
-                
+                logger.info("Wind data: windSpeed length=%d, windDirection length=%d", 
+                    len(wind_data["windSpeed"]), len(wind_data["windDirection"]))
+        
                 payload = get_pwc_payload(wind_data,self.sub_analysis_type.value)
 
             elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:

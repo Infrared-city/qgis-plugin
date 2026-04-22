@@ -69,6 +69,9 @@ def build_payload(dlg):
             return None
         time_frame = makeTimeFrameObj(isNorthHem=True, season=selected_season.value, hourly=selected_hours.value)
         wind_data = query_infrared_epw(file_name=weather_file, type=Query_Type.WIND, time_frame=time_frame, api_key=dlg.api_key)
+        logger.info("Wind data: windSpeed length=%d, windDirection length=%d", 
+                    len(wind_data["windSpeed"]), len(wind_data["windDirection"]))
+        
         return get_pwc_payload(wind_data, dlg.sub_analysis_type.value)
 
     if at == AnalysisType.THERMAL_COMFORT_INDEX:
