@@ -42,7 +42,9 @@ from .services.epw_query import Query_Type, query_infrared_epw
 from .services.fetch import fetch_weather_file_names
 from .services.geometry import (
     collect_tile_centers_from_selection,
-    get_center_lon_lat_from_bbox, get_selected_bbox, get_selected_crs, plot_tile_centers,
+    create_polygon_from_selection,
+    get_center_lon_lat_from_bbox, get_selected_bbox, get_selected_crs,
+    plot_selected_polygon, plot_tile_centers,
 )
 from .services.multi_sim_runner import build_payload, run_tiles
 
@@ -120,9 +122,17 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             return
 
         try:
+            # Compute both BEFORE plotting — plotting adds new layers which can
+            # change the active layer and break subsequent selection lookups.
             tile_centers = collect_tile_centers_from_selection()
+            #polygon = create_polygon_from_selection()
+            #logger.info("polygon from selection: type=%s, len=%s", type(polygon).__name__, len(polygon) if polygon else 0)
+
+            #plot_selected_polygon(polygon)
+
             tile_count = len(tile_centers) if tile_centers else 0
-        except Exception:
+        except Exception as e:
+            logger.exception("Error computing/plotting selection polygon: %s", e)
             tile_count = 0
 
         self.setWindowTitle(f"Run Multiple Simulations — {tile_count} tile{'s' if tile_count != 1 else ''} selected")
@@ -163,8 +173,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.content_stack.setCurrentIndex(6)
             elif current == AnalysisType.SKY_VIEW_FACTORS:
                 self.content_stack.setCurrentIndex(7)
-            elif current == AnalysisType.SHADOW_MASK:
-                self.content_stack.setCurrentIndex(8)
+            # elif current == AnalysisType.SHADOW_MASK:
+            #     self.content_stack.setCurrentIndex(8)
         except AttributeError:
             # Fallback for older UI without stacked widget
             try:
@@ -176,7 +186,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.group_daylight_availability.setVisible(current == AnalysisType.DAYLIGHT_AVAILABILITY)
                 self.group_direct_sun_hours.setVisible(current == AnalysisType.DIRECT_SUN_HOURS)
                 self.group_sky_view_factors.setVisible(current == AnalysisType.SKY_VIEW_FACTORS)
-                self.group_shadow_mask.setVisible(current == AnalysisType.SHADOW_MASK)
+                #self.group_shadow_mask.setVisible(current == AnalysisType.SHADOW_MASK)
             except AttributeError as e:
                 logger.error("Failed to update group visibility: %s", str(e), exc_info=True)
 
@@ -283,11 +293,11 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     self.hours_dropdown_dsh.addItem(hours.value, hours)
             except Exception as e:
                 logger.error("Failed to populate direct sun hours dialog elements: %s", str(e), exc_info=True)
-        if current == AnalysisType.SHADOW_MASK:
-            try:
-                self.datetime_input_sm.setDateTime(QDateTime.currentDateTime())
-            except Exception as e:
-                logger.error("Failed to populate shadow mask dialog elements: %s", str(e), exc_info=True)
+        # if current == AnalysisType.SHADOW_MASK:
+        #     try:
+        #         self.datetime_input_sm.setDateTime(QDateTime.currentDateTime())
+        #     except Exception as e:
+        #         logger.error("Failed to populate shadow mask dialog elements: %s", str(e), exc_info=True)
     
     def accept(self):
         try:

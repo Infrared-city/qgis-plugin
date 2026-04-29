@@ -11,7 +11,7 @@ class AnalysisType(str, Enum):
     DAYLIGHT_AVAILABILITY = "daylight-availability"
     DIRECT_SUN_HOURS = "direct-sun-hours"
     SKY_VIEW_FACTORS = "sky-view-factors"
-    SHADOW_MASK = "shadow-mask"
+    #SHADOW_MASK = "shadow-mask"
 
 
     def __str__(self):

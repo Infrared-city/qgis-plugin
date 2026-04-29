@@ -52,7 +52,14 @@ def add_geojson_then_raster(
     QgsProject.instance().addMapLayer(vlayer)
 
     # --- GeoTIFF layer ---
-    rlayer = QgsRasterLayer(geotiff_path, f"IC result - {analysis_type}{tile_id}", "gdal")
+    if tile_id is not None:
+        layer_name = f"IC result - {analysis_type}{tile_id}"
+    else:
+        layer_name = f"IC result - {analysis_type}"
+    
+    rlayer = QgsRasterLayer(geotiff_path, layer_name, "gdal")
+    
+    
     if not rlayer.isValid():
         raise RuntimeError(f"GeoTIFF layer loading failed: {geotiff_path}")
 
@@ -114,40 +121,40 @@ def add_geojson_then_raster(
         logger.warning("Could not reorder layers automatically: %s", e)
 
     # --- PWC mapping debug ---
-    if analysis_type == "pedestrian-wind-comfort":
-        try:
-            import numpy as np
-            from osgeo import gdal
+    # if analysis_type == "pedestrian-wind-comfort":
+    #     try:
+    #         import numpy as np
+    #         from osgeo import gdal
 
-            logger.info("=== PWC color ramp mapping ===")
-            for item in color_items:
-                logger.info("  value=%.0f  →  label='%s'  color=%s",
-                            item.value, item.label, item.color.name())
+    #         logger.info("=== PWC color ramp mapping ===")
+    #         for item in color_items:
+    #             logger.info("  value=%.0f  →  label='%s'  color=%s",
+    #                         item.value, item.label, item.color.name())
 
-            ds = gdal.Open(geotiff_path)
-            if ds:
-                band = ds.GetRasterBand(1)
-                arr = band.ReadAsArray()
-                nodata_val = band.GetNoDataValue()
-                ds = None
-                if arr is not None:
-                    flat = arr.flatten().astype(float)
-                    if nodata_val is not None:
-                        flat = flat[flat != nodata_val]
-                    # NaN = buildings/outside area — log once, then exclude
-                    nan_count = int(np.sum(np.isnan(flat)))
-                    if nan_count:
-                        logger.info("=== PWC has %d NaN pixels (buildings/outside) — skipped", nan_count)
-                    valid = flat[~np.isnan(flat)]
-                    unique_vals = sorted(np.unique(valid).tolist())
-                    logger.info("=== PWC unique valid values in raster: %s", unique_vals)
-                    item_map = {int(round(it.value)): it.label for it in color_items}
-                    logger.info("=== PWC raster value → label ===")
-                    for v in unique_vals:
-                        iv = int(round(v))
-                        label = item_map.get(iv, f"<no match for {iv}>")
-                        logger.info("  %d → '%s'", iv, label)
-        except Exception as e:
-            logger.warning("PWC mapping debug failed: %s", e)
+    #         ds = gdal.Open(geotiff_path)
+    #         if ds:
+    #             band = ds.GetRasterBand(1)
+    #             arr = band.ReadAsArray()
+    #             nodata_val = band.GetNoDataValue()
+    #             ds = None
+    #             if arr is not None:
+    #                 flat = arr.flatten().astype(float)
+    #                 if nodata_val is not None:
+    #                     flat = flat[flat != nodata_val]
+    #                 # NaN = buildings/outside area — log once, then exclude
+    #                 nan_count = int(np.sum(np.isnan(flat)))
+    #                 if nan_count:
+    #                     logger.info("=== PWC has %d NaN pixels (buildings/outside) — skipped", nan_count)
+    #                 valid = flat[~np.isnan(flat)]
+    #                 unique_vals = sorted(np.unique(valid).tolist())
+    #                 logger.info("=== PWC unique valid values in raster: %s", unique_vals)
+    #                 item_map = {int(round(it.value)): it.label for it in color_items}
+    #                 logger.info("=== PWC raster value → label ===")
+    #                 for v in unique_vals:
+    #                     iv = int(round(v))
+    #                     label = item_map.get(iv, f"<no match for {iv}>")
+    #                     logger.info("  %d → '%s'", iv, label)
+    #     except Exception as e:
+    #         logger.warning("PWC mapping debug failed: %s", e)
 
     logger.info("✅ GeoJSON and colorized GeoTIFF added. Raster opacity=%s", raster_opacity)

@@ -161,8 +161,8 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.content_stack.setCurrentIndex(6)
             elif current == AnalysisType.SKY_VIEW_FACTORS:
                 self.content_stack.setCurrentIndex(7)
-            elif current == AnalysisType.SHADOW_MASK:
-                self.content_stack.setCurrentIndex(8)
+            # elif current == AnalysisType.SHADOW_MASK:
+            #     self.content_stack.setCurrentIndex(8)
         except AttributeError:
             # Fallback for older UI without stacked widget
             try:
@@ -174,7 +174,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.group_daylight_availability.setVisible(current == AnalysisType.DAYLIGHT_AVAILABILITY)
                 self.group_direct_sun_hours.setVisible(current == AnalysisType.DIRECT_SUN_HOURS)
                 self.group_sky_view_factors.setVisible(current == AnalysisType.SKY_VIEW_FACTORS)
-                self.group_shadow_mask.setVisible(current == AnalysisType.SHADOW_MASK)
+                #self.group_shadow_mask.setVisible(current == AnalysisType.SHADOW_MASK)
             except AttributeError as e:
                 logger.error("Failed to update group visibility: %s", str(e), exc_info=True)
 
@@ -287,11 +287,11 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             except Exception as e:
                 logger.error("Failed to populate direct sun hours dialog elements: %s", str(e), exc_info=True)
 
-        if current == AnalysisType.SHADOW_MASK:
-            try:
-                self.datetime_input_sm.setDateTime(QDateTime.currentDateTime())
-            except Exception as e:
-                logger.error("Failed to populate shadow mask dialog elements: %s", str(e), exc_info=True)
+        # if current == AnalysisType.SHADOW_MASK:
+        #     try:
+        #         self.datetime_input_sm.setDateTime(QDateTime.currentDateTime())
+        #     except Exception as e:
+        #         logger.error("Failed to populate shadow mask dialog elements: %s", str(e), exc_info=True)
     
     def accept(self):
         
@@ -300,13 +300,18 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
             logger.info(f"Accept called. Sender: {self.sender()}")
             tree_dotbim = None
+            criteria = None
 
             
             if self.bbox is not None and self.crs is not None:
                 center_x, center_y = get_center_from_bbox(self.bbox)
                 logger.info("Bbox: %s, CRS: %s", self.bbox, self.crs)
                 logger.info("Center center_x/center_y: %s, %s", center_x, center_y)
-                buildings = collect_geometries(center_x, center_y, 1, geometry_type=GeometryTypes.BUILDINGS)
+                
+                buildings = None
+                if self.dotbim_path is None:
+                    buildings = collect_geometries(center_x, center_y, 1, geometry_type=GeometryTypes.BUILDINGS)
+                  
                 trees = collect_geometries(center_x, center_y, 1, geometry_type=GeometryTypes.TREES)
                 
                 if buildings and not self.dotbim_path:
@@ -365,7 +370,9 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             elif self.analysis_type == AnalysisType.PEDESTRIAN_WIND_COMFORT:
                 # Validation
                 try:
+                    
                     pwc_type = self.pwc_type_dropdown.currentData()
+                    criteria = pwc_type
                     self.sub_analysis_type = pwc_type
                     selected_season = self.season_dropdown_pwc.currentData()   
                     selected_hours = self.hours_dropdown_pwc.currentData()
@@ -378,7 +385,6 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     return
                 
                 time_frame = makeTimeFrameObj(isNorthHem=True, season=selected_season.value, hourly=selected_hours.value)
-                #weather_file = "SRC-TMYx, Hamburg-Schmidt.AP"
                 logger.info(f"Weather file: {weather_file}")
                 logger.info(f"Time frame: {time_frame}")
                 wind_data = query_infrared_epw(
@@ -390,6 +396,8 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.info("Wind data: windSpeed length=%d, windDirection length=%d", 
                     len(wind_data["windSpeed"]), len(wind_data["windDirection"]))
         
+                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
+
                 payload = get_pwc_payload(wind_data,self.sub_analysis_type.value)
 
             elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
@@ -501,20 +509,20 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
                 payload = { "analysis-type": self.analysis_type.value, "geometries": None}  
             
-            elif self.analysis_type == AnalysisType.SHADOW_MASK:   
-                try:
-                    selected_datetime = self.datetime_input_sm.dateTime().toPyDateTime()
-                except AttributeError:
-                    logger.warning(f"Missing input, Selected datetime is required.")
-                    QMessageBox.warning(self, "Missing Input", "Selected datetime is required.")
-                    return
+            # elif self.analysis_type == AnalysisType.SHADOW_MASK:   
+            #     try:
+            #         selected_datetime = self.datetime_input_sm.dateTime().toPyDateTime()
+            #     except AttributeError:
+            #         logger.warning(f"Missing input, Selected datetime is required.")
+            #         QMessageBox.warning(self, "Missing Input", "Selected datetime is required.")
+            #         return
                 
-                datetime_str = selected_datetime.strftime("%Y-%m-%dT%H:%M:%S+02:00")
-                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
-                payload = get_shadow_mask_payload(datetime_str, center_lon, center_lat)
+            #     datetime_str = selected_datetime.strftime("%Y-%m-%dT%H:%M:%S+02:00")
+            #     center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
+            #     payload = get_shadow_mask_payload(datetime_str, center_lon, center_lat)
             
             logger.info(f"\n✨ ✨ ✨ ✨\nPayload: \n{payload}\n✨ ✨ ✨ ✨")
-            # Load dotbim
+            #Load dotbim
             dotbim = load_dotbim(self.dotbim_path)
             if dotbim is not None:
                 payload["geometries"] = dotbim
@@ -537,7 +545,9 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 bbox=self.bbox,
                 crs=self.crs,
                 api_key=self.api_key,
-                analysis_type=self.analysis_type.value
+                analysis_type=self.analysis_type.value,
+                do_crop=False,
+                criteria=criteria
             )
 
             if not self.geotiff_path:

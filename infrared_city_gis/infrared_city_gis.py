@@ -41,7 +41,8 @@ from .infrared_city_save_auth import InfraredCitySaveAuthDialog
 
 import os.path
 from .infrared_logger import logger
-from .utils.helper import cleanup_old_data, update_vegetation_registry
+from .utils.helper import cleanup_old_data
+from .services.fetch_from_registry import _load_api_key, fetch_from_registry
 
 class InfraredCityGIS:
     """QGIS Plugin Implementation."""
@@ -83,8 +84,15 @@ class InfraredCityGIS:
         # cleanup old data
         cleanup_old_data()
 
-        # update vegetation registry
-        update_vegetation_registry()
+        # Refresh the model registry (visualConfigurations) on startup so that
+        # colormaps reflect the latest server-side definitions. Only runs if
+        # the user has already saved an API key; otherwise skipped silently
+        # and will run later on save / on demand.
+        if _load_api_key():
+            try:
+                _ = fetch_from_registry()
+            except Exception as e:
+                logger.warning("Startup registry refresh failed: %s", e)
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):

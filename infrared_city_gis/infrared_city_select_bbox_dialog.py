@@ -3,14 +3,13 @@ from qgis.PyQt.QtWidgets import QVBoxLayout, QPushButton, QLabel
 from qgis.core import QgsRectangle, QgsProject, QgsVectorLayer
 from qgis.gui import QgsRubberBand, QgsMapToolEmitPoint
 from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsPointXY, QgsProject
-from qgis.core import QgsWkbTypes, QgsGeometry, QgsApplication, QgsUnitTypes
+from qgis.core import QgsWkbTypes, QgsGeometry
 from qgis.utils import iface
 from PyQt5.QtGui import QColor
 from .infrared_logger import logger
-from .services.geometry import get_bbox, _to_json_primitive
-from .services.geojson2dotbim import process_geojson_file
+from .models.analysis import GeometryTypes
+from .services.geometry import get_bbox, collect_geometries
 import os
-import json
 from datetime import datetime
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -108,106 +107,101 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.error("get_bbox failed: %s", e)
                 return
 
-            # --- Get active layer ---
-            layer = iface.activeLayer()
-            if layer is None or not isinstance(layer, QgsVectorLayer):
-                # fallback: use first vector layer in project
-                for lyr in QgsProject.instance().mapLayers().values():
-                    if isinstance(lyr, QgsVectorLayer):
-                        layer = lyr
-                        break
+            # --- Pick a buildings reference layer.
+            # Use the active layer (whatever the user selected in the Layers panel),
+            # with two sanity checks: (1) it must be a polygon vector layer, and
+            # (2) if the project has multiple polygon vector layers, we ask the
+            # user to make their choice explicit instead of guessing.
+            def _is_polygon_vector(lyr):
+                return (
+                    isinstance(lyr, QgsVectorLayer)
+                    and lyr.geometryType() == QgsWkbTypes.PolygonGeometry
+                )
 
-            if layer is None or not isinstance(layer, QgsVectorLayer):
-                iface.messageBar().pushMessage("InfraredCity", "No valid vector layer found in project.", level=2)
-                logger.error("No valid vector layer found.")
-                return
-        
+            ref_layer = iface.activeLayer()
+            if not _is_polygon_vector(ref_layer):
+                polygon_layers = [
+                    l for l in QgsProject.instance().mapLayers().values()
+                    if _is_polygon_vector(l)
+                ]
+                if not polygon_layers:
+                    iface.messageBar().pushMessage(
+                        "InfraredCity",
+                        "No polygon vector layer found. Add a buildings layer to the project first.",
+                        level=2,
+                    )
+                    logger.error("No polygon vector layer in project.")
+                    return
+                if len(polygon_layers) > 1:
+                    active_name = iface.activeLayer().name() if iface.activeLayer() else "none"
+                    iface.messageBar().pushMessage(
+                        "InfraredCity",
+                        f"Multiple polygon layers found. Click the buildings layer in the Layers panel "
+                        f"to make it active, then try again. Currently active: '{active_name}'.",
+                        level=1,
+                        duration=8,
+                    )
+                    logger.warning(
+                        "Active layer '%s' is not a polygon vector; %d candidates available — asking user to pick.",
+                        active_name, len(polygon_layers),
+                    )
+                    return
+                ref_layer = polygon_layers[0]
+                logger.info(
+                    "Active layer was not a polygon vector; auto-picked the only polygon layer: '%s'.",
+                    ref_layer.name(),
+                )
 
-            layer_crs = layer.crs()
-            logger.info("Layer CRS: %s", layer_crs.authid())
+            ref_crs = ref_layer.crs()
+            logger.info("Reference layer: '%s' (CRS=%s)", ref_layer.name(), ref_crs.authid())
 
-            # --- Transform bbox to layer CRS ---
-            if layer_crs.authid() != "EPSG:4326":
-                transform_bbox = QgsCoordinateTransform(wgs84, layer_crs, QgsProject.instance())
-                bbox_rect_layer = transform_bbox.transformBoundingBox(bbox_rect_wgs84)
-                logger.info("BBox transformed to layer CRS: %s", bbox_rect_layer)
+            # --- bbox in the ref layer CRS (used for both visual selection and center transform)
+            if ref_crs.authid() != "EPSG:4326":
+                transform_bbox_ref = QgsCoordinateTransform(wgs84, ref_crs, QgsProject.instance())
+                bbox_rect_ref = transform_bbox_ref.transformBoundingBox(bbox_rect_wgs84)
+                t_pt = QgsCoordinateTransform(wgs84, ref_crs, QgsProject.instance())
+                ref_pt = t_pt.transform(lonlat)
+                center_x_ref, center_y_ref = ref_pt.x(), ref_pt.y()
             else:
-                bbox_rect_layer = bbox_rect_wgs84
-                logger.info("BBox in WGS84: %s", bbox_rect_layer)
+                bbox_rect_ref = bbox_rect_wgs84
+                center_x_ref, center_y_ref = lonlat.x(), lonlat.y()
 
-            # --- Select features within bbox ---
+            # --- Visual feedback: highlight features in the reference layer
             try:
-                layer.removeSelection()
-                layer.selectByRect(bbox_rect_layer, QgsVectorLayer.SetSelection)
-                count = layer.selectedFeatureCount()
-                logger.info("Selected %d features.", count)
+                ref_layer.removeSelection()
+                ref_layer.selectByRect(bbox_rect_ref, QgsVectorLayer.SetSelection)
+                count = ref_layer.selectedFeatureCount()
+                logger.info("Selected %d features in '%s'.", count, ref_layer.name())
+                iface.messageBar().pushMessage("InfraredCity", f"{count} features selected.", level=0)
             except Exception as e:
-                logger.error("Selection failed: %s", e)
-                iface.messageBar().pushMessage("InfraredCity", f"Selection failed: {e}", level=3)
-                return
+                logger.warning("selectByRect failed on '%s': %s", ref_layer.name(), e)
 
-            iface.messageBar().pushMessage("InfraredCity", f"{count} features selected.", level=0)
+            # --- Real export: shared pipeline (resolves height correctly + writes geojson + dotbim).
+            result = collect_geometries(
+                center_x_ref, center_y_ref, 0,
+                geometry_type=GeometryTypes.BUILDINGS,
+            )
 
-            # --- Export selected features to GeoJSON ---
-            selected_features = layer.selectedFeatures()
-            geojson_dict = {
-                "type": "FeatureCollection",
-                "features": []
-            }
-
-            fields = [field.name() for field in layer.fields()]
-
-            for feat in selected_features:
-                geom = feat.geometry()
-                geom_wgs84 = QgsGeometry(geom)
-                if layer_crs.authid() != "EPSG:4326":
-                    transform_to_wgs84_back = QgsCoordinateTransform(layer_crs, wgs84, QgsProject.instance())
-                    geom_wgs84.transform(transform_to_wgs84_back)
-
-                # Convert attributes (possibly containing QVariant) to JSON-serializable primitives
-                attr_values = feat.attributes()
-                raw_properties = {fields[i]: attr_values[i] for i in range(len(fields))}
-                properties_dict = {key: _to_json_primitive(val) for key, val in raw_properties.items()}
-
-                geom_bbox = geom.boundingBox()
-                height = geom_bbox.height()
-
-                # If CRS is in degrees, convert height to meters
-                if layer_crs.mapUnits() == QgsUnitTypes.DistanceDegrees:
-                    height *= 111_000
-
-                properties_dict["height"] = round(height, 2)
-
-                geojson_dict["features"].append({
-                    "type": "Feature",
-                    "geometry": json.loads(geom_wgs84.asJson()),
-                    "properties": properties_dict
-                })
-
-            plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
-            os.makedirs(plugin_data_dir, exist_ok=True)
-            geojson_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{self.date_now}.geojson")
-
-            with open(geojson_path, "w", encoding="utf-8") as f:
-                json.dump(geojson_dict, f, ensure_ascii=False, indent=2)
-
-            logger.info(f"Center coords: {center_lon}, {center_lat}")
-
-            dotbim_data = process_geojson_file(geojson_dict, center_lon, center_lat,"EPSG:4326")
-            dotbim_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{self.date_now}.bim")
-
-            with open(dotbim_path, "w", encoding="utf-8") as f:
-                json.dump(dotbim_data, f, ensure_ascii=False, indent=2)
-
-            iface.messageBar().pushMessage("InfraredCity", f"Saved to {geojson_path}", level=0)
-            logger.info("Saved to %s", geojson_path)
-            logger.info("Saved to %s", dotbim_path)
-
-            
-            self.geojson_path = geojson_path
-            self.dotbim_path = dotbim_path
-            self.bbox = (bbox_rect_layer.xMinimum(), bbox_rect_layer.yMinimum(), bbox_rect_layer.xMaximum(), bbox_rect_layer.yMaximum())
-            self.crs = layer_crs.authid()
+            if result is None:
+                iface.messageBar().pushMessage("InfraredCity", "No buildings found in bbox.", level=1)
+                logger.warning("collect_geometries returned None for bbox center (%.6f, %.6f).",
+                               center_lon, center_lat)
+                self.geojson_path = None
+                self.dotbim_path = None
+                self.bbox = (
+                    bbox_rect_ref.xMinimum(), bbox_rect_ref.yMinimum(),
+                    bbox_rect_ref.xMaximum(), bbox_rect_ref.yMaximum(),
+                )
+                self.crs = ref_crs.authid()
+            else:
+                geojson_path, dotbim_path, bbox_512, crs_authid, _bbox_256 = result
+                self.geojson_path = geojson_path
+                self.dotbim_path = dotbim_path
+                self.bbox = bbox_512
+                self.crs = crs_authid
+                iface.messageBar().pushMessage("InfraredCity", f"Saved to {geojson_path}", level=0)
+                logger.info("Saved geojson: %s", geojson_path)
+                logger.info("Saved dotbim:  %s", dotbim_path)
             
         except Exception as e:
             logger.error("Failed to select features: %s", e)

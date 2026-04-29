@@ -33,6 +33,7 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import QSettings, Qt, QSize
 from qgis.PyQt.QtGui import QFont, QCursor
+from qgis.core import QgsApplication
 
 from .infrared_logger import logger
 from .models.vegetation_types import TreeType, TreeSize
@@ -47,10 +48,25 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
 # Height labels per tree (Small / Medium / Large), read from registry
 # ---------------------------------------------------------------------------
 
+def _resolve_registry_path() -> str:
+    """Path to the active vegetation_registry.json.
+
+    Single source of truth: ``<qgisSettingsDir>/infrared_city_gis/settings/``,
+    populated by ``fetch_from_registry`` on plugin init (when an API key is
+    present) and on save in the API key dialog. If the file is missing the
+    customer hasn't completed first-run setup yet — the loader returns a
+    non-existing path and the caller falls back to default labels.
+    """
+    return os.path.join(
+        QgsApplication.qgisSettingsDirPath(),
+        "infrared_city_gis", "settings", "vegetation_registry.json",
+    )
+
+
 def _load_size_labels() -> dict:
     """Return {TreeType: (small_label, medium_label, large_label)} using
     heightRange and default height from vegetation_registry.json."""
-    registry_path = os.path.join(os.path.dirname(__file__), "vegetation_registry.json")
+    registry_path = _resolve_registry_path()
     labels = {}
     try:
         with open(registry_path, "r", encoding="utf-8") as f:
@@ -75,7 +91,14 @@ def _load_size_labels() -> dict:
     return labels
 
 
-_SIZE_LABELS = _load_size_labels()
+# NOTE: _SIZE_LABELS used to be cached at module import time. That was bad —
+# the registry can be empty on first plugin load (before the user has saved an
+# API key). With caching, the customer would see default "Small/Medium/Large"
+# labels even after the registry got fetched, until QGIS restart. We now read
+# the registry lazily on each dialog open via _get_size_labels().
+def _get_size_labels() -> dict:
+    return _load_size_labels()
+
 
 # Map TreeSize enum → button index (0/1/2)
 _SIZE_INDEX = {TreeSize.SMALL: 0, TreeSize.MEDIUM: 1, TreeSize.LARGE: 2}
@@ -161,7 +184,7 @@ class TreeCard(QFrame):
         name_block.addWidget(name_lbl)
 
         # --- Size buttons ---
-        size_labels = _SIZE_LABELS.get(tree_type, ("Small", "Medium", "Large"))
+        size_labels = _get_size_labels().get(tree_type, ("Small", "Medium", "Large"))
         self._btn_group = QButtonGroup(self)
         self._btn_group.setExclusive(True)
         btn_layout = QHBoxLayout()
