@@ -6,7 +6,7 @@ from datetime import datetime
 import requests
 from qgis.core import QgsApplication
 
-from ..constants import INFRARED_API_V2_URL
+from ..constants import FETCH_GROUND_MATERIAL_URL,FETCH_WEATHER_FILES_URL
 from ..exceptions import InfraredAPIError
 from ..infrared_logger import logger
 from .geometry import get_bbox
@@ -55,7 +55,7 @@ def extract_height_from_tags(tags):
     return height_estimates.get(building_type, default_height)
 
 def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str):
-    base_url = f"{INFRARED_API_V2_URL}/utils/ground-material/collect"
+    base_url = FETCH_GROUND_MATERIAL_URL
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -124,7 +124,7 @@ def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str
     possible. Raises RequestException on network errors
     and HTTPError on non-2xx status codes.
     """
-    base_url = f"{INFRARED_API_V2_URL}/utils/weather/location"
+    base_url = FETCH_WEATHER_FILES_URL
     params = {
         "latitude": lat,
         "longitude": lon,

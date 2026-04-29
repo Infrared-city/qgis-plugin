@@ -1,12 +1,11 @@
-import json
-import os
-
 from PyQt5.QtGui import QColor
-from qgis.core import (
-    QgsColorRampShader,
-)
+from qgis.core import QgsColorRampShader
 
 from ..infrared_logger import logger
+from ..services.fetch_from_registry import (
+    fetch_registry_visual_configs,
+    load_registry_visual_configs,
+)
 
 
 def _rgb_to_hex(rgb_list):
@@ -19,38 +18,25 @@ def _rgb_to_hex(rgb_list):
         return None
 
 
-def get_visual_config(analysis_type, sub_analysis_type=None):
-    """Extract visual configuration (colors, steps, stepsNames, etc.)
-    from settings.json for a given analysis type."""
-    settings_path = os.path.join(os.path.dirname(__file__), "settings.json")
-    logger.info("Settings path: %s", settings_path)
-
-    try:
-        with open(settings_path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-            visual_configs = data.get("settings", {}).get("visualConfigurations", {})
-    except Exception as e:
-        logger.error(f"Failed to load settings.json: {e}")
-        return None
-
-    logger.info("Available visual configurations: %s", list(visual_configs.keys()))
-
+def _extract_config(visual_configs, analysis_type, sub_analysis_type=None):
+    """Pick the right config for (analysis_type, sub_analysis_type) and
+    normalize colors to hex strings. Returns ``None`` if the analysis
+    type / subtype is not present in ``visual_configs``.
+    """
     config = visual_configs.get(analysis_type)
     if not config:
-        logger.warning(f"Analysis type '{analysis_type}' not found in visualConfigurations.")
         return None
 
     if sub_analysis_type:
         sub_cfg = config.get(sub_analysis_type)
         if not sub_cfg:
-            logger.warning(f"Subtype '{sub_analysis_type}' not found under '{analysis_type}'.")
+            logger.warning(
+                "Subtype '%s' not found under '%s'.", sub_analysis_type, analysis_type
+            )
             return None
-        logger.info(f"Subtype '{sub_analysis_type}' found under '{analysis_type}'.")
         cfg = sub_cfg
     else:
         cfg = config
-
-    logger.info(f"Config: {cfg}")
 
     colors_raw = cfg.get("colors", [])
     colors = [_rgb_to_hex(c) for c in colors_raw if _rgb_to_hex(c)]
@@ -64,6 +50,41 @@ def get_visual_config(analysis_type, sub_analysis_type=None):
         "colorInterpolation": cfg.get("colorInterpolation"),
         "legendType": cfg.get("legendType"),
     }
+
+
+def get_visual_config(analysis_type, sub_analysis_type=None):
+    """Return visual configuration (colors, steps, stepsNames, ...) for an
+    analysis type.
+
+    Source of truth is ``settings/model_registry.json``. If the file does not
+    exist yet, triggers a fetch from the production registry
+    (``GET /v2/utils/registry/models``) which persists the response to disk.
+    Returns ``None`` if the registry is unavailable or the analysis type is
+    not present.
+    """
+    registry_configs = load_registry_visual_configs()
+    if registry_configs is None:
+        logger.info("model_registry.json not found on disk — fetching from API")
+        registry_configs = fetch_registry_visual_configs()
+
+    if not registry_configs:
+        logger.warning("No registry visual configs available")
+        return None
+
+    cfg = _extract_config(registry_configs, analysis_type, sub_analysis_type)
+    if cfg is not None:
+        logger.info(
+            "Visual config for '%s%s' loaded from registry",
+            analysis_type,
+            f"/{sub_analysis_type}" if sub_analysis_type else "",
+        )
+        return cfg
+
+    logger.warning(
+        "Analysis type '%s' not found in registry.",
+        analysis_type,
+    )
+    return None
 
 
 def _build_color_ramp_items(visual_config, analysis_type, vmin=None, vmax=None):

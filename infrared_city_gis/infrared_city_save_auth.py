@@ -4,6 +4,7 @@ from qgis.PyQt.QtWidgets import QDialog, QMessageBox
 from qgis.core import QgsApplication
 from qgis.PyQt import uic
 from .infrared_logger import logger
+from .services.fetch_from_registry import fetch_from_registry
 
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
@@ -118,6 +119,14 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         
         # Save API key
         if self.save_api_key(api_key):
+            # Refresh both registries (model + vegetation) with the new key so
+            # settings/model_registry.json and settings/vegetation_registry.json
+            # are populated immediately. Without this, the customer would have
+            # to restart QGIS before trees / colormaps would work.
+            try:
+                fetch_from_registry(api_key=api_key)
+            except Exception as e:
+                logger.warning("Registry refresh after save failed: %s", e)
             QMessageBox.information(self, "Success", "API key saved successfully!")
             super().accept()
         else:

@@ -7,6 +7,7 @@ file under the 400-line Infrared convention limit.
 import os
 
 import numpy as np
+import json
 from osgeo import gdal
 from qgis.core import Qgis
 from qgis.PyQt.QtWidgets import QApplication
@@ -133,16 +134,16 @@ def build_payload(dlg):
     if at == AnalysisType.SKY_VIEW_FACTORS:
         return {"analysis-type": at.value, "geometries": None}
 
-    if at == AnalysisType.SHADOW_MASK:
-        try:
-            selected_datetime = dlg.datetime_dropdown.currentData()
-        except AttributeError:
-            from qgis.PyQt.QtWidgets import QMessageBox
-            QMessageBox.warning(dlg, "Missing Input", "Selected datetime is required.")
-            return None
-        datetime_str = selected_datetime.strftime("%Y-%m-%dT%H:%M:%S+02:00")
-        center_lon, center_lat = get_center_lon_lat_from_bbox(dlg.bbox, dlg.crs)
-        return get_shadow_mask_payload(datetime_str, center_lon, center_lat)
+    # if at == AnalysisType.SHADOW_MASK:
+    #     try:
+    #         selected_datetime = dlg.datetime_dropdown.currentData()
+    #     except AttributeError:
+    #         from qgis.PyQt.QtWidgets import QMessageBox
+    #         QMessageBox.warning(dlg, "Missing Input", "Selected datetime is required.")
+    #         return None
+    #     datetime_str = selected_datetime.strftime("%Y-%m-%dT%H:%M:%S+02:00")
+    #     center_lon, center_lat = get_center_lon_lat_from_bbox(dlg.bbox, dlg.crs)
+    #     return get_shadow_mask_payload(datetime_str, center_lon, center_lat)
 
     logger.warning("build_payload: unknown analysis type %s", at)
     return None
@@ -193,6 +194,8 @@ def run_tiles(dlg, payload, tile_centers):
                 crs=crs_authid,
                 api_key=dlg.api_key,
                 analysis_type=dlg.analysis_type.value,
+                do_crop=False,
+                criteria=dlg.sub_analysis_type.value if dlg.sub_analysis_type else None,
             )
 
             # Legend range
@@ -218,7 +221,8 @@ def run_tiles(dlg, payload, tile_centers):
             cropped = crop_matrix(matrix, core_size=256)
             base = os.path.splitext(os.path.basename(dlg.geotiff_path))[0]
             cropped_path = os.path.join(os.path.dirname(dlg.geotiff_path), f"{base}_crop.tif")
-            generate_geotiff(cropped, bbox_256, crs_authid, cropped_path, simulation_type=dlg.analysis_type.value)
+
+            generate_geotiff(cropped, bbox_256, crs_authid, cropped_path, simulation_type=dlg.analysis_type.value, criteria=dlg.sub_analysis_type.value if dlg.sub_analysis_type else None)
 
             add_geojson_then_raster(
                 geojson_path=geojson_path,

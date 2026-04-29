@@ -3,6 +3,7 @@ import gzip
 import json
 import os
 import time
+from datetime import datetime
 from enum import Enum
 from typing import Optional
 
@@ -10,7 +11,7 @@ import numpy as np
 import requests
 from qgis.core import QgsApplication
 
-from .constants import INFRARED_API_V1_URL
+from .constants import RUN_ANALYSIS_ENDPOINT
 from .exceptions import InfraredAPIError
 from .infrared_logger import logger
 from .models.timeframes_parser import adjustDatetime, makeTimeFrameObjWithMonth
@@ -47,10 +48,18 @@ def process_run_analysis(
     api_key: str,
     analysis_type: str,
     do_crop: bool = False,
+    criteria = None
 ) -> str:
     logger.info("Processing run analysis endpoint...")
 
     json_data = json.dumps(payload)
+    
+    # debug_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "debug")
+    # os.makedirs(debug_dir, exist_ok=True)
+    
+    # debug_path = os.path.join(debug_dir, f"payload_{analysis_type}.json")
+    # with open(debug_path, "w", encoding="utf-8") as f:
+    #     json.dump(payload, f, indent=2)
 
     compressed_data = gzip.compress(json_data.encode(Headers.UTF_8.value))
     base64_encoded = base64.b64encode(compressed_data).decode(Headers.UTF_8.value)
@@ -68,7 +77,7 @@ def process_run_analysis(
         for attempt in range(1, retries + 1):
             try:
                 response = requests.post(
-                    f"{INFRARED_API_V1_URL}/api/run-analysis",
+                    RUN_ANALYSIS_ENDPOINT,
                     data=base64_encoded,
                     headers=headers,
                 )
@@ -131,7 +140,17 @@ def process_run_analysis(
             logger.warning(f"Could not parse/dump response JSON for debug: {e}")
 
         decoded_result = decode(response.content)
-        # debug_path = os.path.join(debug_dir, f"matrix_last_response_{analysis_type}.json")
+        
+        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
+        os.makedirs(plugin_data_dir, exist_ok=True)
+        base_name = os.path.splitext(os.path.basename(geometry_path))[0]
+
+        # Per-simulation-run timestamp so that re-running on the same selection
+        # produces a fresh .tif instead of overwriting the previous result.
+        # The QGIS layer name stays clean — only the file path carries the run id.
+        sim_run_id = datetime.now().strftime('%H-%M-%S')
+
+        # debug_path = os.path.join(plugin_data_dir, f"{base_name}_run_{sim_run_id}_matrix.json")
         # with open(debug_path, "w", encoding="utf-8") as f:
         #     json.dump(decoded_result, f, indent=2)
 
@@ -141,11 +160,7 @@ def process_run_analysis(
             matrix = np.array(decoded_result, dtype=np.float32)
             logger.info(f"Matrix stats — min: {float(np.nanmin(matrix)):.4f}, max: {float(np.nanmax(matrix)):.4f}, shape: {matrix.shape}")
 
-        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
-        os.makedirs(plugin_data_dir, exist_ok=True)
-
-        base_name = os.path.splitext(os.path.basename(geometry_path))[0]
-        file_path = os.path.join(plugin_data_dir, f"{base_name}.tif")
+        file_path = os.path.join(plugin_data_dir, f"{base_name}_run_{sim_run_id}.tif")
 
         bbox_tuple = (bbox[0], bbox[1], bbox[2], bbox[3])
         logger.info(f"Bbox: {bbox}")
@@ -155,7 +170,7 @@ def process_run_analysis(
         if do_crop:
             matrix = crop_matrix(matrix)
 
-        generate_geotiff(matrix, bbox_tuple, crs, file_path, simulation_type=analysis_type)
+        generate_geotiff(matrix, bbox_tuple, crs, file_path, simulation_type=analysis_type,criteria=criteria)
 
         logger.info(f"Matrix shape: {matrix.shape}")
 
@@ -261,8 +276,8 @@ def get_solar_analyses_payload(analysis_type: str, month: int, hourly: str, lon:
         "hour-stamp": hour_stamp_array,
     }
 
-
 def get_pwc_payload(wind_data: dict, criteria: str) -> dict:
+    
     return {
         "analysis-type": "pedestrian-wind-comfort",
         "geometries": None,
@@ -306,7 +321,6 @@ def get_payload_shadow_mask(
             "imageOutput": {"transmissionMode": "value"},
         },
     }
-
 
 def get_shadow_mask_payload(dt_str: str, lon: float, lat: float) -> dict:
     dt_stamps = adjustDatetime(dt_str)
