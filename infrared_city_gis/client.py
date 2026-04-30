@@ -11,7 +11,7 @@ import numpy as np
 import requests
 from qgis.core import QgsApplication
 
-from .constants import RUN_ANALYSIS_ENDPOINT
+from .constants import RUN_ANALYSIS_ENDPOINT, RUN_ANALYSIS_HTTP_TIMEOUT
 from .exceptions import InfraredAPIError
 from .infrared_logger import logger
 from .models.timeframes_parser import adjustDatetime, makeTimeFrameObjWithMonth
@@ -76,13 +76,33 @@ def process_run_analysis(
         response = None
         for attempt in range(1, retries + 1):
             try:
+                # Explicit (connect, read) timeout — without this the QGIS UI
+                # can hang indefinitely if upstream stalls on the socket.
                 response = requests.post(
                     RUN_ANALYSIS_ENDPOINT,
                     data=base64_encoded,
                     headers=headers,
+                    timeout=RUN_ANALYSIS_HTTP_TIMEOUT,
                 )
                 response.raise_for_status()
                 break
+            except requests.Timeout as e:
+                logger.warning(
+                    "Attempt %d timed out (connect=%ss, read=%ss): %s",
+                    attempt, RUN_ANALYSIS_HTTP_TIMEOUT[0],
+                    RUN_ANALYSIS_HTTP_TIMEOUT[1], e,
+                )
+                if attempt >= retries:
+                    raise InfraredAPIError(
+                        status_code=None,
+                        server_message=(
+                            f"The simulation request timed out after "
+                            f"{RUN_ANALYSIS_HTTP_TIMEOUT[1]}s. The server may be "
+                            f"under heavy load; please try again."
+                        ),
+                    ) from e
+                logger.info("Retrying in 5 seconds...")
+                time.sleep(5)
             except requests.RequestException as e:
                 logger.info(f"Attempt {attempt} failed: {e}")
                 if attempt < retries:

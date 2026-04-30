@@ -1,5 +1,6 @@
 
 from enum import Enum
+from ..constants import FETCH_HTTP_TIMEOUT
 from ..exceptions import InfraredAPIError
 from ..infrared_logger import logger
 import requests
@@ -32,9 +33,10 @@ def query_infrared_epw (file_name: str, type: Query_Type, time_frame: dict, api_
 
         uri = make_uri(file_name)
         response = requests.post(
-            uri, 
+            uri,
             headers={"X-Api-Key": api_key},
-            json=filters
+            json=filters,
+            timeout=FETCH_HTTP_TIMEOUT,
         )
         if response.status_code != 200:
             raise Exception(f"Error getting epw data for {file_name} {response.text}")
