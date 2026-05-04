@@ -61,6 +61,7 @@ from .geotiff import (  # noqa: F401 — re-exported for backward compat
 from .tiles import (  # noqa: F401 — re-exported for backward compat
     collect_tile_centers_from_selection,
     create_polygon_from_selection,
+    create_wgs84_geojson_polygon_from_selection,
     generate_tile_centers,
     get_bbox,
     get_center_from_bbox,

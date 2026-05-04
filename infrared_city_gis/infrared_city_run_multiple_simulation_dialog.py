@@ -43,10 +43,15 @@ from .services.fetch import fetch_weather_file_names
 from .services.geometry import (
     collect_tile_centers_from_selection,
     create_polygon_from_selection,
+    create_wgs84_geojson_polygon_from_selection,
     get_center_lon_lat_from_bbox, get_selected_bbox, get_selected_crs,
     plot_selected_polygon, plot_tile_centers,
 )
 from .services.multi_sim_runner import build_payload, run_tiles
+from .services.qgis_area_buildings import collect_qgis_area_buildings
+from .services.sdk_runner import run_sdk_area
+from infrared_sdk import InfraredClient
+
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -73,6 +78,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self.min_legend_value = None
         self.max_legend_value = None
         self.api_key = None
+        self.polygon = None
+        self.tile_count = None
         self.weather_file_names = []
         try:
             w,s,e,n = get_selected_bbox()  
@@ -122,21 +129,19 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             return
 
         try:
-            # Compute both BEFORE plotting — plotting adds new layers which can
-            # change the active layer and break subsequent selection lookups.
-            tile_centers = collect_tile_centers_from_selection()
-            #polygon = create_polygon_from_selection()
-            #logger.info("polygon from selection: type=%s, len=%s", type(polygon).__name__, len(polygon) if polygon else 0)
+            
+            client = InfraredClient(api_key=self.api_key)
+            self.polygon = create_wgs84_geojson_polygon_from_selection()
+            preview = client.preview_area(self.polygon)
+            logger.info("Preview area: %s", preview.tile_count)
+            self.tile_count = preview.tile_count
 
-            #plot_selected_polygon(polygon)
-
-            tile_count = len(tile_centers) if tile_centers else 0
         except Exception as e:
             logger.exception("Error computing/plotting selection polygon: %s", e)
-            tile_count = 0
+            self.tile_count = 0
 
-        self.setWindowTitle(f"Run Multiple Simulations — {tile_count} tile{'s' if tile_count != 1 else ''} selected")
-        logger.info("Dialog loaded, tile count: %d", tile_count)
+        self.setWindowTitle(f"Run Multiple Simulations — {self.tile_count} tile{'s' if self.tile_count != 1 else ''} selected")
+        logger.info("Dialog loaded, tile count: %d", self.tile_count)
         self._init_ok = True
 
     def on_analysis_changed(self, text):
@@ -302,23 +307,30 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
     def accept(self):
         try:
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
-            tile_centers = collect_tile_centers_from_selection()
-            plot_tile_centers(tile_centers)
-
-            self.analysis_type = self.analysis_type_dropdown.currentData()
-            self.sub_analysis_type = None
-
+            # tile_centers = collect_tile_centers_from_selection()
+            # plot_tile_centers(tile_centers)
+            
             if not self.api_key:
                 QMessageBox.warning(self, "Missing API Key",
                     "No API key found. Please save your API key first via the 'Save API Key' menu.")
                 return
 
-            payload = build_payload(self)
-            if payload is None:
+            if self.polygon is None:
+                logger.warning("No valid selection — cannot fetch buildings")
+                QMessageBox.warning(self, "No selection",
+                    "Select one or more features before running the simulation.")
                 return
+            logger.info("Polygon (WGS84) ring length: %d", len(self.polygon["coordinates"][0]))
 
-            logger.info("Payload built: %s", {k: v for k, v in payload.items() if k != "geometries"})
-            run_tiles(self, payload, tile_centers)
+            # Collect buildings from the active QGIS layer instead of the
+            # SDK's Mapbox fetch — same return type (AreaBuildings, in
+            # polygon-bbox-SW frame), so it plugs straight into
+            # run_area_and_wait(buildings=area.buildings) below.
+            area = collect_qgis_area_buildings(self.polygon)
+            logger.info("Total buildings (from QGIS): %s", area.total_buildings)
+
+            # Build payload from dialog → run via SDK → render result.
+            run_sdk_area(self, self.polygon, area)
             super().accept()
         
         except InfraredAPIError as e:
