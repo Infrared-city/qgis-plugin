@@ -197,139 +197,16 @@ def plot_tile_centers(tile_centers):
         iface.setActiveLayer(prev_active)
 
 
-def create_polygon_from_selection():
-    """Return a single closed polygon tightly bounding all selected features.
-
-    Coordinates are in the active layer's CRS:
-      - geographic CRS → [[lon, lat], ...]
-      - projected CRS → [[x, y], ...] (meters)
-
-    Uses a concave hull that follows the shape of the selection more precisely
-    than a convex hull (e.g. does not fill interior gaps in L-shaped selections).
-    Falls back to convex hull if concave hull is not available (QGIS < 3.30).
-    Returns a single closed ring: [[x, y], ...] (first and last points identical).
-    Returns [] if no selection or no valid geometry.
-    """
-    layer = iface.activeLayer()
-    if not layer:
-        logger.warning("create_polygon_from_selection: no active layer")
-        return []
-
-    selected = layer.selectedFeatures()
-    geoms = [f.geometry() for f in selected if f.geometry() and not f.geometry().isEmpty()]
-    if not geoms:
-        logger.warning("create_polygon_from_selection: no selected geometries")
-        return []
-
-    geom_union = QgsGeometry.unaryUnion(geoms)
-    if geom_union is None or geom_union.isEmpty():
-        logger.warning("create_polygon_from_selection: geom_union empty")
-        return []
-
-    # Try concave hull first (tighter fit). target_percent=0.3 is a reasonable
-    # balance between tightness and smoothness; lower = tighter, higher = smoother.
-    hull = None
-    try:
-        hull = geom_union.concaveHull(0.3, False)
-        logger.info("create_polygon_from_selection: concave hull computed")
-    except Exception as e:
-        logger.warning("concaveHull failed, falling back to convex hull: %s", e)
-        hull = None
-
-    if hull is None or hull.isEmpty():
-        hull = geom_union.convexHull()
-        logger.info("create_polygon_from_selection: using convex hull")
-
-    if hull is None or hull.isEmpty():
-        logger.warning("create_polygon_from_selection: hull empty")
-        return []
-
-    # Concave hull may be multipart if selection has disconnected clusters;
-    # take the outer ring of the largest part in that case.
-    if hull.isMultipart():
-        parts = hull.asMultiPolygon()
-        if not parts:
-            logger.warning("create_polygon_from_selection: multipart hull has no parts")
-            return []
-        # Pick the part with the largest exterior ring (by point count as a proxy)
-        largest = max(parts, key=lambda p: len(p[0]) if p else 0)
-        outer = largest[0]
-    else:
-        poly = hull.asPolygon()
-        if not poly:
-            logger.warning("create_polygon_from_selection: asPolygon returned empty")
-            return []
-        outer = poly[0]
-
-    coords = [[p.x(), p.y()] for p in outer]
-    logger.info("create_polygon_from_selection: %d points in ring", len(coords))
-    return coords
-
-
-def plot_selected_polygon(polygon):
-    """Create a temporary polygon layer from a nested coordinate array and add it to the project.
-
-    Accepts either:
-      - single ring: [[x, y], [x, y], ...]
-      - multiple rings: [[[x, y], ...], [[x, y], ...], ...]
-
-    Coordinates are interpreted in the active layer's CRS (or project CRS if no active layer).
-    """
-    if not polygon:
-        logger.warning("plot_selected_polygon called with empty polygon")
-        return
-
-    prev_active = iface.activeLayer()
-    crs = prev_active.crs() if prev_active is not None else QgsProject.instance().crs()
-    logger.info("plot_selected_polygon: using CRS %s", crs.authid())
-
-    if isinstance(polygon[0][0], (list, tuple)):
-        rings = polygon
-    else:
-        rings = [polygon]
-    logger.info("plot_selected_polygon: %d ring(s), first ring has %d points", len(rings), len(rings[0]))
-
-    vlayer = QgsVectorLayer(
-        f"Polygon?crs={crs.authid()}",
-        f"Selected polygon ({len(rings)} part{'s' if len(rings) != 1 else ''})",
-        "memory",
-    )
-    if not vlayer.isValid():
-        logger.error("plot_selected_polygon: memory layer creation failed")
-        return
-
-    pr = vlayer.dataProvider()
-    fields = QgsFields()
-    fields.append(QgsField("id", QVariant.Int))
-    pr.addAttributes(fields)
-    vlayer.updateFields()
-
-    feats = []
-    for idx, ring in enumerate(rings):
-        qgs_ring = [QgsPointXY(pt[0], pt[1]) for pt in ring]
-        # Ensure ring is closed (first == last)
-        if qgs_ring and (qgs_ring[0].x() != qgs_ring[-1].x() or qgs_ring[0].y() != qgs_ring[-1].y()):
-            qgs_ring.append(QgsPointXY(qgs_ring[0].x(), qgs_ring[0].y()))
-        geom = QgsGeometry.fromPolygonXY([qgs_ring])
-        if geom is None or geom.isEmpty():
-            logger.warning("plot_selected_polygon: feature %d has empty geometry", idx)
-            continue
-        feat = QgsFeature()
-        feat.setFields(fields)
-        feat.setAttribute("id", idx)
-        feat.setGeometry(geom)
-        feats.append(feat)
-
-    ok, added = pr.addFeatures(feats)
-    logger.info("plot_selected_polygon: addFeatures ok=%s, added=%d/%d", ok, len(added), len(feats))
-    vlayer.updateExtents()
-    QgsProject.instance().addMapLayer(vlayer)
-    logger.info("plot_selected_polygon: layer added to project")
-
-    # Restore the previously active layer so downstream code still sees the
-    # user's source layer (with its selection) as active.
-    if prev_active is not None:
-        iface.setActiveLayer(prev_active)
+# Polygon-from-selection helpers were extracted into
+# ``services/polygon_from_selection.py`` to keep this module under the
+# 400-line Infrared convention. Re-exported here so callers that import
+# from ``services.tiles`` (and ``services.geometry``, which wildcards
+# from this file) keep working without changes.
+from .polygon_from_selection import (  # noqa: F401, E402
+    create_polygon_from_selection,
+    create_wgs84_geojson_polygon_from_selection,
+    plot_selected_polygon,
+)
 
 
 def get_center_lon_lat_from_bbox(bbox, crs_authid: str):
