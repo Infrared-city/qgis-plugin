@@ -430,25 +430,37 @@ def process_geojson_file(geojson, center_x: float, center_y: float, crs: str):
         gtype = geom.get("type")
         coords = geom.get("coordinates")
 
-        # handle Polygon or MultiPolygon (take first polygon of MultiPolygon)
-        poly_coords_ll = None
+        # Full polygon shape: [outer_ring, hole1, hole2, ...]. We used to
+        # discard inner rings (atriums / courtyards) by taking only
+        # ``coords[0]`` for Polygons / ``coords[0][0]`` for MultiPolygons —
+        # ``triangulate_volume`` (mapbox_earcut) handles holes natively,
+        # so we now keep every ring of the (first) polygon.
+        polygon_rings = None
         if gtype == "Polygon":
-            # coordinates: [ [ [lon,lat], ... ] , ... ]
+            # coordinates: [ outer_ring, hole1, hole2, ... ]
             if len(coords) > 0 and len(coords[0]) >= 3:
-                poly_coords_ll = coords[0]
+                polygon_rings = coords
         elif gtype == "MultiPolygon":
+            # coordinates: [ [outer, hole1, ...], [outer2, ...], ... ]
+            # Keep the first part of a MultiPolygon — same single-part
+            # behaviour as before; multipart support is in
+            # qgis_area_buildings, this legacy fetch path stays parity
+            # with what it used to do.
             if len(coords) > 0 and len(coords[0]) > 0 and len(coords[0][0]) >= 3:
-                poly_coords_ll = coords[0][0]
+                polygon_rings = coords[0]
         else:
             # skip points/lines etc.
             continue
 
-        if not poly_coords_ll:
+        if not polygon_rings or not polygon_rings[0]:
             continue
 
-        # ensure polygon is closed and valid list of lon,lat
-        if poly_coords_ll[0] != poly_coords_ll[-1]:
-            poly_coords_ll = poly_coords_ll + [poly_coords_ll[0]]
+        # Ensure outer ring is closed (lon/lat space) — keeps the rest of
+        # the helper logic that may rely on a closed exterior happy.
+        outer_ll = polygon_rings[0]
+        if outer_ll[0] != outer_ll[-1]:
+            outer_ll = outer_ll + [outer_ll[0]]
+        polygon_rings = [outer_ll] + list(polygon_rings[1:])
 
         # read height from properties; fallback to 3.0
         height = next(
@@ -474,22 +486,48 @@ def process_geojson_file(geojson, center_x: float, center_y: float, crs: str):
         except Exception:
             h_val = 3.0
 
-        # convert to local meters relative to center
-        # poly_coords_ll is list of [lon,lat]
-        poly_lonlat = [(float(p[0]), float(p[1])) for p in poly_coords_ll]
-        local_coords = convert_to_local_coords(poly_lonlat, center_x, center_y, crs)
-        # ensure open ring (no duplicate closing vertex)
-        if len(local_coords) >= 2 and local_coords[0] == local_coords[-1]:
-            local_coords = local_coords[:-1]
+        # Project every ring (outer + each hole) into local meter space
+        # relative to the tile centre. ``triangulate_volume`` consumes the
+        # full ``[outer, hole1, ...]`` list so atriums and courtyards
+        # render as cut-outs in 3-D rather than being filled in by the
+        # triangulator.
+        def _project_ring(ring_lonlat):
+            ring = [(float(p[0]), float(p[1])) for p in ring_lonlat]
+            local = convert_to_local_coords(ring, center_x, center_y, crs)
+            # Strip closing duplicate so earcut doesn't see a zero-area
+            # edge on the seam.
+            if len(local) >= 2 and local[0] == local[-1]:
+                local = local[:-1]
+            return [(float(p[0]), float(p[1])) for p in local]
+
+        local_outer = _project_ring(polygon_rings[0])
+        if len(local_outer) < 3:
+            continue
+
+        local_holes = []
+        for hole_ll in polygon_rings[1:]:
+            if len(hole_ll) < 4:  # need >= 3 unique + closing → 4 in lon/lat
+                continue
+            local_hole = _project_ring(hole_ll)
+            if len(local_hole) >= 3:
+                local_holes.append(local_hole)
 
         # --- Triangulation ---
-        # 1) Try high-quality Earcut-based triangulation if available
-        rings = [local_coords]
+        # 1) Earcut path — handles concave footprints AND holes.
+        rings = [local_outer] + local_holes
         verts, inds = triangulate_volume(rings, h_val)
 
-        # 2) Fallback to simple extrusion if Earcut is not available or failed
+        # 2) Fan-triangulation fallback — only correct for convex polygons,
+        # AND can't represent holes. Log when a hole-bearing polygon
+        # falls back so the user knows the mesh is approximate.
         if not verts or not inds:
-            verts, inds = create_building_extrusion(local_coords, h_val)
+            if local_holes:
+                logger.warning(
+                    "process_geojson_file: earcut failed; falling back to "
+                    "fan triangulation, %d hole(s) will be filled in",
+                    len(local_holes),
+                )
+            verts, inds = create_building_extrusion(local_outer, h_val)
 
         if verts and inds:
             name = str(uuid.uuid4())

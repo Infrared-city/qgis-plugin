@@ -133,28 +133,65 @@ class Converter:
 
     @staticmethod
     def _polygon_to_mesh(
-        ring_lonlat: List[List[float]],
+        polygon_lonlat: List[List[List[float]]],
         height: float,
         center_x: float,
         center_y: float,
         crs: str,
     ) -> Tuple[List[float], List[int]]:
-        """Triangulate + extrude one ring; (flat xyz, flat indices) or ([], [])."""
-        if not ring_lonlat or len(ring_lonlat) < 3:
-            return [], []
-        ring = [(float(p[0]), float(p[1])) for p in ring_lonlat]
-        if ring[0] != ring[-1]:
-            ring = ring + [ring[0]]
+        """Triangulate + extrude one polygon (outer + holes); (flat xyz, flat
+        indices) or ([], []).
 
-        local = convert_to_local_coords(ring, center_x, center_y, crs)
-        if local and local[0] == local[-1]:
-            local = local[:-1]
-        if len(local) < 3:
+        ``polygon_lonlat`` is the GeoJSON polygon shape: a list of rings
+        where index 0 is the outer ring and indices 1..n are inner rings
+        (holes — atriums, courtyards). All rings are projected to local
+        meters via ``convert_to_local_coords`` and handed to
+        ``triangulate_volume`` which natively handles holes through
+        mapbox_earcut. Falls back to fan-triangulation of the outer ring
+        only when earcut fails — that fallback can't represent holes, so
+        we log a warning when a hole-bearing polygon hits it.
+        """
+        if not polygon_lonlat or not polygon_lonlat[0]:
+            return [], []
+        outer_lonlat = polygon_lonlat[0]
+        if len(outer_lonlat) < 3:
             return [], []
 
-        verts, inds = triangulate_volume([local], height)
+        def _project(ring_lonlat: List[List[float]]) -> List[Tuple[float, float]]:
+            ring = [(float(p[0]), float(p[1])) for p in ring_lonlat]
+            if ring and ring[0] != ring[-1]:
+                ring = ring + [ring[0]]
+            local = convert_to_local_coords(ring, center_x, center_y, crs)
+            if local and local[0] == local[-1]:
+                local = local[:-1]
+            return [(float(p[0]), float(p[1])) for p in local]
+
+        local_outer = _project(outer_lonlat)
+        if len(local_outer) < 3:
+            return [], []
+
+        # Holes: project each, drop ones that collapsed to <3 vertices.
+        local_holes: List[List[Tuple[float, float]]] = []
+        for hole_ll in polygon_lonlat[1:]:
+            if len(hole_ll) < 4:
+                continue
+            local_hole = _project(hole_ll)
+            if len(local_hole) >= 3:
+                local_holes.append(local_hole)
+
+        rings = [local_outer] + local_holes
+        verts, inds = triangulate_volume(rings, height)
+
+        # Fan fallback only handles the outer ring — losses any holes.
+        # Warn so the user sees that the resulting mesh is approximate.
         if not verts or not inds:
-            verts, inds = create_building_extrusion(local, height)
+            if local_holes:
+                logger.warning(
+                    "Converter._polygon_to_mesh: earcut failed; falling back "
+                    "to fan triangulation, %d hole(s) will be filled in",
+                    len(local_holes),
+                )
+            verts, inds = create_building_extrusion(local_outer, height)
         return verts or [], inds or []
 
     @staticmethod
@@ -217,7 +254,10 @@ class Converter:
                 exterior = poly[0]
                 if not exterior or len(exterior) < 3:
                     continue
-                c, idx = Converter._polygon_to_mesh(exterior, height, lon, lat, crs)
+                # Pass the full polygon (exterior + holes) so atriums /
+                # courtyards survive triangulation. ``_polygon_to_mesh``
+                # handles inner-ring projection internally.
+                c, idx = Converter._polygon_to_mesh(poly, height, lon, lat, crs)
                 if not c:
                     continue
                 vert_offset = len(merged_coords) // 3
