@@ -1,11 +1,18 @@
 """End-to-end orchestration of an Infrared SDK area analysis from QGIS.
 
-This is the SDK-based counterpart to ``multi_sim_runner.run_tiles``: where
-``run_tiles`` walks tile centers and calls the legacy per-tile API, this
-runner builds a typed SDK payload, hands the entire polygon to
-``InfraredClient.run_area_and_wait`` (which handles tiling, parallel job
-submission, polling, and merging server-side), then renders the merged
-result grid as a single GeoTIFF + raster layer in QGIS.
+Two run flavours, sharing the same payload-build + result-render code:
+
+* :func:`run_sdk_area` — synchronous, blocks until the area completes.
+  Convenient for scripting / batch use; freezes the QGIS UI in the
+  meantime.
+* :func:`run_sdk_area_async` — submits jobs immediately, returns an
+  :class:`AreaPoller` that drives polling + render via a ``QTimer`` so
+  the dialog can close right away and the UI stays responsive.
+
+Both paths use :class:`InfraredClient` from the bundled SDK; the async
+path uses ``client.run_area`` + ``check_area_state`` + ``merge_area_jobs``
+composed by :class:`AreaPoller`, the sync path is the SDK's own
+``run_area_and_wait`` which composes the same three steps internally.
 """
 
 from __future__ import annotations
@@ -13,7 +20,7 @@ from __future__ import annotations
 import math
 import os
 import tempfile
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np
 from qgis.core import Qgis
@@ -24,6 +31,7 @@ from infrared_sdk import InfraredClient
 
 from ..infrared_logger import logger
 from ..models.analysis import AnalysisType
+from ..services.area_poller import AreaPoller, AreaRenderState
 from ..services.geotiff import generate_geotiff
 from ..services.sdk_payloads import build_sdk_payload
 from ..visualization.display import add_geojson_then_raster
@@ -139,63 +147,38 @@ def _write_buildings_outline_geojson(area_buildings, out_path: str) -> Optional[
     return out_path
 
 
-def run_sdk_area(dlg, polygon: dict, area) -> None:
-    """Build payload, run the area analysis, render the result.
+def _prepare_run(dlg) -> "Optional[Any]":
+    """Snapshot dialog state and build the SDK payload.
 
-    Parameters
-    ----------
-    dlg
-        The dialog instance. Must have ``api_key``, ``analysis_type``, and
-        the analysis-type-specific input widgets populated.
-    polygon : dict
-        A GeoJSON Polygon (WGS84) — the area to analyse.
-    area
-        The ``AreaBuildings`` returned by ``client.buildings.get_area(polygon)``;
-        its ``buildings`` map is forwarded to the SDK so the API does not need
-        to refetch them.
+    Sets ``dlg.analysis_type`` and resets ``dlg.sub_analysis_type`` (which
+    ``build_sdk_payload`` may overwrite for PWC/TCS). Returns the typed
+    SDK payload, or ``None`` if validation failed (a QMessageBox was
+    already shown by ``build_sdk_payload``).
     """
-    # 1. Capture analysis type + sub-type from the dialog. Default sub-type
-    #    starts None and may be overwritten by build_sdk_payload (PWC, TCS).
     dlg.analysis_type = dlg.analysis_type_dropdown.currentData()
     dlg.sub_analysis_type = None
 
-    # 2. Build the typed SDK payload from the dialog UI.
     payload = build_sdk_payload(dlg)
     if payload is None:
-        return  # build_sdk_payload already showed a QMessageBox.
+        return None
     logger.info(
         "SDK payload built: analysis_type=%s sub=%s",
-        dlg.analysis_type,
-        dlg.sub_analysis_type,
+        dlg.analysis_type, dlg.sub_analysis_type,
     )
+    return payload
 
-    # 3. Run the area analysis end-to-end. Forward the buildings we already
-    #    fetched so the SDK doesn't refetch them tile-by-tile.
-    client = InfraredClient(api_key=dlg.api_key)
-    _status("InfraredCity: submitting area jobs…")
-    try:
-        result = client.run_area_and_wait(
-            payload,
-            polygon,
-            buildings=area.buildings,
-            on_progress=_make_progress_cb(total_hint=area.total_buildings),
-        )
-    except Exception as e:
-        logger.error("run_area_and_wait failed: %s", e, exc_info=True)
-        _status(f"InfraredCity: area run failed — {str(e)[:120]}", level=Qgis.Critical, duration=15)
-        QMessageBox.critical(
-            dlg, "Simulation Error",
-            f"Area run failed.\n\n{e}\n\nCheck the plugin log for details.",
-        )
-        return
 
-    logger.info(
-        "Area complete: analysis_type=%s succeeded=%d failed=%d skipped=%d total=%d",
-        result.analysis_type, result.succeeded_jobs,
-        len(result.failed_jobs), len(result.skipped_jobs), result.total_jobs,
-    )
+def render_area_result(
+    render_state: AreaRenderState, polygon: dict, area, result,
+) -> None:
+    """Render an :class:`AreaResult` as a GeoTIFF + raster layer in QGIS.
 
-    # 4. Render the merged grid as a GeoTIFF over the polygon's WGS84 bbox.
+    Decoupled from the dialog so it can be invoked both from the
+    synchronous :func:`run_sdk_area` path *and* from the async
+    :class:`AreaPoller`'s completion handler — which fires after the
+    dialog has been destroyed, so ``render_state`` carries primitive
+    Python values only (no QWidget references).
+    """
     grid = result.merged_grid
     if grid is None or grid.size == 0:
         _status("InfraredCity: empty result grid", level=Qgis.Warning, duration=10)
@@ -212,25 +195,23 @@ def run_sdk_area(dlg, polygon: dict, area) -> None:
     )
     tmp_dir = tempfile.mkdtemp(prefix="ic_area_")
     geotiff_path = os.path.join(tmp_dir, f"area_{result.analysis_type}.tif")
-    crs_authid = "EPSG:4326"
 
-    # NOTE: AreaResult.merged_grid is row-major with row 0 = southernmost row
-    # (tile-grid order with origin at polygon-bbox SW). generate_geotiff
+    # NOTE: AreaResult.merged_grid is row-major with row 0 = southernmost
+    # row (tile-grid order with origin at polygon-bbox SW). generate_geotiff
     # writes top-to-bottom, so we flip vertically to match north-up GeoTIFF
     # convention.
     grid_for_tiff = np.flipud(grid)
 
-    sub = dlg.sub_analysis_type.value if dlg.sub_analysis_type else None
+    sub = (
+        render_state.sub_analysis_type.value
+        if render_state.sub_analysis_type is not None
+        else None
+    )
     generate_geotiff(
-        grid_for_tiff,
-        bbox,
-        crs_authid,
-        geotiff_path,
-        simulation_type=str(dlg.analysis_type),
-        criteria=sub,
+        grid_for_tiff, bbox, "EPSG:4326", geotiff_path,
+        simulation_type=str(render_state.analysis_type), criteria=sub,
     )
 
-    # 5. Optional buildings outline overlay (purely visual).
     geojson_path = os.path.join(tmp_dir, "buildings_outline.geojson")
     if _write_buildings_outline_geojson(area, geojson_path) is None:
         # add_geojson_then_raster requires a vector layer; fall back to a
@@ -246,11 +227,8 @@ def run_sdk_area(dlg, polygon: dict, area) -> None:
                 }],
             }, f)
 
-    # 6. Resolve legend bounds. Per SDK README: prefer result.min_legend /
-    #    max_legend when the API supplies them; otherwise fall back to
-    #    np.nanmin / np.nanmax. Deriving from data alone produces washed-out
-    #    plots for analyses like Direct Sun Hours / Daylight Availability
-    #    where most cell values cluster near the maximum.
+    # Legend bounds — per SDK README: prefer result.min_legend / max_legend
+    # when the API supplies them; otherwise fall back to np.nanmin/nanmax.
     grid_min = float(np.nanmin(grid)) if np.any(~np.isnan(grid)) else None
     grid_max = float(np.nanmax(grid)) if np.any(~np.isnan(grid)) else None
     leg_min: Optional[float] = (
@@ -259,29 +237,29 @@ def run_sdk_area(dlg, polygon: dict, area) -> None:
     leg_max: Optional[float] = (
         result.max_legend if result.max_legend is not None else grid_max
     )
-    # UTCI honours the dialog's manual overrides on top of that.
-    if dlg.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
-        if (getattr(dlg, "legend_min_enable_tci", None)
-                and dlg.legend_min_enable_tci.isChecked()):
-            leg_min = dlg.min_legend_value
-        if (getattr(dlg, "legend_max_enable_tci", None)
-                and dlg.legend_max_enable_tci.isChecked()):
-            leg_max = dlg.max_legend_value
+    if render_state.legend_min_override is not None:
+        leg_min = render_state.legend_min_override
+    if render_state.legend_max_override is not None:
+        leg_max = render_state.legend_max_override
     logger.info(
-        "Legend bounds: api=(%s, %s) grid=(%s, %s) -> applied=(%s, %s)",
-        result.min_legend, result.max_legend, grid_min, grid_max, leg_min, leg_max,
+        "Legend bounds: api=(%s, %s) grid=(%s, %s) override=(%s, %s) -> "
+        "applied=(%s, %s)",
+        result.min_legend, result.max_legend, grid_min, grid_max,
+        render_state.legend_min_override, render_state.legend_max_override,
+        leg_min, leg_max,
     )
 
     add_geojson_then_raster(
         geojson_path=geojson_path,
         geotiff_path=geotiff_path,
-        analysis_type=str(dlg.analysis_type),
+        analysis_type=str(render_state.analysis_type),
         sub_analysis_type=sub,
         min_legend_value=leg_min,
         max_legend_value=leg_max,
         tile_id=None,
     )
-    iface.mapCanvas().refresh()
+    if iface is not None:
+        iface.mapCanvas().refresh()
     QApplication.processEvents()
 
     summary = (
@@ -291,3 +269,104 @@ def run_sdk_area(dlg, polygon: dict, area) -> None:
     )
     _status(summary, level=Qgis.Success, duration=20)
     logger.info(summary)
+
+
+def run_sdk_area(dlg, polygon: dict, area) -> None:
+    """Build payload, run the area analysis synchronously, render the result.
+
+    Blocks the QGIS UI thread for the entire run (submission, polling and
+    merge inside ``client.run_area_and_wait``). Use :func:`run_sdk_area_async`
+    instead if you want the dialog to close immediately and the UI to stay
+    responsive while jobs run.
+    """
+    payload = _prepare_run(dlg)
+    if payload is None:
+        return
+
+    client = InfraredClient(api_key=dlg.api_key)
+    _status("InfraredCity: submitting area jobs…")
+    try:
+        result = client.run_area_and_wait(
+            payload, polygon,
+            buildings=area.buildings,
+            on_progress=_make_progress_cb(total_hint=area.total_buildings),
+        )
+    except Exception as e:
+        logger.error("run_area_and_wait failed: %s", e, exc_info=True)
+        _status(f"InfraredCity: area run failed — {str(e)[:120]}",
+                level=Qgis.Critical, duration=15)
+        QMessageBox.critical(
+            dlg, "Simulation Error",
+            f"Area run failed.\n\n{e}\n\nCheck the plugin log for details.",
+        )
+        return
+
+    logger.info(
+        "Area complete: analysis_type=%s succeeded=%d failed=%d skipped=%d total=%d",
+        result.analysis_type, result.succeeded_jobs,
+        len(result.failed_jobs), len(result.skipped_jobs), result.total_jobs,
+    )
+    render_area_result(AreaRenderState.from_dialog(dlg), polygon, area, result)
+
+
+# Module-level keep-alive list for active pollers.
+#
+# Why: parenting the AreaPoller to ``iface.mainWindow()`` keeps its *C++*
+# QObject alive across the dialog being destroyed, but PyQt is free to
+# garbage-collect the *Python* wrapper as soon as no Python reference
+# remains. When that happens the wrapper's bound method (``_on_tick``)
+# disappears from the QTimer's slot table, the timer fires into the void,
+# and we silently get the bug we just hit: jobs submit, polling never
+# updates, no result is rendered.
+#
+# Holding a Python reference in this list pins the wrapper for the
+# poller's lifetime. The poller removes itself on ``finished`` /
+# ``failed`` so the list doesn't grow unbounded across runs.
+_ACTIVE_POLLERS: list = []
+
+
+def _retire_poller(poller: AreaPoller) -> None:
+    """Drop the keep-alive reference once a poller signals completion."""
+    try:
+        _ACTIVE_POLLERS.remove(poller)
+        logger.debug("retired AreaPoller; %d still active", len(_ACTIVE_POLLERS))
+    except ValueError:
+        pass  # already retired (double-emit safety)
+
+
+def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
+    """Async counterpart of :func:`run_sdk_area`.
+
+    Builds the payload, submits jobs, hands the schedule off to an
+    :class:`AreaPoller` and returns the poller. The caller can then close
+    the dialog (``super().accept()``) immediately — the poller is
+    parented to ``iface.mainWindow()`` *and* pinned in
+    :data:`_ACTIVE_POLLERS` so neither Qt nor Python's GC can prematurely
+    drop it.
+
+    Returns ``None`` if payload validation failed (a QMessageBox was
+    already shown). On submission failure the poller's ``failed`` signal
+    fires; the caller doesn't need to handle that synchronously.
+    """
+    payload = _prepare_run(dlg)
+    if payload is None:
+        return None
+
+    render_state = AreaRenderState.from_dialog(dlg)
+    parent = iface.mainWindow() if iface is not None else None
+
+    poller = AreaPoller(
+        client=InfraredClient(api_key=dlg.api_key),
+        polygon=polygon,
+        area=area,
+        payload=payload,
+        render_state=render_state,
+        on_render=render_area_result,
+        parent=parent,
+    )
+    _ACTIVE_POLLERS.append(poller)
+    # Use partial-style closures so the lambda captures `poller` by value.
+    poller.finished.connect(lambda _result, p=poller: _retire_poller(p))
+    poller.failed.connect(lambda _msg, p=poller: _retire_poller(p))
+    poller.start()
+    return poller

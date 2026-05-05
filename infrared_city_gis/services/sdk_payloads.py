@@ -62,15 +62,31 @@ _DAYS_PER_MONTH = {
 def _hours_window(hourly_value: str) -> Tuple[int, int]:
     """Return (start_hour, end_hour) within 0..23 for an SDK TimePeriod.
 
-    Plugin's ``HOURS_LIMIT`` uses half-open intervals ([6, 10) for morning).
-    SDK ``TimePeriod`` permits any pair where end > start; we map the
-    half-open end directly (10 stays 10), clamped to 23.
+    The plugin's ``HOURS_LIMIT`` table is shared with the EPW weather
+    filter, which interprets it as a *half-open* interval —
+    ``[startTime, endTime)``. Morning's ``endTime: 10`` therefore covers
+    hours 6, 7, 8, 9 → 4 hours per day, and the EPW endpoint returns 4
+    weather samples per day for each ring tile.
+
+    The SDK's :class:`TimePeriod` is *inclusive on both ends* — its
+    sun-vector engine counts hours from ``start_hour`` through
+    ``end_hour`` inclusive. If we passed ``endTime: 10`` straight through
+    the engine would generate 5 sun vectors per day (6,7,8,9,10), and
+    the API would reject the run with::
+
+        DNI length 124 != sun_vectors 155
+
+    We therefore subtract one from the ``HOURS_LIMIT`` end to translate
+    half-open → inclusive. ``"all-hours"`` is a special case: there's no
+    half-open boundary to translate, so we return the full inclusive
+    range 0..23 directly (24 hours × N days, matching the EPW endpoint
+    behaviour for full-day windows).
     """
     if hourly_value == "all-hours":
         return 0, 23
     limits = HOURS_LIMIT[hourly_value]
     start = max(0, min(23, int(limits["startTime"])))
-    end = max(start + 1 if start < 23 else start, min(23, int(limits["endTime"])))
+    end = max(start, min(23, int(limits["endTime"]) - 1))
     return start, end
 
 
@@ -129,13 +145,15 @@ def _time_period_for_season(
 def _criteria_from_pwc(pwc: PedestrianWindComfortType) -> PwcCriteria:
     """Map plugin PWC enum → SDK PwcCriteria.
 
-    The string values are nearly identical except VDI: plugin uses
-    ``vdi-3787`` while the SDK enum uses ``vdi-387``.
+    The string values match the wire format the inference service expects
+    1:1 (the actual ISO standard is VDI 3787, 4 digits). Older versions
+    of this helper translated the plugin's ``vdi-3787`` to the SDK's
+    legacy ``vdi-387`` enum member, which the API then rejected with
+    ``ValueError: Invalid criteria value: vdi-387`` — that translation
+    has been removed; the bundled SDK enum now exposes ``vdi_3787`` as
+    the correct member.
     """
-    val = pwc.value
-    if val == "vdi-3787":
-        val = "vdi-387"
-    return PwcCriteria(val)
+    return PwcCriteria(pwc.value)
 
 
 def _subtype_from_tcs(tcs: ThermalComfortStatisticsType) -> TcsSubtype:
