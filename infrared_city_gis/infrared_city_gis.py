@@ -35,7 +35,6 @@ from .infrared_city_fetch_geometry_dialog import InfraredCityFetchGeometryDialog
 from .infrared_city_run_simulation_dialog import InfraredCityRunSimulationDialog
 from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
 from .infrared_city_run_multiple_simulation_dialog import InfraredCityRunMultipleSimulationDialog
-from .infrared_city_fetch_weather_file_names_dialog import InfraredCityFetchWeatherFileNamesDialog
 from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
 from .infrared_city_save_auth import InfraredCitySaveAuthDialog
 
@@ -261,21 +260,6 @@ class InfraredCityGIS:
             logger.info("Multiple simulations dialog closed successfully")
         else:
             logger.info("Multiple simulations dialog cancelled")
-
-    
-    def fetch_weather_file_names(self):
-        
-        self.dlg = InfraredCityFetchWeatherFileNamesDialog()
-        
-        # show the dialog
-        self.dlg.show()
-        # Run the dialog event loop
-        result = self.dlg.exec_()
-        # See if OK was pressed
-        if result:
-            logger.info("Weather file names dialog closed successfully")
-        else:
-            logger.info("Weather file names dialog cancelled")
         
     
     def select_bbox(self):

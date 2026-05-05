@@ -153,15 +153,21 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             if preview.tile_count > 100:
                 QMessageBox.warning(
                     self,
-                    "Max Tiles reached",
-                    "The selected area contains more than 100 tiles. Please adjust smaller selection."
+                    "Wrong selection",
+                    "The tile size can be between 0 and 100. Larger areas are not allowed. 2"
                 )
                 self.reject()
                 return
 
         except Exception as e:
             logger.exception("Error computing/plotting selection polygon: %s", e)
-            self.tile_count = 0
+            QMessageBox.warning(
+                self,
+                "Error",
+                f"An error occurred while computing the selection polygon. Please try again. Message: {e}"
+            )
+            self.reject()
+            return
 
         self.setWindowTitle(f"Run Multiple Simulations — {self.tile_count} tile{'s' if self.tile_count != 1 else ''} selected")
         logger.info("Dialog loaded, tile count: %d", self.tile_count)
@@ -338,8 +344,6 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
     def accept(self):
         try:
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
-            # tile_centers = collect_tile_centers_from_selection()
-            # plot_tile_centers(tile_centers)
             
             if not self.api_key:
                 QMessageBox.warning(self, "Missing API Key",
