@@ -26,13 +26,12 @@ import os
 
 from qgis.PyQt import uic
 from qgis.PyQt import QtWidgets
-from qgis.PyQt.QtWidgets import QMessageBox
+from qgis.PyQt.QtWidgets import QLineEdit, QMessageBox
 from .infrared_logger import logger
 from .visualization.display import display_geojson
 from .services.fetch import fetch_geometry_from_osm, fetch_weather_file_names
+from .services.secret_manager import get_api_key, set_api_key
 from .exceptions import InfraredAPIError
-import json
-from qgis.core import QgsApplication
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'infrared_city_fetch_weather_file_names_dialog.ui'))
@@ -49,21 +48,27 @@ class InfraredCityFetchWeatherFileNamesDialog(QtWidgets.QDialog, FORM_CLASS):
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         self.api_key = None
-        
-        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
-        user_file = os.path.join(plugin_data_dir, "user.json")
 
-        if os.path.exists(user_file):
-            try:
-                with open(user_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    api_key = data.get("api-key", "")
-                    self.api_key_input.setText(api_key)
-                    self.api_key = api_key
-                    logger.info(f"API key was loaded from user input.")
-            except Exception as e:
-                logger.warning(f"Could not read API key: {e}")
-                QMessageBox.warning(self, "Invalid API Key", "Invalid API key. Please check the input values.")
+        # Mask the API key input — defends against shoulder surfing and
+        # accidental screen recording. The dialog used to log the key
+        # value too; that's been removed.
+        try:
+            self.api_key_input.setEchoMode(QLineEdit.Password)
+        except Exception:
+            pass
+
+        # Pre-fill from QSettings (or INFRARED_API_KEY env var) so the
+        # user doesn't have to re-paste their key every time. Storage
+        # moved from settings/user.json to QSettings — the legacy file is
+        # no longer consulted.
+        try:
+            existing = get_api_key()
+            if existing:
+                self.api_key_input.setText(existing)
+                self.api_key = existing
+                logger.info("API key pre-filled from store")
+        except Exception as e:
+            logger.warning("Could not read API key: %s", e)
 
 
 
@@ -88,22 +93,16 @@ class InfraredCityFetchWeatherFileNamesDialog(QtWidgets.QDialog, FORM_CLASS):
             QMessageBox.warning(self, "Invalid Input", "Coordinates and bbox must be numbers.")
             return
         
-        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
-        os.makedirs(plugin_data_dir, exist_ok=True)
-        user_file = os.path.join(plugin_data_dir, "user.json")
-
         self.api_key = self.api_key_input.text().strip()
-        if self.api_key:
-            try:
-                with open(user_file, "w", encoding="utf-8") as f:
-                    json.dump({"api-key": self.api_key}, f, indent=2)
-                    logger.info("API key saved successfully.")
-            except Exception as e:
-                logger.error(f"Failed to save API key: {e}")
-        else:
+        if not self.api_key:
             logger.warning("API key is empty. Please fill in the API key.")
             QMessageBox.warning(self, "Missing API Key", "Please fill in the API key.")
             return
+
+        # Persist to QSettings (replacing the legacy user.json file).
+        # set_api_key logs only "saved" — never the secret value itself.
+        if not set_api_key(self.api_key):
+            logger.error("Failed to save API key")
 
         # --- Fetch ---
         try:

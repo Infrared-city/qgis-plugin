@@ -24,7 +24,7 @@
    <item>
     <widget class="QLineEdit" name="api_key_input">
      <property name="echoMode">
-      <enum>QLineEdit::Normal</enum>
+      <enum>QLineEdit::Password</enum>
      </property>
      <property name="placeholderText">
       <string>Your API key...</string>
