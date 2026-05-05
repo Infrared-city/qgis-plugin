@@ -62,25 +62,35 @@ _LOG_SAMPLE_LIMIT = 5
 DEFAULT_CONTEXT_MARGIN_M = 100.0
 
 
-def _all_outer_rings(geom: QgsGeometry) -> List[List[QgsPointXY]]:
-    """Return the outer ring of every part in a polygon/multipolygon.
+def _all_polygon_parts(
+    geom: QgsGeometry,
+) -> List[List[List[QgsPointXY]]]:
+    """Return every part of a polygon/multipolygon as ``[outer, hole1, ...]``.
 
     The companion ``_qgis_outer_ring`` in ``_buildings_compare_helpers``
-    keeps only the *largest* part — fine for centroid-based comparison but
-    silently drops the smaller parts of a multipart feature. For the area
-    buildings collector we want every part as a separate mesh so the SDK
-    sees every physical building footprint as an obstacle.
+    keeps only the *largest* part of a multipart geometry — fine for
+    centroid-based comparison but silently drops the smaller parts of a
+    multipart feature. For the area buildings collector we want every
+    part as a separate mesh so the SDK sees every physical building
+    footprint as an obstacle.
+
+    Each part is returned as a list of rings: index 0 is the outer ring,
+    indices 1..n are inner rings (holes — atriums, courtyards). The
+    earcut triangulator (``triangulate_volume``) consumes exactly that
+    shape, so a building with an inner courtyard renders as a true ring
+    in 3-D instead of being filled in by triangulation.
     """
-    rings: List[List[QgsPointXY]] = []
+    parts: List[List[List[QgsPointXY]]] = []
     if geom.isMultipart():
         for part in geom.asMultiPolygon():
             if part:
-                rings.append(list(part[0]))
+                # `part` is already [outer, hole1, hole2, ...]
+                parts.append([list(ring) for ring in part])
     else:
         poly = geom.asPolygon()
         if poly:
-            rings.append(list(poly[0]))
-    return rings
+            parts.append([list(ring) for ring in poly])
+    return parts
 
 
 def _resolve_layer(layer: Optional[QgsVectorLayer]) -> QgsVectorLayer:
@@ -137,39 +147,55 @@ def _feature_bbox_intersects(
 
 
 def _extrude_one(
-    fid: int, footprint_xy: List[Tuple[float, float]], height: float
+    fid: int,
+    outer_xy: List[Tuple[float, float]],
+    holes_xy: List[List[Tuple[float, float]]],
+    height: float,
 ) -> Optional[DotBimMesh]:
-    """Build a DotBimMesh for one building from its 2-D footprint + height.
+    """Build a DotBimMesh for one building part from outer ring + holes + height.
 
     Triangulation strategy mirrors the existing GeoJSON→dotbim pipeline
     (``geojson2dotbim.geojson_to_dotbim``): earcut first because the simple
     fan-triangulation in ``create_building_extrusion`` only produces correct
     surfaces for *convex* footprints — concave or L-shaped buildings get
     overshot triangles. ``triangulate_volume`` uses ``mapbox_earcut`` and
-    handles concave polygons (and holes) properly. We fall back to the fan
-    extruder only if earcut is unavailable or fails on a particular
-    feature.
+    handles concave polygons **and holes** (atriums / courtyards) properly.
+    The fan fallback can't represent holes; if earcut fails we extrude the
+    outer ring only and the hole is silently filled — logged so the user
+    knows the mesh is a degenerate approximation.
 
-    Returns ``None`` if both extruders reject the polygon (degenerate ring,
-    self-intersection that can't be buffer-fixed, etc.).
+    Returns ``None`` if both extruders reject the polygon (degenerate
+    ring, self-intersection that can't be buffer-fixed, etc.).
     """
-    # triangulate_volume expects an *open* ring (no duplicate closing vertex)
-    # of (x, y) tuples. QGIS rings come with a closing duplicate from
-    # asPolygon(), drop it here so earcut doesn't produce a zero-area
-    # triangle on the seam.
-    open_ring = [(float(x), float(y)) for (x, y) in footprint_xy]
-    if len(open_ring) >= 2 and open_ring[0] == open_ring[-1]:
-        open_ring = open_ring[:-1]
-    if len(open_ring) < 3:
-        return None
+    def _open(ring: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        """Strip the closing duplicate vertex earcut would treat as a
+        zero-area edge."""
+        r = [(float(x), float(y)) for (x, y) in ring]
+        if len(r) >= 2 and r[0] == r[-1]:
+            r = r[:-1]
+        return r
 
-    # 1) Earcut path — preferred, handles concave footprints correctly.
-    verts, inds = triangulate_volume([open_ring], float(height))
+    open_outer = _open(outer_xy)
+    if len(open_outer) < 3:
+        return None
+    open_holes = [_open(h) for h in holes_xy if len(h) >= 4]
+    open_holes = [h for h in open_holes if len(h) >= 3]
+
+    # 1) Earcut path — preferred, handles concave footprints AND holes.
+    rings = [open_outer] + open_holes
+    verts, inds = triangulate_volume(rings, float(height))
 
     # 2) Fan-triangulation fallback — only correct for convex polygons,
-    # but fine as a safety net when earcut isn't available.
+    # AND can't represent holes. Use as a safety net when earcut isn't
+    # available; flag via log if we silently lose holes.
     if not verts or not inds:
-        local = [[x, y] for (x, y) in open_ring]
+        if open_holes:
+            logger.warning(
+                "_extrude_one: earcut failed for fid=%s, falling back to "
+                "fan triangulation; %d hole(s) will be filled in",
+                fid, len(open_holes),
+            )
+        local = [[x, y] for (x, y) in open_outer]
         verts, inds = create_building_extrusion(local, float(height))
 
     if verts is None or inds is None or not verts or not inds:
@@ -265,16 +291,19 @@ def collect_qgis_area_buildings(
         context_margin_m, _MIN_USABLE_HEIGHT_M,
     )
 
+    features_with_holes = 0  # diagnostic: how many features had inner rings
+    total_holes = 0          # total inner-ring count across kept features
+
     for feat in layer.getFeatures():
         geom = feat.geometry()
         if geom is None or geom.isEmpty():
             skipped_geom += 1
             continue
-        rings = _all_outer_rings(geom)
-        if not rings:
+        parts = _all_polygon_parts(geom)
+        if not parts:
             skipped_geom += 1
             continue
-        if len(rings) > 1:
+        if len(parts) > 1:
             multipart_features += 1
 
         # Resolve height once per feature — the height attribute lives on
@@ -296,52 +325,77 @@ def collect_qgis_area_buildings(
                 sample_low_height.append((int(feat.id()), float(h)))
             continue
 
+        # Per-feature flag for the holes diagnostic — flipped if any of
+        # this feature's parts carries an inner ring.
+        feat_has_holes = False
+
         # Process every part. Each becomes its own DotBimMesh so the API
-        # sees disconnected building bodies as separate obstacles.
+        # sees disconnected building bodies as separate obstacles. Inner
+        # rings (holes — atriums, courtyards) ride along inside each
+        # part; the earcut triangulator reads them as cut-outs.
         feat_kept_count = 0
-        for part_idx, ring in enumerate(rings):
-            if len(ring) < 3:
+        for part_idx, rings in enumerate(parts):
+            if not rings:
                 continue
-            xy: List[Tuple[float, float]] = []
-            for p in ring:
-                if transform is not None:
-                    lon, lat = transform.transform(p.x(), p.y())
-                else:
-                    lon, lat = p.x(), p.y()
-                xy.append(to_meters(lon, lat))
-            if len(xy) < 3:
-                continue
-            if not _feature_bbox_intersects(xy, poly_bbox):
+            outer_ring = rings[0]
+            inner_rings = rings[1:]
+            if len(outer_ring) < 3:
                 continue
 
+            def _project_ring(qgis_ring):
+                xy_local: List[Tuple[float, float]] = []
+                for p in qgis_ring:
+                    if transform is not None:
+                        lon, lat = transform.transform(p.x(), p.y())
+                    else:
+                        lon, lat = p.x(), p.y()
+                    xy_local.append(to_meters(lon, lat))
+                return xy_local
+
+            outer_xy = _project_ring(outer_ring)
+            if len(outer_xy) < 3:
+                continue
+            if not _feature_bbox_intersects(outer_xy, poly_bbox):
+                continue
+
+            holes_xy = [_project_ring(h) for h in inner_rings]
+            holes_xy = [h for h in holes_xy if len(h) >= 3]
+            if holes_xy:
+                feat_has_holes = True
+                total_holes += len(holes_xy)
+
             seq_mesh_id += 1
-            mesh = _extrude_one(seq_mesh_id, xy, float(h))
+            mesh = _extrude_one(seq_mesh_id, outer_xy, holes_xy, float(h))
             if mesh is None:
                 skipped_extrusion += 1
                 continue
 
             key = (
                 f"{int(feat.id())}"
-                if len(rings) == 1
+                if len(parts) == 1
                 else f"{int(feat.id())}.{part_idx}"
             )
             buildings[key] = mesh
             building_ids.append(int(feat.id()))
             feat_kept_count += 1
 
+        if feat_has_holes:
+            features_with_holes += 1
         if feat_kept_count == 0:
             skipped_outside += 1
             if len(sample_outside) < _LOG_SAMPLE_LIMIT:
                 sample_outside.append(int(feat.id()))
-        elif len(rings) > 1 and feat_kept_count > 1:
+        elif len(parts) > 1 and feat_kept_count > 1:
             multipart_extra_meshes += feat_kept_count - 1
 
     elapsed = time.monotonic() - t0
     logger.info(
         "collect_qgis_area_buildings: kept=%d (multipart features=%d, extra "
-        "meshes from multipart=%d); skipped (geom=%d outside=%d no_height=%d "
-        "low_height=%d extrusion=%d) in %.2fs",
+        "meshes from multipart=%d, features with holes=%d, total holes=%d); "
+        "skipped (geom=%d outside=%d no_height=%d low_height=%d extrusion=%d) "
+        "in %.2fs",
         len(buildings), multipart_features, multipart_extra_meshes,
+        features_with_holes, total_holes,
         skipped_geom, skipped_outside, skipped_no_height,
         skipped_low_height, skipped_extrusion, elapsed,
     )
