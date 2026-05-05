@@ -50,6 +50,10 @@ from .services.geometry import (
 from .services.multi_sim_runner import build_payload, run_tiles
 from .services.qgis_area_buildings import collect_qgis_area_buildings
 from .services.sdk_runner import run_sdk_area, run_sdk_area_async
+from .services.tree_layer_picker import (
+    populate_tree_layer_dropdown,
+    update_tree_layer_enabled,
+)
 from infrared_sdk import InfraredClient
 
 
@@ -102,6 +106,17 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
 
+        # Populate the "Tree layer" dropdown from the current project; the
+        # subsequent on_analysis_changed call will grey it out if either
+        # there are no candidate layers or the analysis doesn't support
+        # vegetation.
+        try:
+            populate_tree_layer_dropdown(self.tree_layer_dropdown)
+        except AttributeError:
+            # Older .ui without the tree_layer_dropdown widget — fall back
+            # silently rather than failing the whole dialog.
+            logger.warning("tree_layer_dropdown not present in dialog — skipping")
+
         if self.analysis_type_dropdown.count() > 0:
             self.analysis_type_dropdown.setCurrentIndex(0)
             self.on_analysis_changed(self.analysis_type_dropdown.currentText())
@@ -135,6 +150,15 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             preview = client.preview_area(self.polygon)
             logger.info("Preview area: %s", preview.tile_count)
             self.tile_count = preview.tile_count
+            
+            if preview.tile_count > 100:
+                QMessageBox.warning(
+                    self,
+                    "Max Tiles reached",
+                    "The selected area contains more than 100 tiles. Please adjust smaller selection."
+                )
+                self.reject()
+                return
 
         except Exception as e:
             logger.exception("Error computing/plotting selection polygon: %s", e)
@@ -146,7 +170,15 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def on_analysis_changed(self, text):
         current = self.analysis_type_dropdown.currentData()
-        
+
+        # Refresh the tree-layer dropdown's enabled state — disabled when
+        # the project has no tree-* layers OR when the new analysis type
+        # is in the no-vegetation list (currently empty, all 8 supported).
+        try:
+            update_tree_layer_enabled(self.tree_layer_dropdown, current)
+        except AttributeError:
+            pass  # older .ui without the field
+
         if self.bbox is not None and self.api_key and not self.weather_file_names:
             lon, lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
             try:

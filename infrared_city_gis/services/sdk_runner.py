@@ -33,7 +33,9 @@ from ..infrared_logger import logger
 from ..models.analysis import AnalysisType
 from ..services.area_poller import AreaPoller, AreaRenderState
 from ..services.geotiff import generate_geotiff
+from ..services.qgis_area_vegetation import collect_qgis_area_vegetation
 from ..services.sdk_payloads import build_sdk_payload
+from ..services.tree_layer_picker import has_tree_support, selected_tree_layer
 from ..visualization.display import add_geojson_then_raster
 
 
@@ -355,6 +357,29 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
     render_state = AreaRenderState.from_dialog(dlg)
     parent = iface.mainWindow() if iface is not None else None
 
+    # Vegetation: collect from the user-picked tree layer (if any). Skip
+    # entirely when the dialog's combo is on "(none)" or the analysis
+    # type doesn't support vegetation — keeps the payload small and
+    # avoids sending features the inference engine would discard.
+    vegetation: Optional[dict] = None
+    tree_layer = None
+    try:
+        tree_layer = selected_tree_layer(dlg.tree_layer_dropdown)
+    except AttributeError:
+        # Older .ui without the field — leave vegetation as None.
+        pass
+    if tree_layer is not None and has_tree_support(dlg.analysis_type):
+        try:
+            vegetation = collect_qgis_area_vegetation(polygon, tree_layer)
+            if not vegetation:
+                vegetation = None  # empty dict → no vegetation
+        except Exception as e:
+            logger.warning(
+                "Failed to collect vegetation from layer %r: %s",
+                tree_layer.name(), e, exc_info=True,
+            )
+            vegetation = None
+
     poller = AreaPoller(
         client=InfraredClient(api_key=dlg.api_key),
         polygon=polygon,
@@ -362,6 +387,7 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
         payload=payload,
         render_state=render_state,
         on_render=render_area_result,
+        vegetation=vegetation,
         parent=parent,
     )
     _ACTIVE_POLLERS.append(poller)

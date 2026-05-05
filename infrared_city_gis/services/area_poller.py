@@ -143,6 +143,7 @@ class AreaPoller(QObject):
         payload,
         render_state: AreaRenderState,
         on_render: Callable[[AreaRenderState, dict, Any, Any], None],
+        vegetation: Optional[dict] = None,
         poll_interval_ms: int = _DEFAULT_POLL_INTERVAL_MS,
         area_timeout_s: int = _DEFAULT_AREA_TIMEOUT_S,
         parent: Optional[QObject] = None,
@@ -157,6 +158,10 @@ class AreaPoller(QObject):
         self._payload = payload
         self._render_state = render_state
         self._on_render = on_render
+        # Optional ``Mapping[str, dict]`` of GeoJSON-like Point features
+        # ({"geometry": {"coordinates": [lon, lat]}, ...}) — the SDK does
+        # the per-tile distribution. None means no vegetation.
+        self._vegetation = vegetation
         self._area_timeout_s = area_timeout_s
 
         self._schedule = None
@@ -184,6 +189,7 @@ class AreaPoller(QObject):
                 self._payload,
                 self._polygon,
                 buildings=self._area.buildings,
+                vegetation=self._vegetation,
             )
         except Exception as e:
             self._fail(f"submit failed: {e}", exc=e)
