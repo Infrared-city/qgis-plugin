@@ -52,21 +52,15 @@ def _vegetation_registry_path():
     return os.path.join(_settings_dir(), "vegetation_registry.json")
 
 
-def _user_json_path():
-    return os.path.join(_settings_dir(), "user.json")
-
-
 def _load_api_key():
-    """Load the saved API key from ``settings/user.json``, or '' if missing."""
-    path = _user_json_path()
-    if not os.path.exists(path):
-        return ""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return (json.load(f).get("api-key") or "").strip()
-    except Exception as e:
-        logger.warning("Could not read api-key from user.json: %s", e)
-        return ""
+    """Load the saved API key from QSettings (or env var), '' if neither.
+
+    Centralised in :mod:`secret_manager`; this thin wrapper exists only
+    to keep the existing ``_load_api_key`` callsites in this module
+    untouched.
+    """
+    from .secret_manager import get_api_key
+    return get_api_key()
 
 
 def _get_json(path_suffix, api_key):
@@ -136,7 +130,8 @@ def fetch_registry_visual_configs(api_key=None):
 
     Always hits the network. Persists the full JSON response to
     ``settings/model_registry.json`` and refreshes the in-memory cache.
-    If ``api_key`` is not provided, falls back to the one in ``user.json``.
+    If ``api_key`` is not provided, falls back to the one stored via
+    :func:`services.secret_manager.get_api_key` (QSettings + env var).
 
     Returns:
         dict: the ``visualConfigurations`` dict on success.
@@ -170,7 +165,8 @@ def fetch_registry_vegetation(api_key=None):
 
     Always hits the network. Persists the full JSON response to
     ``settings/vegetation_registry.json``. If ``api_key`` is not provided,
-    falls back to the one in ``user.json``.
+    falls back to the one stored via
+    :func:`services.secret_manager.get_api_key` (QSettings + env var).
 
     Returns:
         dict: the parsed JSON document on success.

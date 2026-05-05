@@ -55,6 +55,7 @@ from .services.geometry import (
 )
 from .services.qgis_area_buildings import collect_qgis_area_buildings
 from .services.sdk_runner import run_sdk_area_async
+from .services.secret_manager import get_api_key
 from .services.tree_layer_picker import (
     has_tree_support,
     populate_tree_layer_dropdown,
@@ -115,19 +116,16 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.analysis_type_dropdown.setCurrentIndex(0)
             self.on_analysis_changed(self.analysis_type_dropdown.currentText())
 
-        
-        # Plugin data dir + user.json
-        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
-        user_file = os.path.join(plugin_data_dir, "user.json")
 
-        if os.path.exists(user_file):
-            try:
-                with open(user_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    self.api_key = data.get("api-key", "")
-                    logger.info("API key loaded from user.json")
-            except Exception as e:
-                logger.warning(f"Could not read API key: {e}")
+        # Load API key from QSettings (or INFRARED_API_KEY env var) via the
+        # secret_manager. The legacy settings/user.json file is no longer
+        # consulted — the Save API Key dialog writes only to QSettings.
+        try:
+            self.api_key = get_api_key()
+            if self.api_key:
+                logger.info("API key loaded")
+        except Exception as e:
+            logger.warning("Could not read API key: %s", e)
 
         if not self.api_key:
             QMessageBox.warning(
