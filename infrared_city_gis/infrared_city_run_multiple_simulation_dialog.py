@@ -49,7 +49,7 @@ from .services.geometry import (
 )
 from .services.multi_sim_runner import build_payload, run_tiles
 from .services.qgis_area_buildings import collect_qgis_area_buildings
-from .services.sdk_runner import run_sdk_area
+from .services.sdk_runner import run_sdk_area, run_sdk_area_async
 from infrared_sdk import InfraredClient
 
 
@@ -329,8 +329,15 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             area = collect_qgis_area_buildings(self.polygon)
             logger.info("Total buildings (from QGIS): %s", area.total_buildings)
 
-            # Build payload from dialog → run via SDK → render result.
-            run_sdk_area(self, self.polygon, area)
+            # Async path: submit jobs, hand off to a QTimer-driven poller,
+            # then close the dialog immediately. The poller is parented to
+            # iface.mainWindow() so it survives this dialog being destroyed
+            # and renders the result on the canvas when polling completes.
+            poller = run_sdk_area_async(self, self.polygon, area)
+            if poller is None:
+                # Payload validation failed; build_sdk_payload already
+                # showed a QMessageBox. Keep the dialog open.
+                return
             super().accept()
         
         except InfraredAPIError as e:
