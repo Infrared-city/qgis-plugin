@@ -45,7 +45,22 @@ from .models.timeframes_parser import (
 )
 from .services.epw_query import query_infrared_epw, Query_Type
 from .services.fetch import fetch_weather_file_names
-from .services.geometry import get_center_lon_lat_from_bbox, get_center_from_bbox, collect_geometries
+from .services.geometry import (
+    create_wgs84_geojson_polygon_from_selection,
+    get_center_from_bbox,
+    get_center_lon_lat_from_bbox,
+    get_selected_bbox,
+    get_selected_crs,
+    collect_geometries,
+)
+from .services.qgis_area_buildings import collect_qgis_area_buildings
+from .services.sdk_runner import run_sdk_area_async
+from .services.tree_layer_picker import (
+    has_tree_support,
+    populate_tree_layer_dropdown,
+    selected_tree_layer,
+    update_tree_layer_enabled,
+)
 from .visualization.display import add_geojson_then_raster, deselect_all
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
@@ -78,7 +93,16 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
-        
+
+        # Populate the "Tree layer" dropdown from the current project; the
+        # subsequent on_analysis_changed call will grey it out if either
+        # there are no candidate layers or the analysis doesn't support
+        # vegetation.
+        try:
+            populate_tree_layer_dropdown(self.tree_layer_dropdown)
+        except AttributeError:
+            logger.warning("tree_layer_dropdown not present in dialog — skipping")
+
         if self.crs is not None:
             iface.messageBar().pushMessage(
                 "InfraredCity",
@@ -128,6 +152,14 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def on_analysis_changed(self, text):
         current = self.analysis_type_dropdown.currentData()
+
+        # Refresh the tree-layer dropdown's enabled state — disabled when
+        # the project has no tree-* layers OR when the new analysis type
+        # is in the no-vegetation list (currently empty, all 8 supported).
+        try:
+            update_tree_layer_enabled(self.tree_layer_dropdown, current)
+        except AttributeError:
+            pass  # older .ui without the field
 
         # Get weather file names
         if self.bbox is not None and self.api_key and not self.weather_file_names:
@@ -294,7 +326,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         #         logger.error("Failed to populate shadow mask dialog elements: %s", str(e), exc_info=True)
     
     def accept(self):
-        
+
         try:
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨")
 
@@ -302,7 +334,55 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             tree_dotbim = None
             criteria = None
 
-            
+            # ----------------------------------------------------------
+            # SDK path (default for fresh dialog opens — same flow as the
+            # run-multiple dialog). The legacy per-tile path below is
+            # only reached when a pre-fetched ``dotbim_path`` was passed
+            # by the legacy "Fetch Geometry" two-step workflow.
+            # ----------------------------------------------------------
+            if self.dotbim_path is None:
+                if not self.api_key:
+                    QMessageBox.warning(
+                        self, "Missing API Key",
+                        "No API key found. Please save your API key first via the 'Save API Key' menu.",
+                    )
+                    return
+
+                polygon = create_wgs84_geojson_polygon_from_selection()
+                if polygon is None:
+                    QMessageBox.warning(
+                        self, "No selection",
+                        "Select one or more features before running the simulation.",
+                    )
+                    return
+
+                # Populate self.bbox / self.crs from the active selection
+                # so build_sdk_payload's get_center_lon_lat_from_bbox calls
+                # (used by solar / UTCI / TCS payloads) have something to
+                # work with.
+                try:
+                    w, s, e, n = get_selected_bbox()
+                    self.bbox = [w, s, e, n]
+                    self.crs = get_selected_crs()
+                except Exception as e:
+                    logger.warning("Could not derive bbox/crs from selection: %s", e)
+
+                area = collect_qgis_area_buildings(polygon)
+                logger.info("Total buildings (from QGIS): %s", area.total_buildings)
+
+                poller = run_sdk_area_async(self, polygon, area)
+                if poller is None:
+                    # Payload validation failed; build_sdk_payload already
+                    # showed a QMessageBox. Keep the dialog open.
+                    return
+                super().accept()
+                return
+
+            # ----------------------------------------------------------
+            # Legacy path: caller (Fetch Geometry workflow) provided a
+            # pre-fetched ``dotbim_path``. Falls through into the original
+            # per-tile process_run_analysis flow below.
+            # ----------------------------------------------------------
             if self.bbox is not None and self.crs is not None:
                 center_x, center_y = get_center_from_bbox(self.bbox)
                 logger.info("Bbox: %s, CRS: %s", self.bbox, self.crs)
@@ -311,8 +391,28 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 buildings = None
                 if self.dotbim_path is None:
                     buildings = collect_geometries(center_x, center_y, 1, geometry_type=GeometryTypes.BUILDINGS)
-                  
-                trees = collect_geometries(center_x, center_y, 1, geometry_type=GeometryTypes.TREES)
+
+                # Trees: same gating as the run-multiple dialog — only
+                # collect vegetation when the user has explicitly picked
+                # a layer in the "Tree layer" combo *and* the current
+                # analysis supports vegetation. "(none)" → trees=None →
+                # downstream skips the dotbim load entirely.
+                # NOTE: self.analysis_type is only set later in accept()
+                # (after the geometry block), so read the analysis type
+                # directly from the dropdown here.
+                current_analysis_type = self.analysis_type_dropdown.currentData()
+                trees = None
+                tree_layer = None
+                try:
+                    tree_layer = selected_tree_layer(self.tree_layer_dropdown)
+                except AttributeError:
+                    pass  # older .ui without the combo
+                if tree_layer is not None and has_tree_support(current_analysis_type):
+                    trees = collect_geometries(
+                        center_x, center_y, 1,
+                        geometry_type=GeometryTypes.TREES,
+                        layer_override=tree_layer,
+                    )
                 
                 if buildings and not self.dotbim_path:
                     geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256 = buildings

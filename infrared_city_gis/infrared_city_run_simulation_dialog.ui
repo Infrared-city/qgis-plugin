@@ -479,6 +479,30 @@
     </widget>
    </item>
    <item>
+    <layout class="QHBoxLayout" name="tree_layer_layout">
+     <item>
+      <widget class="QLabel" name="label_tree_layer">
+       <property name="text">
+        <string>Tree layer:</string>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>120</width>
+         <height>0</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="tree_layer_dropdown">
+       <property name="toolTip">
+        <string>Select a layer whose name contains 'tree-' to use as the vegetation source. Empty = no vegetation.</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
     <widget class="QDialogButtonBox" name="button_box">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>

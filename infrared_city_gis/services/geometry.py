@@ -263,7 +263,7 @@ def collect_buildings(center_x, center_y, idx, permissive: bool = True):
 # Trees — point positions only; mesh + size come from vegetation_registry
 # ---------------------------------------------------------------------------
 
-def collect_trees(center_x, center_y, idx):
+def collect_trees(center_x, center_y, idx, layer_override=None):
     """Collect tree point positions for a tile.
 
     Trees are simpler than buildings: per-feature attributes don't matter (no
@@ -274,14 +274,30 @@ def collect_trees(center_x, center_y, idx):
     ``convert_tree_to_dotbim`` which places one (scaled) registry mesh per
     point.
 
+    Parameters
+    ----------
+    center_x, center_y, idx
+        Tile centroid + index, as in ``collect_buildings``.
+    layer_override : QgsVectorLayer or None
+        When provided, *only* this layer is considered (matches the
+        behaviour the user expects after picking a layer in the
+        run-simulation dialog's "Tree layer" combo). When ``None``,
+        falls back to the historical keyword-based discovery
+        ``pick_layers_by_keyword(["tree", "trees", "vegetation"])`` so
+        callers that haven't been migrated to the explicit-pick UI
+        still work.
+
     Returns:
         ``(geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256)`` or
         ``None`` if no tree features were found in the bbox (trees are
         optional — the caller treats this as "no vegetation").
     """
     date_now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    keywords = ["tree", "trees", "vegetation"]
-    target_layers = pick_layers_by_keyword(keywords, prefer_active=False)
+    if layer_override is not None:
+        target_layers = [layer_override]
+    else:
+        keywords = ["tree", "trees", "vegetation"]
+        target_layers = pick_layers_by_keyword(keywords, prefer_active=False)
     if not target_layers:
         logger.info("collect_trees: no tree/vegetation layer in project.")
         return None
@@ -366,11 +382,20 @@ def collect_trees(center_x, center_y, idx):
 # Backward-compat dispatcher — existing callers still use this signature.
 # ---------------------------------------------------------------------------
 
-def collect_geometries(center_x, center_y, idx, geometry_type: GeometryTypes = GeometryTypes.BUILDINGS):
+def collect_geometries(
+    center_x, center_y, idx,
+    geometry_type: GeometryTypes = GeometryTypes.BUILDINGS,
+    layer_override=None,
+):
     """Backward-compatible wrapper. New code should call ``collect_buildings``
     or ``collect_trees`` directly so the type-specific options (e.g.
     ``permissive``) are surfaced explicitly.
+
+    ``layer_override`` is forwarded to :func:`collect_trees` so callers
+    that have an explicit user-picked tree layer (e.g. from the
+    run-simulation dialog's "Tree layer" combo) can bypass the
+    keyword-based auto-discovery. Ignored for buildings.
     """
     if geometry_type == GeometryTypes.TREES:
-        return collect_trees(center_x, center_y, idx)
+        return collect_trees(center_x, center_y, idx, layer_override=layer_override)
     return collect_buildings(center_x, center_y, idx)
