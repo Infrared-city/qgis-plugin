@@ -53,13 +53,6 @@ def process_run_analysis(
     logger.info("Processing run analysis endpoint...")
 
     json_data = json.dumps(payload)
-    
-    # debug_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "debug")
-    # os.makedirs(debug_dir, exist_ok=True)
-    
-    # debug_path = os.path.join(debug_dir, f"payload_{analysis_type}.json")
-    # with open(debug_path, "w", encoding="utf-8") as f:
-    #     json.dump(payload, f, indent=2)
 
     compressed_data = gzip.compress(json_data.encode(Headers.UTF_8.value))
     base64_encoded = base64.b64encode(compressed_data).decode(Headers.UTF_8.value)
@@ -148,14 +141,6 @@ def process_run_analysis(
             max_legend = raw_json.get("maxLegend")
             logger.info(f"Legend range from API: minLegend={min_legend}, maxLegend={max_legend}")
 
-            # Write full response (without the large 'result' blob) to a debug file
-            # debug_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "debug")
-            # os.makedirs(debug_dir, exist_ok=True)
-            # debug_path = os.path.join(debug_dir, f"last_response_{analysis_type}.json")
-            # debug_data = {k: v for k, v in raw_json.items() if k != "result"}
-            # with open(debug_path, "w", encoding="utf-8") as f:
-            #     json.dump(debug_data, f, indent=2)
-            #logger.info(f"Response debug dump: {debug_path}")
         except Exception as e:
             logger.warning(f"Could not parse/dump response JSON for debug: {e}")
 
@@ -169,10 +154,6 @@ def process_run_analysis(
         # produces a fresh .tif instead of overwriting the previous result.
         # The QGIS layer name stays clean — only the file path carries the run id.
         sim_run_id = datetime.now().strftime('%H-%M-%S')
-
-        # debug_path = os.path.join(plugin_data_dir, f"{base_name}_run_{sim_run_id}_matrix.json")
-        # with open(debug_path, "w", encoding="utf-8") as f:
-        #     json.dump(decoded_result, f, indent=2)
 
         if analysis_type == "pedestrian-wind-comfort":
             matrix = np.array(decoded_result, dtype=str)

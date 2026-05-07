@@ -22,34 +22,27 @@
  ***************************************************************************/
 """
 
-import json
 import os
 
-from qgis.core import Qgis, QgsApplication
+from qgis.core import Qgis
 from qgis.PyQt import QtWidgets, uic
-from qgis.PyQt.QtCore import QDateTime
-from qgis.PyQt.QtWidgets import QApplication, QMessageBox
+from qgis.PyQt.QtWidgets import QMessageBox
 from qgis.utils import iface
 
 from .exceptions import InfraredAPIError
 from .infrared_logger import logger
-from .models.analysis import AnalysisType, GeometryTypes, PedestrianWindComfortType, ThermalComfortStatisticsType
+from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType
 from .models.timeframes_parser import (
     DailyTimeFrameConfig, DailyTimeFrameConfigUTCI, MonthConfig,
-    SeasonalTimeFrameConfig, makeTimeFrameObj, makeTimeFrameObjWithMonth,
+    SeasonalTimeFrameConfig,
 )
-from .services.epw_query import Query_Type, query_infrared_epw
 from .services.fetch import fetch_weather_file_names
 from .services.geometry import (
-    collect_tile_centers_from_selection,
-    create_polygon_from_selection,
     create_wgs84_geojson_polygon_from_selection,
     get_center_lon_lat_from_bbox, get_selected_bbox, get_selected_crs,
-    plot_selected_polygon, plot_tile_centers,
 )
-from .services.multi_sim_runner import build_payload, run_tiles
 from .services.qgis_area_buildings import collect_qgis_area_buildings
-from .services.sdk_runner import run_sdk_area, run_sdk_area_async
+from .services.sdk_runner import run_sdk_area_async
 from .services.secret_manager import get_api_key
 from .services.tree_layer_picker import (
     populate_tree_layer_dropdown,
@@ -335,12 +328,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     self.hours_dropdown_dsh.addItem(hours.value, hours)
             except Exception as e:
                 logger.error("Failed to populate direct sun hours dialog elements: %s", str(e), exc_info=True)
-        # if current == AnalysisType.SHADOW_MASK:
-        #     try:
-        #         self.datetime_input_sm.setDateTime(QDateTime.currentDateTime())
-        #     except Exception as e:
-        #         logger.error("Failed to populate shadow mask dialog elements: %s", str(e), exc_info=True)
-    
+
     def accept(self):
         try:
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")

@@ -1,10 +1,5 @@
 """Build typed Infrared SDK analysis payloads from the dialog's UI state.
 
-Sister to ``multi_sim_runner.build_payload`` — that one returns the legacy
-plain-dict payload for the old ``client.process_run_analysis`` path; this
-module returns Pydantic-typed ``AnalysesUnion`` payloads consumable by
-``InfraredClient.run_area_and_wait``.
-
 All helpers read fields directly from the dialog (``dlg``) so this stays
 de-coupled from the dialog class itself. Each ``build_sdk_payload`` exit
 either returns a typed payload or returns ``None`` after showing a
