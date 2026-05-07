@@ -1,0 +1,10 @@
+<RCC>
+  <qresource prefix="/plugins/infrared_city_gis">
+    <file>icons/login.png</file>
+    <file>icons/get_geometry.png</file>
+    <file>icons/select_area.png</file>
+    <file>icons/tree.svg</file>
+    <file>icons/run_single.svg</file>
+    <file>icons/run_multiple.svg</file>
+  </qresource>
+</RCC>

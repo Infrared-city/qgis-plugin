@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 
 # C extensions
-*.so
+
 
 # Distribution / packaging
 .Python
@@ -19,8 +19,6 @@ lib64/
 parts/
 sdist/
 var/
-wheels/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -205,3 +203,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+/infrared_city_gis/thirdparty/bin
+/infrared_city_gis/thirdparty/numpy/
+/infrared_city_gis/thirdparty/numpy*
+/infrared_city_gis/thirdparty/mapbox_earcut-*
