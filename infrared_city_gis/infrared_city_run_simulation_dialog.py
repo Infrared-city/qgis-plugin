@@ -607,18 +607,6 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
                 payload = { "analysis-type": self.analysis_type.value, "geometries": None}  
             
-            # elif self.analysis_type == AnalysisType.SHADOW_MASK:   
-            #     try:
-            #         selected_datetime = self.datetime_input_sm.dateTime().toPyDateTime()
-            #     except AttributeError:
-            #         logger.warning(f"Missing input, Selected datetime is required.")
-            #         QMessageBox.warning(self, "Missing Input", "Selected datetime is required.")
-            #         return
-                
-            #     datetime_str = selected_datetime.strftime("%Y-%m-%dT%H:%M:%S+02:00")
-            #     center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
-            #     payload = get_shadow_mask_payload(datetime_str, center_lon, center_lat)
-            
             logger.info(f"\n✨ ✨ ✨ ✨\nPayload: \n{payload}\n✨ ✨ ✨ ✨")
             #Load dotbim
             dotbim = load_dotbim(self.dotbim_path)
