@@ -30,14 +30,12 @@ from qgis.utils import iface
 from infrared_sdk import InfraredClient
 
 from ..infrared_logger import logger
-from ..models.analysis import AnalysisType
 from ..services.area_poller import AreaPoller, AreaRenderState
 from ..services.geotiff import generate_geotiff
 from ..services.qgis_area_vegetation import collect_qgis_area_vegetation
 from ..services.sdk_payloads import build_sdk_payload
 from ..services.tree_layer_picker import has_tree_support, selected_tree_layer
 from ..visualization.display import add_geojson_then_raster
-
 
 def _status(msg: str, level=Qgis.Info, duration: int = 0) -> None:
     iface.messageBar().clearWidgets()
