@@ -1,0 +1,79 @@
+# -----------------------------
+# Python general
+# -----------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+*.spec
+
+# -----------------------------
+# QGIS plugin specific
+# -----------------------------
+# QGIS runtime databases, history
+*.db
+*.sqlite
+user-history.db
+symbology-style.db
+
+# Temporary / exported files
+temp.json
+*.tmp
+*.log
+*.bak
+*.swp
+
+# QGIS config files
+.qgis2/
+.qgis3/
+.qgis/
+.qgis_settings/
+.qgis_cache/
+
+# UI generated / cache files
+*.ui~
+*.qrc~
+*.qrc.py
+resources_rc.py
+
+# -----------------------------
+# Project-specific
+# -----------------------------
+# Local test data
+test/
+scripts/
+help/
+
+# Local configuration
+temp.*
+infrared_city_gis/__pycache__/
+
+# -----------------------------
+# IDE / Developer environment
+# -----------------------------
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Virtual environment
+# -----------------------------
+.venv/
+venv/
+ENV/
+env/
+
+# -----------------------------
+# Plugin runtime dependencies
+# (installed per-platform by deps_bootstrap.py)
+# -----------------------------
+thirdparty/
+.deps_ok
