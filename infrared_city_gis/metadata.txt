@@ -12,8 +12,8 @@ email=connectors@infrared.city
 
 about=Infrared City GIS is a QGIS plugin that connects to the Infrared City simulation platform. It allows urban planners and climate consultants to fetch building geometry from OpenStreetMap, run microclimate analyses (wind speed, pedestrian wind comfort, thermal comfort index, solar radiation, daylight availability, shadow mask), and visualize results as raster layers directly in QGIS.
 
-tracker=https://github.com/Infrared-city/infrared-city-qgis/issues
-repository=https://github.com/Infrared-city/infrared-city-qgis
+tracker=https://github.com/Infrared-city/connector-python/issues
+repository=https://github.com/Infrared-city/connector-python
 # End of mandatory metadata
 
 # Recommended items:
@@ -25,8 +25,8 @@ changelog=0.2.1
 tags=urban climate, simulation, thermal comfort, wind, solar, shadow, microclimate
 
 homepage=https://infrared.city
-category=Plugins
-icon=icon.png
+category=Raster
+icon=icons/icon.png
 # experimental flag
 experimental=True
 
@@ -38,8 +38,7 @@ deprecated=False
 # Check the documentation for more information.
 # plugin_dependencies=
 
-Category of the plugin: Raster, Vector, Database or Web
-# category=
+# Category of the plugin: Raster, Vector, Database or Web
 
 # If the plugin can run on QGIS Server.
 server=False
