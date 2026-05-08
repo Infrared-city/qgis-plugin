@@ -70,6 +70,11 @@ class _ExceptionsNamespace:
 
 exceptions = _ExceptionsNamespace()
 
+# Module-level aliases so ``requests.RequestException`` etc. work directly.
+RequestException = RequestException
+HTTPError = HTTPError
+Timeout = Timeout
+
 
 # ---------------------------------------------------------------------------
 # Response wrapper
@@ -142,7 +147,10 @@ def _build_request(url: str, headers: dict | None, timeout) -> QNetworkRequest:
 def _check(err_code: int, blocker: QgsBlockingNetworkRequest) -> Response:
     """Map QgsBlockingNetworkRequest error codes to exceptions or Response."""
     if err_code == QgsBlockingNetworkRequest.NoError:
-        return Response(blocker.reply())
+        resp = Response(blocker.reply())
+        if resp.status_code >= 400:
+            raise HTTPError(f"HTTP {resp.status_code}", response=resp)
+        return resp
 
     if err_code == QgsBlockingNetworkRequest.TimeoutError:
         raise Timeout(blocker.errorMessage(), response=None)
