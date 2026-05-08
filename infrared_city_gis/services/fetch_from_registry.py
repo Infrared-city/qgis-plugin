@@ -22,8 +22,9 @@ import json
 import os
 from threading import Lock
 
-import requests
 from qgis.core import QgsApplication
+
+from . import qgis_http as requests
 
 from ..constants import FETCH_FROM_REGISTRY_URL
 from ..infrared_logger import logger

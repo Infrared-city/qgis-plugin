@@ -8,8 +8,9 @@ from enum import Enum
 from typing import Optional
 
 import numpy as np
-import requests
 from qgis.core import QgsApplication
+
+from .services import qgis_http as requests
 
 from .constants import RUN_ANALYSIS_ENDPOINT, RUN_ANALYSIS_HTTP_TIMEOUT
 from .exceptions import InfraredAPIError
