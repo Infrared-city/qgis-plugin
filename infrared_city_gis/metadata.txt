@@ -20,6 +20,8 @@ repository=https://github.com/Infrared-city/connector-python
 
 hasProcessingProvider=no
 changelog=0.2.1
+    - Infrared API SDK integration with async analysis support
+    - Tiling improvements for large area simulations
 
 # Tags are comma separated with spaces allowed
 tags=urban climate, simulation, thermal comfort, wind, solar, shadow, microclimate
