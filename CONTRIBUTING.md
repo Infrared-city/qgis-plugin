@@ -4,7 +4,7 @@
 
 1. **Clone**:
    ```bash
-   git clone git@github.com:Infrared-city/connector-python.git
+   git clone https://github.com/Infrared-city/connector-python.git
    cd connector-python
    ```
 
@@ -15,8 +15,10 @@
 
 3. **Install dev tools**:
    ```bash
-   pip install pb_tool ruff
+   pip install pylint
    ```
+
+   Linting config: `infrared_city_gis/pylintrc`.
 
 4. **Symlink into your QGIS plugin folder** so QGIS picks up live changes:
    - macOS: `~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/`
@@ -34,7 +36,7 @@
 1. **Branch**: `feat/<short-description>`, `fix/<short-description>`, `chore/<description>`. Target `main` (or `staging` if it exists).
 2. **Commit** following [Conventional Commits](https://www.conventionalcommits.org): `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `ci:`. Lowercase type, imperative mood. Append `!` for breaking changes.
 3. **Open a PR** with a short summary and a test plan. One concern per PR.
-4. **Reviewer checks** ruff passes, plugin loads in QGIS, no regressions on the dialogs you touched.
+4. **Reviewer checks** pylint passes (`pylint --rcfile=infrared_city_gis/pylintrc infrared_city_gis/`), plugin loads in QGIS, no regressions on the dialogs you touched.
 
 ## Testing
 

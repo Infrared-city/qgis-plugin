@@ -62,12 +62,14 @@ infrared_city_gis/
 ```
 User → Auth Dialog → API key stored in QGIS settings
      → Select bbox → Fetch buildings (OSM)
-     → Configure simulation → POST /jobs → poll until done
+     → Configure simulation → POST /api/run-analysis → poll job status
      → Download result → render as raster layer
+
+(Endpoints defined in `infrared_city_gis/constants.py`; `RUN_ANALYSIS_ENDPOINT` is the entry point.)
 ```
 
 ## Why This Shape
 
 - **Plugin = `infrared_city_gis/` folder.** The repo root is just metadata/CI; the QGIS-shipped artifact is the inner folder. This is forced by the QGIS plugin format.
-- **`pb_tool` for packaging.** Standard QGIS plugin tooling. Generates the ZIP from `pb_tool.cfg`.
+- **`pb_tool` config exists but is currently stale.** Release builds use a plain `zip` step in CI (see `.github/workflows/release.yml`). `pb_tool.cfg` references files that have moved; update it before relying on `pb_tool zip` again.
 - **Logic split into `services/` and `models/`.** Keeps dialog files focused on UI only — easier to test the non-UI bits in isolation later.

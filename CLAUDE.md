@@ -36,18 +36,17 @@ The plugin **must** ship as a single folder (`infrared_city_gis/`) zipped at the
 ## Common Commands
 
 ```bash
-# Build a plugin ZIP locally (using pb_tool)
-cd infrared_city_gis && pb_tool zip
-
-# Or just zip the folder (what CI does on tag push)
+# Build a plugin ZIP locally (mirrors what CI does on tag push)
 zip -r infrared-city-qgis.zip infrared_city_gis/ -x "*__pycache__*" "*.pyc"
 
-# Upload manually to plugins.qgis.org (once approved)
+# Upload manually to plugins.qgis.org (once approved on plugins.qgis.org)
 python infrared_city_gis/plugin_upload.py infrared-city-qgis.zip
 
 # Lint
-ruff check infrared_city_gis/
+pylint --rcfile=infrared_city_gis/pylintrc infrared_city_gis/
 ```
+
+**Note:** `infrared_city_gis/pb_tool.cfg` exists but is currently stale — it references files that have been moved or renamed. Don't run `pb_tool zip` until the config is updated to match the current layout.
 
 ## Release Process
 
