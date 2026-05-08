@@ -3,8 +3,9 @@ import os
 import time
 from datetime import datetime
 
-import requests
 from qgis.core import QgsApplication
+
+from . import qgis_http as requests
 
 from ..constants import FETCH_GROUND_MATERIAL_URL,FETCH_WEATHER_FILES_URL
 from ..exceptions import InfraredAPIError

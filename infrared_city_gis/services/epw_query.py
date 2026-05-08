@@ -3,7 +3,7 @@ from enum import Enum
 from ..constants import FETCH_HTTP_TIMEOUT
 from ..exceptions import InfraredAPIError
 from ..infrared_logger import logger
-import requests
+from . import qgis_http as requests
 
 class Query_Type (str,Enum):
     UTCI = "utci"
