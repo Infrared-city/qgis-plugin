@@ -4,7 +4,7 @@
 
 [general]
 name=Infrared City GIS
-qgisMinimumVersion=3.0
+qgisMinimumVersion=3.44
 description=Run urban climate simulations (wind, thermal comfort, solar, shadow) directly from QGIS using the Infrared City platform.
 version=0.2.1
 author=infrared.city
