@@ -83,6 +83,10 @@ class Response:
         self.status_code: int = (
             reply.attribute(QNetworkRequest.HttpStatusCodeAttribute) or 0
         )
+        self.headers: dict = {
+            bytes(k).decode(): bytes(reply.rawHeader(k)).decode()
+            for k in reply.rawHeaderList()
+        }
 
     @property
     def content(self) -> bytes:
