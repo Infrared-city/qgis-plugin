@@ -343,11 +343,11 @@ class InfraredCityGIS:
                     )
         
     def run_simulation(self):
-        """Run method that performs all the real work"""            
+        """Run method that performs all the real work"""
         if not self.last_geojson_path or not self.last_dotbim_path or not self.bbox or not self.crs:
             self.iface.messageBar().pushWarning("InfraredCity", "Please select geometry first.")
             return
-        
+
         logger.info("Simulation dialog creation started")
         self.dlg = InfraredCityRunSimulationDialog(dotbim_path=self.last_dotbim_path,geojson_path=self.last_geojson_path,bbox=self.bbox,crs=self.crs)
         logger.info("Simulation dialog created")

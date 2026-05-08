@@ -73,7 +73,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None, dotbim_path=None, geojson_path=None ,bbox=None,crs=None):
         super().__init__(parent)
         self.setupUi(self)
-        
+
         self._init_ok = False
 
         self.dotbim_path = dotbim_path
@@ -91,7 +91,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self.api_key = None
         self.selected_legend_min = None
         self.selected_legend_max = None
-        
+
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
 
@@ -143,7 +143,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         logger.info("Geojson path: %s", self.geojson_path)
         logger.info("Bbox: %s", self.bbox)
         logger.info("CRS: %s", self.crs)
-        
+
         self._init_ok = True
 
 
@@ -172,7 +172,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.error("Unexpected error fetching weather file names: %s", e, exc_info=True)
                 QMessageBox.critical(self, "Error", f"Failed to fetch weather file names.\n\n{e}")
                 return
-        
+
         # Switch stacked pages instead of toggling visibility
         try:
             if current == AnalysisType.WIND_SPEED:
@@ -229,7 +229,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     self.hours_dropdown_pwc.addItem(hours.value, hours)
             except Exception as e:
                 logger.error("Failed to populate PWC dialog elements: %s", str(e), exc_info=True)
-        
+
         if current == AnalysisType.THERMAL_COMFORT_INDEX:
             try:
                 self.weather_file_input_tci.setEditable(True)
@@ -322,7 +322,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         #         self.datetime_input_sm.setDateTime(QDateTime.currentDateTime())
         #     except Exception as e:
         #         logger.error("Failed to populate shadow mask dialog elements: %s", str(e), exc_info=True)
-    
+
     def accept(self):
 
         try:
@@ -385,7 +385,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 center_x, center_y = get_center_from_bbox(self.bbox)
                 logger.info("Bbox: %s, CRS: %s", self.bbox, self.crs)
                 logger.info("Center center_x/center_y: %s, %s", center_x, center_y)
-                
+
                 buildings = None
                 if self.dotbim_path is None:
                     buildings = collect_geometries(center_x, center_y, 1, geometry_type=GeometryTypes.BUILDINGS)
@@ -411,20 +411,20 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                         geometry_type=GeometryTypes.TREES,
                         layer_override=tree_layer,
                     )
-                
+
                 if buildings and not self.dotbim_path:
                     geojson_path, dotbim_path, bbox_512, crs_authid, bbox_256 = buildings
                     logger.info("Buildings found for the selection.")
-                    
+
                     self.dotbim_path = dotbim_path
                     self.bbox = bbox_512
                     self.crs = crs_authid
                     logger.info("Dotbim path: %s", self.dotbim_path)
-                
+
                 if trees:
                     geojson_path_trees, dotbim_path_trees, bbox_512_trees, crs_authid_trees, bbox_256_trees = trees
                     logger.info("Trees found the selection.")
-                    
+
                     tree_dotbim =  load_dotbim(dotbim_path_trees)
                     logger.info("Tree dotbim was loaded")
 
@@ -432,7 +432,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.warning("No geometry fetched. Please fetch geometry first.")
                 QMessageBox.warning(self, "Missing Geometry", "Please fetch or select geometry first.")
                 return
-            
+
             if not self.dotbim_path or not os.path.exists(self.dotbim_path):
                 logger.warning("No geometry fetched. Please fetch geometry first.")
                 QMessageBox.warning(self, "Missing Geometry", "Please fetch or select geometry first.")
@@ -456,23 +456,23 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 # Validation
                 wind_speed = self.wind_speed_input.value()
                 wind_direction = self.wind_direction_input.value()
-                
+
                 if  (wind_speed <= 0 or wind_direction < 0 or wind_direction > 360):
                     logger.warning("Invalid parameters. Please check the input values.")
                     QMessageBox.warning(self, "Invalid Parameters", "Wind speed must be >0 and direction between 0-360°.")
                     return
-                
+
                 # Collect payload
                 payload = get_windspeed_payload(wind_direction, wind_speed)
 
             elif self.analysis_type == AnalysisType.PEDESTRIAN_WIND_COMFORT:
                 # Validation
                 try:
-                    
+
                     pwc_type = self.pwc_type_dropdown.currentData()
                     criteria = pwc_type
                     self.sub_analysis_type = pwc_type
-                    selected_season = self.season_dropdown_pwc.currentData()   
+                    selected_season = self.season_dropdown_pwc.currentData()
                     selected_hours = self.hours_dropdown_pwc.currentData()
                     weather_file = self.weather_file_input_pwc.currentText().strip()
                     logger.info(f"Weather file: {weather_file}")
@@ -481,7 +481,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     logger.warning("Missing input")
                     QMessageBox.warning(self, "Missing Input", "Please fill in all fields!")
                     return
-                
+
                 time_frame = makeTimeFrameObj(isNorthHem=True, season=selected_season.value, hourly=selected_hours.value)
                 logger.info(f"Weather file: {weather_file}")
                 logger.info(f"Time frame: {time_frame}")
@@ -491,9 +491,9 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                         time_frame=time_frame,
                         api_key=self.api_key
                     )
-                logger.info("Wind data: windSpeed length=%d, windDirection length=%d", 
+                logger.info("Wind data: windSpeed length=%d, windDirection length=%d",
                     len(wind_data["windSpeed"]), len(wind_data["windDirection"]))
-        
+
                 center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
 
                 payload = get_pwc_payload(wind_data,self.sub_analysis_type.value)
@@ -514,7 +514,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     logger.warning(f"Missing input, Selected season and hours are required.")
                     QMessageBox.warning(self, "Missing Input", "Selected season and hours are required.")
                     return
-                
+
                 time_frame = makeTimeFrameObjWithMonth(month=selected_month.number, hourly=selected_hours.value)
 
                 weather_data = query_infrared_epw(
@@ -536,12 +536,12 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
                     weather_file = self.weather_file_input_tcs.currentText().strip()
                     logger.info(f"Weather file: {weather_file}")
-    
+
                 except AttributeError:
                     logger.warning("Missing input. TCS type is required.")
                     QMessageBox.warning(self, "Missing Input", "TCS type is required.")
                     return
-                
+
                 time_frame = makeTimeFrameObj(isNorthHem=True,season=selected_season.value,hourly=selected_hours.value,analysis_type=self.analysis_type)
 
                 weather_data = query_infrared_epw(
@@ -556,7 +556,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             elif self.analysis_type == AnalysisType.SOLAR_RADIATION:
                 # Validation
                 try:
-                    selected_month = self.month_dropdown_sr.currentData()      
+                    selected_month = self.month_dropdown_sr.currentData()
                     selected_hours = self.hours_dropdown_sr.currentData()
                     weather_file = self.weather_file_input_sr.currentText().strip()
                     logger.info(f"Weather file: {weather_file}")
@@ -564,7 +564,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     logger.warning(f"Missing input, Selected month and hours are required.")
                     QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
                     return
-                
+
                 time_frame = makeTimeFrameObjWithMonth(month=selected_month.number, hourly=selected_hours.value)
 
                 weather_data = query_infrared_epw(
@@ -574,39 +574,39 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                         api_key=self.api_key
                     )
                 center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
-                
+
                 payload = get_solar_radiation_payload(weather_data,center_lon, center_lat, time_frame)
 
             elif self.analysis_type == AnalysisType.DAYLIGHT_AVAILABILITY:
                 try:
-                    selected_month = self.month_dropdown_da.currentData()      
+                    selected_month = self.month_dropdown_da.currentData()
                     selected_hours = self.hours_dropdown_da.currentData()
 
                 except AttributeError:
                     logger.warning(f"Missing input, Selected month and hours are required.")
                     QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
                     return
-                
+
                 center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
                 payload = get_daylight_availability_payload(month=selected_month.number, hourly=selected_hours.value, lon=center_lon, lat=center_lat)
 
             elif self.analysis_type == AnalysisType.DIRECT_SUN_HOURS:
                 try:
-                    selected_month = self.month_dropdown_dsh.currentData()      
+                    selected_month = self.month_dropdown_dsh.currentData()
                     selected_hours = self.hours_dropdown_dsh.currentData()
 
                 except AttributeError:
                     logger.warning(f"Missing input, Selected month and hours are required.")
                     QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
                     return
-                
+
                 center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
                 payload = get_direct_sun_hours_payload(month=selected_month.number, hourly=selected_hours.value, lon=center_lon, lat=center_lat)
 
             elif self.analysis_type == AnalysisType.SKY_VIEW_FACTORS:
 
-                payload = { "analysis-type": self.analysis_type.value, "geometries": None}  
-            
+                payload = { "analysis-type": self.analysis_type.value, "geometries": None}
+
             logger.info(f"\n✨ ✨ ✨ ✨\nPayload: \n{payload}\n✨ ✨ ✨ ✨")
             #Load dotbim
             dotbim = load_dotbim(self.dotbim_path)
@@ -614,15 +614,15 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 payload["geometries"] = dotbim
             else:
                 logger.warning("Geometries data is empty")
-                deselect_all()   
+                deselect_all()
                 QMessageBox.warning(self, "Missing Geometry", "Please select geometry on the buildings layer.")
                 return
-            
+
             if tree_dotbim is not None:
                 payload["vegetation"] = tree_dotbim
-                logger.warning("Vegetation data was loaded.")   
+                logger.warning("Vegetation data was loaded.")
             else:
-                logger.warning("Vegetation data is empty")               
+                logger.warning("Vegetation data is empty")
 
             # Run simulation
             self.geotiff_path, api_min_legend, api_max_legend = process_run_analysis(
@@ -669,10 +669,10 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 raster_opacity=0.7,
                 min_legend_value=min_legend_value,
                 max_legend_value=max_legend_value)
-        
-        
+
+
             super().accept()
-        
+
         except InfraredAPIError as e:
             logger.error("API error in accept(): %s", e, exc_info=True)
             QMessageBox.critical(self, e.title, e.detail)
