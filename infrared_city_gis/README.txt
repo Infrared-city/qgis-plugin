@@ -16,7 +16,7 @@ Features
 
 Requirements
 ------------
-- QGIS 3.0 or later
+- QGIS 3.44 or later
 - An Infrared City API key (https://infrared.city)
 
 Installation
