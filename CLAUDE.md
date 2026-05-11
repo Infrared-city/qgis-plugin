@@ -5,14 +5,14 @@ QGIS plugin that connects to the [Infrared City](https://infrared.city) simulati
 ## Stack
 
 - Python 3 (whatever QGIS ships — typically 3.9+)
-- QGIS ≥ 3.0 (PyQGIS / PyQt5)
+- QGIS ≥ 3.44 (PyQGIS / PyQt5)
 - `pb_tool` for plugin packaging (`infrared_city_gis/pb_tool.cfg`)
 - Internal services: `infrared-sdk`, REST calls to `api.infrared.city`
 
 ## Repository Layout
 
 ```
-connector-python/
+qgis-plugin/
 ├── infrared_city_gis/         # The QGIS plugin (this is what gets shipped)
 │   ├── __init__.py            # Plugin entry point — classFactory()
 │   ├── infrared_city_gis.py   # Main plugin class
@@ -26,7 +26,6 @@ connector-python/
 │   ├── i18n/                  # Translations
 │   ├── metadata.txt           # QGIS plugin metadata (version, deps, tags)
 │   ├── pb_tool.cfg            # Build config for pb_tool
-│   ├── plugin_upload.py       # Manual upload script for plugins.qgis.org
 │   └── requirements.txt       # Python deps (installed at runtime)
 └── .github/workflows/         # CI: release builds the ZIP on tag push
 ```
@@ -39,12 +38,11 @@ The plugin **must** ship as a single folder (`infrared_city_gis/`) zipped at the
 # Build a plugin ZIP locally (mirrors what CI does on tag push)
 zip -r infrared-city-qgis.zip infrared_city_gis/ -x "*__pycache__*" "*.pyc"
 
-# Upload manually to plugins.qgis.org (once approved on plugins.qgis.org)
-python infrared_city_gis/plugin_upload.py infrared-city-qgis.zip
-
 # Lint
 pylint --rcfile=infrared_city_gis/pylintrc infrared_city_gis/
 ```
+
+Plugin uploads to `plugins.qgis.org` are **manual via the web UI** — see [`docs/deployment.md`](docs/deployment.md).
 
 **Note:** `infrared_city_gis/pb_tool.cfg` exists but is currently stale — it references files that have been moved or renamed. Don't run `pb_tool zip` until the config is updated to match the current layout.
 
@@ -71,4 +69,4 @@ See [`docs/deployment.md`](docs/deployment.md) for full deploy details.
 
 - **GPL-2.0-or-later** — required because plugins link against PyQGIS (also GPL).
 - Distributed via plugins.qgis.org (preferred — gets discoverability) and GitHub Releases (fallback).
-- The repo name is `connector-python` for historical reasons; the plugin display name is **Infrared City GIS**. Renaming the repo is on the backlog.
+- The repo is `qgis-plugin`, the plugin display name is **Infrared City GIS**, and the inner package folder is `infrared_city_gis/` (must stay underscore-named — Python module requirement).

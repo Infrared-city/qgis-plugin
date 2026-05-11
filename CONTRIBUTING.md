@@ -4,8 +4,8 @@
 
 1. **Clone**:
    ```bash
-   git clone https://github.com/Infrared-city/connector-python.git
-   cd connector-python
+   git clone https://github.com/Infrared-city/qgis-plugin.git
+   cd qgis-plugin
    ```
 
 2. **Install Python deps** (used by the plugin at runtime):
@@ -59,7 +59,7 @@ See [`docs/deployment.md`](docs/deployment.md). Short version:
 3. Commit on `main`
 4. `git tag v0.X.Y && git push --tags`
 5. CI builds the ZIP and creates a GitHub Release
-6. **Manually** upload the ZIP to `plugins.qgis.org` via `plugin_upload.py` (or the web UI)
+6. **Manually** upload the ZIP to `plugins.qgis.org` via the web UI
 
 ## Project Conventions
 
