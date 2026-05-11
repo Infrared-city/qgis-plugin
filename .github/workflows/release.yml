@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify metadata version matches tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          META_VERSION=$(grep -E '^version=' infrared_city_gis/metadata.txt | cut -d'=' -f2 | tr -d '[:space:]')
+          if [ "$TAG" != "$META_VERSION" ]; then
+            echo "::error::Tag version ($TAG) does not match metadata.txt version ($META_VERSION)"
+            exit 1
+          fi
+          echo "Version match: $TAG"
+
+      - name: Build plugin ZIP
+        run: |
+          zip -r "infrared-city-qgis-${GITHUB_REF_NAME}.zip" infrared_city_gis/ \
+            -x "*__pycache__*" "*.pyc" "*.pyo" "*.DS_Store" \
+               "infrared_city_gis/plugin_upload.py" \
+               "infrared_city_gis/pb_tool.cfg" \
+               "infrared_city_gis/pylintrc" \
+               "infrared_city_gis/Makefile"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: infrared-city-qgis-${{ github.ref_name }}.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
