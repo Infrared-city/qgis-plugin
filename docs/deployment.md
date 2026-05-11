@@ -45,18 +45,10 @@ This triggers `.github/workflows/release.yml` which:
 
 ### 3. Upload to plugins.qgis.org (manual, ~2 minutes)
 
-Two options:
-
-**A) Web UI** (recommended for first-time releases):
+Web UI:
 1. Go to https://plugins.qgis.org/plugins/
 2. Log in, navigate to **Infrared City GIS** plugin page
 3. Click **New version**, upload the ZIP from the GitHub Release
-
-**B) `plugin_upload.py` script**:
-```bash
-python infrared_city_gis/plugin_upload.py path/to/infrared-city-qgis.zip
-```
-Requires `OSGEO_USERNAME` + `OSGEO_PASSWORD` env vars (osgeo.org account).
 
 ### 4. Promote out of `experimental` (when ready)
 

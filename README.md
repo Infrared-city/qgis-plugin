@@ -15,13 +15,13 @@ Fetch building geometry from OpenStreetMap, run microclimate simulations, and vi
 
 ## Requirements
 
-- QGIS ≥ 3.0
+- QGIS ≥ 3.44
 - An Infrared City API key
 
 ## Installation
 
 **From ZIP:**
-1. Download `infrared-city-qgis.zip` from [Releases](https://github.com/Infrared-city/connector-python/releases)
+1. Download `infrared-city-qgis.zip` from [Releases](https://github.com/Infrared-city/qgis-plugin/releases)
 2. In QGIS: **Plugins → Manage and Install Plugins → Install from ZIP**
 3. Select the downloaded ZIP and click **Install Plugin**
 4. Enable the plugin in the plugin manager
