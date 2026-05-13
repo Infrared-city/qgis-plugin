@@ -6,7 +6,7 @@
 name=Infrared City GIS
 qgisMinimumVersion=3.44
 description=Run urban climate simulations (wind, thermal comfort, solar, shadow) directly from QGIS using the Infrared City platform.
-version=0.2.2
+version=0.2.3
 author=infrared.city
 email=connectors@infrared.city
 
@@ -19,7 +19,9 @@ repository=https://github.com/Infrared-city/qgis-plugin
 # Recommended items:
 
 hasProcessingProvider=no
-changelog=0.2.2
+changelog=0.2.3
+    - Include LICENSE in the plugin package (required by plugins.qgis.org)
+    0.2.2
     - Repository moved to https://github.com/Infrared-city/qgis-plugin
     - Documentation cleanup
     0.2.1
