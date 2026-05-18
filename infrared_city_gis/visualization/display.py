@@ -1,19 +1,22 @@
 import math
 
-from PyQt5.QtGui import QColor
 from qgis.core import (
-    QgsVectorLayer,
-    QgsRasterLayer,
+    QgsFillSymbol,
     QgsProject,
+    QgsRasterLayer,
+    QgsRasterRange,
     QgsRasterShader,
     QgsSingleBandPseudoColorRenderer,
-    QgsFillSymbol,
-    QgsRasterRange,
+    QgsVectorLayer,
 )
 
 from ..infrared_logger import logger
-from .color_ramp import get_visual_config, _build_color_ramp_items
-from .layers import deselect_all, display_geojson, display_ground_materials  # noqa: F401 re-exported
+from .color_ramp import _build_color_ramp_items, get_visual_config
+from .layers import (  # noqa: F401 re-exported
+    deselect_all,
+    display_geojson,
+    display_ground_materials,
+)
 
 
 def add_geojson_then_raster(
@@ -56,10 +59,10 @@ def add_geojson_then_raster(
         layer_name = f"IC result - {analysis_type}{tile_id}"
     else:
         layer_name = f"IC result - {analysis_type}"
-    
+
     rlayer = QgsRasterLayer(geotiff_path, layer_name, "gdal")
-    
-    
+
+
     if not rlayer.isValid():
         raise RuntimeError(f"GeoTIFF layer loading failed: {geotiff_path}")
 

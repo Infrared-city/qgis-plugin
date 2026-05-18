@@ -51,7 +51,10 @@ from .feature_height import (
     SOURCE_Z_RANGE,
     resolve_feature_height_with_source,
 )
-from .geojson2dotbim import convert_tree_to_dotbim, process_geojson_file  # noqa: F401 — kept for backward compat
+from .geojson2dotbim import (  # noqa: F401 — kept for backward compat
+    convert_tree_to_dotbim,
+    process_geojson_file,
+)
 from .geotiff import (  # noqa: F401 — re-exported for backward compat
     _to_json_primitive,
     crop_matrix,
@@ -71,9 +74,6 @@ from .tiles import (  # noqa: F401 — re-exported for backward compat
     plot_selected_polygon,
     plot_tile_centers,
 )
-
-
-
 
 # ---------------------------------------------------------------------------
 # Buildings — height-resolution, schema check, per-tier accounting

@@ -28,7 +28,6 @@ from qgis.utils import iface
 from ..infrared_logger import logger
 from .feature_height import resolve_feature_height
 
-
 # Same constant the SDK's tile/merger code uses — keep these in sync if the
 # SDK ever switches to a more accurate ellipsoidal model.
 METERS_PER_DEG_LAT = 111_320.0

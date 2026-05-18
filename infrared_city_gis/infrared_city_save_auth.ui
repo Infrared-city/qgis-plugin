@@ -17,7 +17,7 @@
    <item>
     <widget class="QLabel" name="label">
      <property name="text">
-      <string>Enter your Infrared City API Key:</string>
+      <string>Enter your infrared.city API Key:</string>
      </property>
     </widget>
    </item>

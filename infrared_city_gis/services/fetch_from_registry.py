@@ -24,10 +24,9 @@ from threading import Lock
 
 from qgis.core import QgsApplication
 
-from . import qgis_http as requests
-
 from ..constants import FETCH_FROM_REGISTRY_URL
 from ..infrared_logger import logger
+from . import qgis_http as requests
 
 # In-memory cache of the last known good visualConfigurations. Populated from
 # disk on the first ``load_...`` call after startup, refreshed by ``fetch_...``.

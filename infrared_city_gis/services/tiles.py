@@ -4,19 +4,19 @@ import math
 
 from pyproj import Geod
 from qgis.core import (
-    QgsProject,
-    QgsVectorLayer,
-    QgsFields,
-    QgsField,
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
     QgsFeature,
+    QgsField,
+    QgsFields,
     QgsGeometry,
     QgsPointXY,
+    QgsProject,
     QgsRectangle,
-    QgsCoordinateTransform,
-    QgsCoordinateReferenceSystem,
+    QgsVectorLayer,
 )
-from qgis.utils import iface
 from qgis.PyQt.QtCore import QVariant
+from qgis.utils import iface
 
 from ..infrared_logger import logger
 

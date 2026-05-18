@@ -1,16 +1,22 @@
-from qgis.PyQt import uic, QtWidgets
-from qgis.PyQt.QtWidgets import QVBoxLayout, QPushButton, QLabel
-from qgis.core import QgsRectangle, QgsProject, QgsVectorLayer
-from qgis.gui import QgsRubberBand, QgsMapToolEmitPoint
-from qgis.core import QgsCoordinateTransform, QgsCoordinateReferenceSystem, QgsPointXY, QgsProject
-from qgis.core import QgsWkbTypes, QgsGeometry
-from qgis.utils import iface
-from PyQt5.QtGui import QColor
-from .infrared_logger import logger
-from .models.analysis import GeometryTypes
-from .services.geometry import get_bbox, collect_geometries
 import os
 from datetime import datetime
+
+from qgis.core import (
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
+    QgsProject,
+    QgsRectangle,
+    QgsVectorLayer,
+    QgsWkbTypes,
+)
+from qgis.gui import QgsMapToolEmitPoint
+from qgis.PyQt import QtWidgets, uic
+from qgis.PyQt.QtWidgets import QLabel, QPushButton, QVBoxLayout
+from qgis.utils import iface
+
+from .infrared_logger import logger
+from .models.analysis import GeometryTypes
+from .services.geometry import collect_geometries, get_bbox
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'infrared_city_select_bbox_dialog.ui'))
@@ -65,8 +71,8 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
 
     def _on_map_clicked(self, point, button):
         logger.info("Map clicked at: %.6f, %.6f", point.x(), point.y())
-        
-        try: 
+
+        try:
 
         # --- Restore map tool ---
             try:
@@ -121,8 +127,8 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
             ref_layer = iface.activeLayer()
             if not _is_polygon_vector(ref_layer):
                 polygon_layers = [
-                    l for l in QgsProject.instance().mapLayers().values()
-                    if _is_polygon_vector(l)
+                    layer for layer in QgsProject.instance().mapLayers().values()
+                    if _is_polygon_vector(layer)
                 ]
                 if not polygon_layers:
                     iface.messageBar().pushMessage(
@@ -202,12 +208,12 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 iface.messageBar().pushMessage("InfraredCity", f"Saved to {geojson_path}", level=0)
                 logger.info("Saved geojson: %s", geojson_path)
                 logger.info("Saved dotbim:  %s", dotbim_path)
-            
+
         except Exception as e:
             logger.error("Failed to select features: %s", e)
             return
 
-        
+
         self.accept()
 
     def closeEvent(self, event):
