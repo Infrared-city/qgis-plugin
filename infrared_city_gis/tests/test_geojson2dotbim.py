@@ -28,7 +28,7 @@ import pytest
 
 # _dotbim_writer is in the sibling test/ folder — conftest.py adds it to sys.path.
 # Import numpy from the system, not from the plugin's thirdparty/ bundle.
-from _dotbim_writer import build_dotbim_from_geojson, SCHEMA_VERSION
+from _dotbim_writer import SCHEMA_VERSION, build_dotbim_from_geojson
 
 FIXTURES = Path(__file__).parent / "fixtures"
 GEOJSON_FILE = FIXTURES / "sample_buildings.geojson"

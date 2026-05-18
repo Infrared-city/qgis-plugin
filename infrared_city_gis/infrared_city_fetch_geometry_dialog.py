@@ -24,12 +24,12 @@
 
 import os
 
-from qgis.PyQt import uic
-from qgis.PyQt import QtWidgets
+from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtWidgets import QMessageBox
+
 from .infrared_logger import logger
-from .visualization.display import display_geojson,display_ground_materials
-from .services.fetch import fetch_geometry_from_osm, fetch_ground_materials
+from .services.fetch import fetch_geometry_from_osm
+from .visualization.display import display_geojson
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -52,7 +52,7 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         longitude = self.longitude_input.text().strip()
         latitude = self.latitude_input.text().strip()
         bbox_val = float(self.bbox_input.value())
-        
+
         # --- Validation ---
         if not longitude or not latitude:
             logger.warning("Missing input")
@@ -71,7 +71,7 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         try:
             geojson_path, dotbim_path, bbox = fetch_geometry_from_osm(lon, lat, bbox_val)
             # TODO: apply ground material fetching
-            
+
             if not geojson_path or not dotbim_path or not bbox:
                 logger.error("Failed to fetch geometry")
                 QMessageBox.warning(self, "Invalid Input", "Invalid coordinates, please use different lon,lat coords.")

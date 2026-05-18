@@ -21,27 +21,29 @@
  *                                                                         *
  ***************************************************************************/
 """
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
+import os.path
+
+from qgis.core import Qgis
+from qgis.PyQt.QtCore import QCoreApplication, QSettings, QTranslator
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
-from qgis.utils import iface  
-from qgis.core import Qgis
-from qgis.PyQt.QtWidgets import QDialog
 
-# Initialize Qt resources from file resources.py
-from .resources import *
 # Import the code for the dialog
 from .infrared_city_fetch_geometry_dialog import InfraredCityFetchGeometryDialog
+from .infrared_city_run_multiple_simulation_dialog import (
+    InfraredCityRunMultipleSimulationDialog,
+)
 from .infrared_city_run_simulation_dialog import InfraredCityRunSimulationDialog
-from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
-from .infrared_city_run_multiple_simulation_dialog import InfraredCityRunMultipleSimulationDialog
-from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
 from .infrared_city_save_auth import InfraredCitySaveAuthDialog
-
-import os.path
+from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
+from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
 from .infrared_logger import logger
-from .utils.helper import cleanup_old_data
+
+# Initialize Qt resources from file resources.py
+from .resources import *  # noqa: F403
 from .services.fetch_from_registry import _load_api_key, fetch_from_registry
+from .utils.helper import cleanup_old_data
+
 
 class InfraredCityGIS:
     """QGIS Plugin Implementation."""
@@ -78,7 +80,7 @@ class InfraredCityGIS:
 
         # Declare instance attributes
         self.actions = []
-        self.menu = self.tr(u'&Infrared City GIS')
+        self.menu = self.tr(u'&infrared.city GIS')
 
         # cleanup old data
         cleanup_old_data()
@@ -192,34 +194,34 @@ class InfraredCityGIS:
         tree_icon_path = ':/plugins/infrared_city_gis/icons/tree.svg'
         run_single_icon_path = ':/plugins/infrared_city_gis/icons/run_single.svg'
         run_multiple_icon_path = ':/plugins/infrared_city_gis/icons/run_multiple.svg'
-        
+
         self.add_action(
             save_auth_icon_path,
             text=self.tr(u'Save API Key'),
             callback=self.save_api_key,
             parent=self.iface.mainWindow()
         )
-        
+
         self.add_action(
             fetch_geometry_icon_path,
             text=self.tr(u'Fetch geometry from OSM'),
             callback=self.fetch_geometry,
             parent=self.iface.mainWindow())
-        
+
         self.add_action(
             select_bbox_icon_path,
             text=self.tr(u'Select bbox by center'),
             callback=self.select_bbox,
             parent=self.iface.mainWindow()
         )
-        
+
         self.add_action(
             tree_icon_path,
             text=self.tr(u'Tree catalog'),
             callback=self.select_tree_type,
             parent=self.iface.mainWindow()
         )
-        
+
         self.add_action(
             run_single_icon_path,
             text=self.tr(u'Run simulation'),
@@ -238,7 +240,7 @@ class InfraredCityGIS:
         """Removes the plugin menu item and icon from QGIS GUI."""
         for action in self.actions:
             self.iface.removePluginMenu(
-                self.tr(u'&Infrared City GIS'),
+                self.tr(u'&infrared.city GIS'),
                 action)
             self.iface.removeToolBarIcon(action)
 
@@ -246,7 +248,7 @@ class InfraredCityGIS:
         """Run method that performs all the real work"""
 
         self.dlg = InfraredCityRunMultipleSimulationDialog()
-        
+
         if not getattr(self.dlg, "_init_ok", False):
             logger.warning("Multiple simulations dialog initialization failed")
             return
@@ -260,8 +262,8 @@ class InfraredCityGIS:
             logger.info("Multiple simulations dialog closed successfully")
         else:
             logger.info("Multiple simulations dialog cancelled")
-        
-    
+
+
     def select_bbox(self):
         """Run method that performs all the real work"""
 
@@ -283,35 +285,35 @@ class InfraredCityGIS:
             logger.info("BBox selected successfully")
         else:
             logger.error("BBox selection cancelled")
-    
-    
+
+
     def select_tree_type(self):
         self.dlg = InfraredCityTreeCatalogDialog()
-        
+
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
         result = self.dlg.exec_()
-        
+
         if result:
             logger.info("Tree type selected successfully")
         else:
             logger.info("Tree type selection cancelled")
-    
+
     def save_api_key(self):
         """Open the API key save dialog."""
         self.dlg = InfraredCitySaveAuthDialog(self.iface.mainWindow())
-        
+
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
         result = self.dlg.exec_()
-        
+
         if result:
             logger.info("API key save dialog closed successfully")
         else:
             logger.info("API key save dialog cancelled")
-    
+
     def fetch_geometry(self):
         """Run method that performs all the real work"""
         self.dlg = InfraredCityFetchGeometryDialog()
@@ -341,7 +343,7 @@ class InfraredCityGIS:
                         "InfraredCity",
                         "No file path returned from fetch dialog."
                     )
-        
+
     def run_simulation(self):
         """Run method that performs all the real work"""
         if not self.last_geojson_path or not self.last_dotbim_path or not self.bbox or not self.crs:

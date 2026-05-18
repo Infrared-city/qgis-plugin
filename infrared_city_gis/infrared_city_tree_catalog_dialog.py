@@ -22,21 +22,28 @@
  ***************************************************************************/
 """
 
-import os
 import json
+import os
 
-from qgis.PyQt import uic
-from qgis.PyQt import QtWidgets
-from qgis.PyQt.QtWidgets import (
-    QMessageBox, QScrollArea, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QButtonGroup, QFrame, QSizePolicy,
-)
-from qgis.PyQt.QtCore import QSettings, Qt, QSize
-from qgis.PyQt.QtGui import QFont, QCursor
 from qgis.core import QgsApplication
+from qgis.PyQt import QtWidgets, uic
+from qgis.PyQt.QtCore import QSettings, Qt
+from qgis.PyQt.QtGui import QCursor, QFont
+from qgis.PyQt.QtWidgets import (
+    QButtonGroup,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .infrared_logger import logger
-from .models.vegetation_types import TreeType, TreeSize
+from .models.vegetation_types import TreeSize, TreeType
 from .utils.tree_icons import make_tree_icon
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer

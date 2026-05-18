@@ -211,3 +211,6 @@ __marimo__/
 
 # Claude Code — personal overrides
 .claude/settings.local.json
+
+# Claude Code config inside plugin folder — must not ship in the ZIP
+infrared_city_gis/.claude/

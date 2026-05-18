@@ -1,4 +1,4 @@
 numpy>=1.23.0
 mapbox_earcut>=1.0.0
 structlog>=24.0.0
-infrared-sdk>=0.4.2
+infrared-sdk>=0.4.7

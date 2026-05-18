@@ -30,10 +30,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from infrared_sdk.tiling.tiles import TileService
 from qgis.core import QgsVectorLayer
 from qgis.utils import iface
-
-from infrared_sdk.tiling.tiles import TileService
 
 from ..infrared_logger import logger
 from ._buildings_compare_helpers import (

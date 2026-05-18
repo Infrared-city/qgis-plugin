@@ -34,16 +34,14 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
+from infrared_sdk.analyses.jobs import JobStatus
 from qgis.core import Qgis
 from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import QApplication
 from qgis.utils import iface
 
-from infrared_sdk.analyses.jobs import JobStatus
-
 from ..infrared_logger import logger
 from ..models.analysis import AnalysisType
-
 
 # Cap how many failed-job error messages we fetch per tick. ``check_area_state``
 # only returns the status enum (no error string), so to log the cause of a

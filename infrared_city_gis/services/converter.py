@@ -28,13 +28,12 @@ from __future__ import annotations
 import uuid
 from typing import Dict, List, Tuple
 
+from ..infrared_logger import logger
 from .geojson2dotbim import (
     convert_to_local_coords,
     create_building_extrusion,
     triangulate_volume,
 )
-from ..infrared_logger import logger
-
 
 # Field-name priority list, mirrors feature_height.py for consistency.
 # Single-value height fields tried first; then top - base pairs.

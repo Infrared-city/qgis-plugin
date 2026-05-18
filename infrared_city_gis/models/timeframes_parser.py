@@ -1,7 +1,9 @@
-from enum import Enum
-from typing import TypedDict, Literal, Union
 from datetime import datetime
+from enum import Enum
+from typing import Literal, TypedDict, Union
+
 from .analysis import AnalysisType
+
 
 class TimePoint(TypedDict):
     month: int
@@ -27,7 +29,7 @@ class DailyTimeFrameConfig(str, Enum):
     Noon = "noon"
     Afternoon = "afternoon"
     Evening = "evening"
-    
+
 class DailyTimeFrameConfigUTCI(str, Enum):
     Morning = "morning"
     Noon = "noon"
@@ -129,7 +131,7 @@ def makeTimeFrameObj(
         startMonth = 1
         endMonth = 13
     else:
-        s = season.value 
+        s = season.value
         startMonth = SEASON_LIMITS[hemisphere][s]["starts"]
         endMonth = SEASON_LIMITS[hemisphere][s]["ends"]
 
@@ -137,7 +139,7 @@ def makeTimeFrameObj(
         startHour = 1
         endHour = 25
     else:
-        h = hourly.value  
+        h = hourly.value
         limits = HOURS_LIMIT[h]
         startHour = limits["startTime"]
         endHour = limits["endTime"]

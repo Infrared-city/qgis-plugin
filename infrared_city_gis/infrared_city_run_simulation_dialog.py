@@ -22,36 +22,49 @@
  ***************************************************************************/
 """
 
-import json
 import os
 
-from qgis.PyQt import uic, QtWidgets
-from qgis.PyQt.QtCore import QDateTime
+from qgis.core import Qgis
+from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtWidgets import QMessageBox
-from qgis.core import Qgis, QgsApplication
 from qgis.utils import iface
 
 from .client import (
-    load_dotbim, get_windspeed_payload, process_run_analysis, get_shadow_mask_payload,
-    get_daylight_availability_payload, get_direct_sun_hours_payload, get_pwc_payload,
-    get_utci_payload, get_tcs_payload, get_solar_radiation_payload,
+    get_daylight_availability_payload,
+    get_direct_sun_hours_payload,
+    get_pwc_payload,
+    get_solar_radiation_payload,
+    get_tcs_payload,
+    get_utci_payload,
+    get_windspeed_payload,
+    load_dotbim,
+    process_run_analysis,
 )
 from .exceptions import InfraredAPIError
 from .infrared_logger import logger
-from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType, GeometryTypes
-from .models.timeframes_parser import (
-    SeasonalTimeFrameConfig, DailyTimeFrameConfig, DailyTimeFrameConfigUTCI,
-    MonthConfig, makeTimeFrameObj, makeTimeFrameObjWithMonth,
+from .models.analysis import (
+    AnalysisType,
+    GeometryTypes,
+    PedestrianWindComfortType,
+    ThermalComfortStatisticsType,
 )
-from .services.epw_query import query_infrared_epw, Query_Type
+from .models.timeframes_parser import (
+    DailyTimeFrameConfig,
+    DailyTimeFrameConfigUTCI,
+    MonthConfig,
+    SeasonalTimeFrameConfig,
+    makeTimeFrameObj,
+    makeTimeFrameObjWithMonth,
+)
+from .services.epw_query import Query_Type, query_infrared_epw
 from .services.fetch import fetch_weather_file_names
 from .services.geometry import (
+    collect_geometries,
     create_wgs84_geojson_polygon_from_selection,
     get_center_from_bbox,
     get_center_lon_lat_from_bbox,
     get_selected_bbox,
     get_selected_crs,
-    collect_geometries,
 )
 from .services.qgis_area_buildings import collect_qgis_area_buildings
 from .services.sdk_runner import run_sdk_area_async
@@ -511,7 +524,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     logger.info(f"Weather file: {weather_file}")
 
                 except AttributeError:
-                    logger.warning(f"Missing input, Selected season and hours are required.")
+                    logger.warning("Missing input, Selected season and hours are required.")
                     QMessageBox.warning(self, "Missing Input", "Selected season and hours are required.")
                     return
 
@@ -561,7 +574,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     weather_file = self.weather_file_input_sr.currentText().strip()
                     logger.info(f"Weather file: {weather_file}")
                 except AttributeError:
-                    logger.warning(f"Missing input, Selected month and hours are required.")
+                    logger.warning("Missing input, Selected month and hours are required.")
                     QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
                     return
 
@@ -583,7 +596,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     selected_hours = self.hours_dropdown_da.currentData()
 
                 except AttributeError:
-                    logger.warning(f"Missing input, Selected month and hours are required.")
+                    logger.warning("Missing input, Selected month and hours are required.")
                     QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
                     return
 
@@ -596,7 +609,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     selected_hours = self.hours_dropdown_dsh.currentData()
 
                 except AttributeError:
-                    logger.warning(f"Missing input, Selected month and hours are required.")
+                    logger.warning("Missing input, Selected month and hours are required.")
                     QMessageBox.warning(self, "Missing Input", "Selected month and hours are required.")
                     return
 

@@ -1,14 +1,17 @@
 
-import json
 import base64
-import zipfile
-import io
-from ..infrared_logger import logger
-import gzip
-import os
 import datetime
+import gzip
+import io
+import json
+import os
+import zipfile
+
 from qgis.core import QgsApplication
-    
+
+from ..infrared_logger import logger
+
+
 def decode_gzip_base64_binary(b64_data: str) -> bytes:
     """Decode gzip+base64 string into raw binary bytes (handles both TIFF and gzip+base64)."""
     try:
@@ -46,7 +49,7 @@ def decode(response_content):
     try:
         encoded = json_data.get("result")
         if not encoded:
-            logger.info(f"Missing 'result' field in response: {e}")
+            logger.info("Missing 'result' field in response")
 
         # Base64 decode
         decoded = base64.b64decode(encoded)
@@ -60,9 +63,9 @@ def decode(response_content):
 
             with zip_file.open(json_filename) as f:
                 content = f.read().decode("utf-8")
-                data = json.loads(content)  
+                data = json.loads(content)
                 logger.info("Decoding pipeline successful")
-                return data  
+                return data
 
     except Exception as e:
         logger.info(f"Decoding pipeline failed: {e}")
@@ -87,10 +90,10 @@ def _clean_up(folder_name):
                     logger.info(f"Deleted old file: {file_path}")
         except Exception as e:
             logger.warning(f"Failed to remove old file {file_path}: {e}")
-    
+
 
 def cleanup_old_data():
     """Delete all files older than 1 month (00:00:00) from directory."""
     _clean_up("data")
     _clean_up("logs")
-    
+
