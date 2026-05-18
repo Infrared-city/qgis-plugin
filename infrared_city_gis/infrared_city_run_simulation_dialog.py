@@ -186,26 +186,21 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 QMessageBox.critical(self, "Error", f"Failed to fetch weather file names.\n\n{e}")
                 return
 
-        # Switch stacked pages instead of toggling visibility
+        # Switch stacked pages by widget name — robust against page reordering
+        _page_map = {
+            AnalysisType.WIND_SPEED: self.page_wind_speed,
+            AnalysisType.PEDESTRIAN_WIND_COMFORT: self.page_pedestrian_wind_comfort,
+            AnalysisType.THERMAL_COMFORT_INDEX: self.page_thermal_comfort_index,
+            AnalysisType.THERMAL_COMFORT_STATISTICS: self.page_thermal_comfort_statistics,
+            AnalysisType.SOLAR_RADIATION: self.page_solar_radiation,
+            AnalysisType.DAYLIGHT_AVAILABILITY: self.page_daylight_availability,
+            AnalysisType.DIRECT_SUN_HOURS: self.page_direct_sun_hours,
+            AnalysisType.SKY_VIEW_FACTORS: self.page_sky_view_factors,
+        }
         try:
-            if current == AnalysisType.WIND_SPEED:
-                self.content_stack.setCurrentIndex(0)
-            elif current == AnalysisType.PEDESTRIAN_WIND_COMFORT:
-                self.content_stack.setCurrentIndex(1)
-            elif current == AnalysisType.THERMAL_COMFORT_INDEX:
-                self.content_stack.setCurrentIndex(2)
-            elif current == AnalysisType.THERMAL_COMFORT_STATISTICS:
-                self.content_stack.setCurrentIndex(3)
-            elif current == AnalysisType.SOLAR_RADIATION:
-                self.content_stack.setCurrentIndex(4)
-            elif current == AnalysisType.DAYLIGHT_AVAILABILITY:
-                self.content_stack.setCurrentIndex(5)
-            elif current == AnalysisType.DIRECT_SUN_HOURS:
-                self.content_stack.setCurrentIndex(6)
-            elif current == AnalysisType.SKY_VIEW_FACTORS:
-                self.content_stack.setCurrentIndex(7)
-            # elif current == AnalysisType.SHADOW_MASK:
-            #     self.content_stack.setCurrentIndex(8)
+            page = _page_map.get(current)
+            if page is not None:
+                self.content_stack.setCurrentWidget(page)
         except AttributeError:
             # Fallback for older UI without stacked widget
             try:
