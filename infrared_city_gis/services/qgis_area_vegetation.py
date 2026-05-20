@@ -23,7 +23,7 @@ import json
 import os
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from qgis.core import (
     QgsApplication,
@@ -38,7 +38,6 @@ from qgis.PyQt.QtCore import QSettings
 from ..infrared_logger import logger
 from ._buildings_compare_helpers import projection_params
 from .geotiff import _to_json_primitive
-
 
 # Same default margin as the buildings collector — comfortably > the SDK's
 # solar 77 m context. Trees just outside the polygon can still cast
@@ -185,9 +184,9 @@ def collect_qgis_area_vegetation(
     west, south, east, north = _polygon_wgs84_bbox_with_margin(
         polygon, context_margin_m,
     )
-    
+
     model, size = _resolve_current_species()
-    
+
     # Calculate height and crown diameter based on size
     if size == "small":
         height = model.get("heightRange", [0, 0])[0] if model.get("heightRange") else model.get("height", 0)
@@ -202,7 +201,7 @@ def collect_qgis_area_vegetation(
         # Default fallback
         height = model.get("height", 0)
         crownDiameter = model.get("crownDiameter", 0)
-    
+
     logger.info(
         "collect_qgis_area_vegetation: layer=%r CRS=%s bbox+margin "
         "(W=%.6f S=%.6f E=%.6f N=%.6f) margin=%.0fm species=%r size=%r height=%.2f crownDiameter=%.2f",
@@ -263,7 +262,7 @@ def collect_qgis_area_vegetation(
                 props[name] = _to_json_primitive(feat[name])
             except Exception:
                 continue
-            
+
         if model is not None:
             props["species"] = _to_json_primitive(model.get("latinName", 0))
             props["genus"] = _to_json_primitive(model.get("genusCode", 0))  # Use genusCode instead of genus
@@ -274,16 +273,16 @@ def collect_qgis_area_vegetation(
             props["leaf_cycle"] = _to_json_primitive(model.get("leafCycles", 0))
 
         feat_id = props.get("osm_id")
-        
+
         if feat_id is None:
             feat_id = str(uuid.uuid4())
-        
+
         out[feat_id] = {
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [float(lon), float(lat)]},
             "properties": props,
         }
-        
+
 
     elapsed = time.monotonic() - t0
     logger.info(

@@ -5,20 +5,17 @@ import os
 import time
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 import numpy as np
 from qgis.core import QgsApplication
 
-from .services import qgis_http as requests
-
 from .constants import RUN_ANALYSIS_ENDPOINT, RUN_ANALYSIS_HTTP_TIMEOUT
 from .exceptions import InfraredAPIError
 from .infrared_logger import logger
-from .models.timeframes_parser import adjustDatetime, makeTimeFrameObjWithMonth
-from .services.geometry import generate_geotiff, crop_matrix
+from .models.timeframes_parser import makeTimeFrameObjWithMonth
+from .services import qgis_http as requests
+from .services.geometry import crop_matrix, generate_geotiff
 from .utils.helper import decode
-from .visualization.display import add_geojson_then_raster
 
 
 class Headers(Enum):
@@ -100,7 +97,7 @@ def process_run_analysis(
             except requests.RequestException as e:
                 logger.info(f"Attempt {attempt} failed: {e}")
                 if attempt < retries:
-                    logger.info(f"Retrying in 5 seconds...")
+                    logger.info("Retrying in 5 seconds...")
                     time.sleep(5)
                 else:
                     logger.error(f"All {retries} attempts failed. Aborting request.")
@@ -146,7 +143,7 @@ def process_run_analysis(
             logger.warning(f"Could not parse/dump response JSON for debug: {e}")
 
         decoded_result = decode(response.content)
-        
+
         plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
         os.makedirs(plugin_data_dir, exist_ok=True)
         base_name = os.path.splitext(os.path.basename(geometry_path))[0]
@@ -279,7 +276,7 @@ def get_solar_analyses_payload(analysis_type: str, month: int, hourly: str, lon:
     }
 
 def get_pwc_payload(wind_data: dict, criteria: str) -> dict:
-    
+
     return {
         "analysis-type": "pedestrian-wind-comfort",
         "geometries": None,
@@ -292,48 +289,3 @@ def get_direct_sun_hours_payload(month: int, hourly: str, lon: float, lat: float
     return get_solar_analyses_payload("direct-sun-hours", month, hourly, lon, lat)
 
 
-def get_payload_shadow_mask(
-    geometry_path: Optional[str] = None,
-    bbox: Optional[list] = None,
-    crs: Optional[str] = None,
-    datetime: Optional[str] = None,
-    analysis_type: Optional[str] = None,
-) -> dict:
-    if geometry_path is not None:
-        with open(geometry_path, "r", encoding="utf-8") as f:
-            geometry_data = json.load(f)
-        logger.info("Geometry loaded")
-    else:
-        geometry_data = {}
-
-    return {
-        "inputs": {
-            "bbox": bbox,
-            "crs": crs,
-            "geometries": geometry_data,
-            "geometry-type": "dotbim",
-            "reduction-factor": 1,
-            "skip-compression": False,
-            "type": analysis_type,
-            "datetime": datetime,
-        },
-        "response": "document",
-        "outputs": {
-            "stringOutput": {"transmissionMode": "value"},
-            "imageOutput": {"transmissionMode": "value"},
-        },
-    }
-
-def get_shadow_mask_payload(dt_str: str, lon: float, lat: float) -> dict:
-    dt_stamps = adjustDatetime(dt_str)
-
-    return {
-        "analysis-type": "shadow-mask",
-        "geometries": None,
-        "latitude": lat,
-        "longitude": lon,
-        "month-stamp": dt_stamps["month-stamp"],
-        "hour-stamp": dt_stamps["hour-stamp"],
-        "day-stamp": dt_stamps["day-stamp"],
-        "minute-stamp": dt_stamps["minute-stamp"],
-    }

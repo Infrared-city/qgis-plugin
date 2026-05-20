@@ -22,7 +22,8 @@ InfraredCityGIS
 """
 
 
-from .utils.deps_bootstrap import ensure_deps as _ensure_deps
+from .utils.deps_bootstrap import ensure_deps as _ensure_deps  # noqa: E402
+
 _ensure_deps("infrared_city_gis")
 
 # noinspection PyPep8Naming

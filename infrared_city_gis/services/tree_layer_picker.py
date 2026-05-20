@@ -28,13 +28,12 @@ behaviour that belongs to it:
 
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from typing import Optional
 
 from qgis.core import QgsProject, QgsVectorLayer
 
 from ..infrared_logger import logger
 from ..models.analysis import AnalysisType
-
 
 # Substring match on the (case-insensitive) layer name. Matches anything
 # containing "tree" — including "trees", "TREES", "DBGT_TREES",

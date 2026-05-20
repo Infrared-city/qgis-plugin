@@ -40,7 +40,6 @@ from qgis.core import QgsBlockingNetworkRequest
 from qgis.PyQt.QtCore import QByteArray, QUrl
 from qgis.PyQt.QtNetwork import QNetworkRequest
 
-
 # ---------------------------------------------------------------------------
 # Exception classes
 # ---------------------------------------------------------------------------

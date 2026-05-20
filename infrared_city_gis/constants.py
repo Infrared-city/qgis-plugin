@@ -2,14 +2,12 @@
 Constants for the Infrared City GIS plugin.
 """
 
-INFRARED_API_BASE_URL = "https://fbiw2nq5ac.execute-api.eu-central-1.amazonaws.com"
-INFRARED_API_PROD_URL = f"{INFRARED_API_BASE_URL}/prod"
-INFRARED_API_V1_URL = f"{INFRARED_API_BASE_URL}/v1"
+INFRARED_API_BASE_URL = "https://api.infrared.city"
 INFRARED_API_V2_URL = f"{INFRARED_API_BASE_URL}/v2"
 
 
 #Run analysis:
-RUN_ANALYSIS_ENDPOINT = f"{INFRARED_API_V2_URL}/api/run-analysis"
+RUN_ANALYSIS_ENDPOINT = f"{INFRARED_API_V2_URL}/run-analysis"
 
 #Fetch
 FETCH_GROUND_MATERIAL_URL = f"{INFRARED_API_V2_URL}/utils/ground-material/collect"
@@ -25,6 +23,5 @@ FETCH_FROM_REGISTRY_URL = INFRARED_API_V2_URL
 # generous; lighter endpoints (registry, EPW lookup) get shorter reads.
 RUN_ANALYSIS_HTTP_TIMEOUT = (10, 300)   # simulation can take several minutes
 FETCH_HTTP_TIMEOUT = (10, 30)           # weather / OSM / EPW metadata
-REGISTRY_HTTP_TIMEOUT = (10, 30)        # model + vegetation registry GETs
 
 

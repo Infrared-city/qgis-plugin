@@ -1,5 +1,6 @@
 
-from enum import Enum, unique, auto
+from enum import Enum, unique
+
 
 @unique
 class AnalysisType(str, Enum):
@@ -26,7 +27,7 @@ class PedestrianWindComfortType(str, Enum):
     NEN_8100_COMFORT = "nen-8100-comfort"
     NEN_8100_SAFETY = "nen-8100-safety"
     VDI_3787 = "vdi-3787"
-    
+
     def __str__(self):
         return self.value
 
@@ -40,7 +41,7 @@ class Seasons(str, Enum):
 
     def __str__(self):
         return self.value
-    
+
 @unique
 class ThermalComfortStatisticsType(str, Enum):
     THERMAL_COMFORT = "thermal-comfort"
@@ -49,11 +50,11 @@ class ThermalComfortStatisticsType(str, Enum):
 
     def __str__(self):
         return self.value
- 
-@unique   
+
+@unique
 class GeometryTypes(str,Enum):
     BUILDINGS = "buildings"
     TREES = "trees"
-    
+
     def __str__(self):
         return self.value

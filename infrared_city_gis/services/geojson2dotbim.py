@@ -1,15 +1,15 @@
-import numpy as np
-from shapely.geometry import Polygon
-from typing import List, Tuple
-import uuid
-from pyproj import Transformer, CRS
-from ..infrared_logger import logger
-from ..models.analysis import GeometryTypes
-from qgis.PyQt.QtCore import QSettings
-from qgis.core import QgsApplication
 import json
 import os
-from ..models.vegetation_types import TreeType, TreeSize
+import uuid
+from typing import List, Tuple
+
+import numpy as np
+from pyproj import CRS, Transformer
+from qgis.core import QgsApplication
+from qgis.PyQt.QtCore import QSettings
+from shapely.geometry import Polygon
+
+from ..infrared_logger import logger
 
 try:
     import mapbox_earcut as earcut
@@ -234,7 +234,7 @@ def triangulate_volume(rings: List[List[Tuple[float, float]]], height: float):
     return flat_coordinates, all_faces
 
 def scale_mesh(mesh_coords, height, crownDiameter):
-    
+
     # Compute bounding box of original mesh
     min_x = min_y = min_z = float("inf")
     max_x = max_y = max_z = float("-inf")
@@ -282,16 +282,16 @@ def scale_mesh(mesh_coords, height, crownDiameter):
         sz_z = cz + (z - cz) * sz
 
         scaled_coords.extend([sx_x, sx_y, sz_z])
-    
+
     return scaled_coords
 
 def convert_tree_to_dotbim(geojson,center_x: float, center_y: float,crs: str):
-    
+
                 # Try to restore last saved selection from settings
     settings = QSettings()
     tree_type = settings.value("infrared_city/tree_type", None)
     tree_size = settings.value("infrared_city/tree_size", None)
-    
+
     plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "settings")
     vegetation_file = os.path.join(plugin_data_dir, "vegetation_registry.json")
 
@@ -301,22 +301,22 @@ def convert_tree_to_dotbim(geojson,center_x: float, center_y: float,crs: str):
     except Exception as e:
         logger.warning(f"Could not read vegetation_registry.json: {e}")
         return None
- 
+
     client_models = data.get("clientModels") or {}
     if not isinstance(client_models, dict):
         logger.warning("clientModels in vegetation_registry.json is not a dict")
         return None
- 
+
     selected = None
-    
+
     if tree_type:
         for model in client_models.values():
- 
+
             if model.get("displayName") == tree_type:
                 logger.info(f"Selected tree model: {model.get('displayName')}")
                 selected = model
                 break
- 
+
     # 2) Fallback: first "tree" model
     if selected is None:
         for model in client_models.values():
@@ -324,17 +324,17 @@ def convert_tree_to_dotbim(geojson,center_x: float, center_y: float,crs: str):
             logger.info(f"Firsttree model was selected: {model.get('displayName')}")
             break
 
- 
+
     if selected is None:
         logger.warning("No suitable tree model found in vegetation_registry.json")
         return None
- 
- 
+
+
     crownDiameter = selected.get("crownDiameter")
     height = selected.get("height")
     crownDiameterRange = selected.get("crownDiameterRange")
     heightRange = selected.get("heightRange")
-    
+
     if tree_size:
         if tree_size == "small":
             height = heightRange[0]
@@ -345,9 +345,9 @@ def convert_tree_to_dotbim(geojson,center_x: float, center_y: float,crs: str):
         elif tree_size == "large":
             height = heightRange[1]
             crownDiameter = crownDiameterRange[1]
-    
-    
-    
+
+
+
     mesh = selected.get("mesh")
     if mesh is None:
         logger.warning("Selected tree model has no 'mesh' field")
@@ -407,7 +407,7 @@ def convert_tree_to_dotbim(geojson,center_x: float, center_y: float,crs: str):
         }
 
     dotbim_updated = update_geometry(dotbim_data)
-      
+
     return dotbim_updated
 
 def process_geojson_file(geojson, center_x: float, center_y: float, crs: str):

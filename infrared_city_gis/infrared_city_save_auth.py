@@ -7,7 +7,6 @@ from .infrared_logger import logger
 from .services.fetch_from_registry import fetch_from_registry
 from .services.secret_manager import get_api_key, set_api_key
 
-
 # This loads your .ui file so that PyQt can populate your plugin with the
 # elements from Qt Designer.
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -38,10 +37,6 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         self.api_key_input.setEchoMode(QLineEdit.Password)
 
         self.load_existing_api_key()
-
-        self.button_box.accepted.connect(self.accept)
-        self.button_box.rejected.connect(self.reject)
-
         self.update_status()
 
     # -- load / save ---------------------------------------------------

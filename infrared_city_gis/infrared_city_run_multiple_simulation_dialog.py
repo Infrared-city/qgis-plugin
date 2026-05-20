@@ -24,6 +24,7 @@
 
 import os
 
+from infrared_sdk import InfraredClient
 from qgis.core import Qgis
 from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtWidgets import QMessageBox
@@ -31,15 +32,23 @@ from qgis.utils import iface
 
 from .exceptions import InfraredAPIError
 from .infrared_logger import logger
-from .models.analysis import AnalysisType, PedestrianWindComfortType, ThermalComfortStatisticsType
+from .models.analysis import (
+    AnalysisType,
+    PedestrianWindComfortType,
+    ThermalComfortStatisticsType,
+)
 from .models.timeframes_parser import (
-    DailyTimeFrameConfig, DailyTimeFrameConfigUTCI, MonthConfig,
+    DailyTimeFrameConfig,
+    DailyTimeFrameConfigUTCI,
+    MonthConfig,
     SeasonalTimeFrameConfig,
 )
 from .services.fetch import fetch_weather_file_names
 from .services.geometry import (
     create_wgs84_geojson_polygon_from_selection,
-    get_center_lon_lat_from_bbox, get_selected_bbox, get_selected_crs,
+    get_center_lon_lat_from_bbox,
+    get_selected_bbox,
+    get_selected_crs,
 )
 from .services.qgis_area_buildings import collect_qgis_area_buildings
 from .services.sdk_runner import run_sdk_area_async
@@ -48,8 +57,6 @@ from .services.tree_layer_picker import (
     populate_tree_layer_dropdown,
     update_tree_layer_enabled,
 )
-from infrared_sdk import InfraredClient
-
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -60,7 +67,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        
+
         self._init_ok = False
 
         self.dotbim_path = None
@@ -72,7 +79,6 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.analysis_type_dropdown.addItem(str(t), t)
         self.analysis_type_dropdown.currentTextChanged.connect(self.on_analysis_changed)
         self.analysis_type = None
-        self.shadow_mask = None
         self.min_legend_value = None
         self.max_legend_value = None
         self.api_key = None
@@ -80,23 +86,23 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self.tile_count = None
         self.weather_file_names = []
         try:
-            w,s,e,n = get_selected_bbox()  
+            w,s,e,n = get_selected_bbox()
             self.bbox =[w,s,e,n]
             self.crs = get_selected_crs()
-            
+
             iface.messageBar().pushMessage(
                             "InfraredCity",
                             f"Layer CRS is the following: {self.crs}",
                             level=Qgis.Info,
                             duration=7
                         )
-            
+
         except Exception as e:
             logger.error(f"Failed to get selected bbox: {e}")
             QMessageBox.warning(self, "Invalid selection", "Invalid selection please select geometry.")
             self.reject()
             return
-        
+
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
 
@@ -115,7 +121,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.analysis_type_dropdown.setCurrentIndex(0)
             self.on_analysis_changed(self.analysis_type_dropdown.currentText())
 
-        
+
         # Load API key from QSettings (or INFRARED_API_KEY env var) via the
         # secret_manager. The legacy settings/user.json file is no longer
         # consulted — the Save API Key dialog writes only to QSettings.
@@ -136,13 +142,13 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             return
 
         try:
-            
+
             client = InfraredClient(api_key=self.api_key)
             self.polygon = create_wgs84_geojson_polygon_from_selection()
             preview = client.preview_area(self.polygon)
             logger.info("Preview area: %s", preview.tile_count)
             self.tile_count = preview.tile_count
-            
+
             if preview.tile_count > 100:
                 QMessageBox.warning(
                     self,
@@ -189,27 +195,22 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.error("Unexpected error fetching weather file names: %s", e, exc_info=True)
                 QMessageBox.critical(self, "Error", f"Failed to fetch weather file names.\n\n{e}")
                 return
-        
-        # Switch stacked pages instead of toggling visibility
+
+        # Switch stacked pages by widget name — robust against page reordering
+        _page_map = {
+            AnalysisType.WIND_SPEED: self.page_wind_speed,
+            AnalysisType.PEDESTRIAN_WIND_COMFORT: self.page_pedestrian_wind_comfort,
+            AnalysisType.THERMAL_COMFORT_INDEX: self.page_thermal_comfort_index,
+            AnalysisType.THERMAL_COMFORT_STATISTICS: self.page_thermal_comfort_statistics,
+            AnalysisType.SOLAR_RADIATION: self.page_solar_radiation,
+            AnalysisType.DAYLIGHT_AVAILABILITY: self.page_daylight_availability,
+            AnalysisType.DIRECT_SUN_HOURS: self.page_direct_sun_hours,
+            AnalysisType.SKY_VIEW_FACTORS: self.page_sky_view_factors,
+        }
         try:
-            if current == AnalysisType.WIND_SPEED:
-                self.content_stack.setCurrentIndex(0)
-            elif current == AnalysisType.PEDESTRIAN_WIND_COMFORT:
-                self.content_stack.setCurrentIndex(1)
-            elif current == AnalysisType.THERMAL_COMFORT_INDEX:
-                self.content_stack.setCurrentIndex(2)
-            elif current == AnalysisType.THERMAL_COMFORT_STATISTICS:
-                self.content_stack.setCurrentIndex(3)
-            elif current == AnalysisType.SOLAR_RADIATION:
-                self.content_stack.setCurrentIndex(4)
-            elif current == AnalysisType.DAYLIGHT_AVAILABILITY:
-                self.content_stack.setCurrentIndex(5)
-            elif current == AnalysisType.DIRECT_SUN_HOURS:
-                self.content_stack.setCurrentIndex(6)
-            elif current == AnalysisType.SKY_VIEW_FACTORS:
-                self.content_stack.setCurrentIndex(7)
-            # elif current == AnalysisType.SHADOW_MASK:
-            #     self.content_stack.setCurrentIndex(8)
+            page = _page_map.get(current)
+            if page is not None:
+                self.content_stack.setCurrentWidget(page)
         except AttributeError:
             # Fallback for older UI without stacked widget
             try:
@@ -332,7 +333,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
     def accept(self):
         try:
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
-            
+
             if not self.api_key:
                 QMessageBox.warning(self, "Missing API Key",
                     "No API key found. Please save your API key first via the 'Save API Key' menu.")
@@ -362,7 +363,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 # showed a QMessageBox. Keep the dialog open.
                 return
             super().accept()
-        
+
         except InfraredAPIError as e:
             logger.error("API error in accept(): %s", e, exc_info=True)
             QMessageBox.critical(self, e.title, e.detail)

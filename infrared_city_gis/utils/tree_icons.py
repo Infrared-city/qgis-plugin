@@ -6,11 +6,10 @@ requested pixel size, so they look crisp at any DPI. Results are cached so each
 (tree_type, size) pair is only painted once per session.
 """
 
-from qgis.PyQt.QtGui import QPixmap, QPainter, QColor, QBrush, QPen, QPainterPath
-from qgis.PyQt.QtCore import Qt, QRectF, QPointF
+from qgis.PyQt.QtCore import QPointF, QRectF, Qt
+from qgis.PyQt.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPixmap
 
 from ..models.vegetation_types import TreeType
-
 
 # ---------------------------------------------------------------------------
 # Palette

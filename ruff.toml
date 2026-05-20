@@ -1,0 +1,8 @@
+[lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",   # line too long — handled by pylintrc
+]
+
+[lint.per-file-ignores]
+"infrared_city_gis/resources.py" = ["F401"]  # generated file, unused imports expected

@@ -40,7 +40,6 @@ from ..models.timeframes_parser import (
 from ..services.epw_query import Query_Type, query_infrared_epw
 from ..services.geometry import get_center_lon_lat_from_bbox
 
-
 # Days per month — leap years are irrelevant since TimePeriod is year-less and
 # SDK accepts day=29 for February.
 _DAYS_PER_MONTH = {

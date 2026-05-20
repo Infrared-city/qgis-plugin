@@ -23,12 +23,10 @@ treat the return value as a secret and avoid printing it.
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from qgis.PyQt.QtCore import QSettings
 
 from ..infrared_logger import logger
-
 
 # QSettings key name. Single string keeps spelling consistent across
 # every read/write site; keep "infrared_city/" namespace so it sits next

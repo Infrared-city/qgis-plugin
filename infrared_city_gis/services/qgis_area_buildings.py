@@ -25,6 +25,7 @@ from __future__ import annotations
 import time
 from typing import Dict, List, Optional, Tuple
 
+from infrared_sdk.buildings.types import AreaBuildings, DotBimMesh
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
@@ -35,8 +36,6 @@ from qgis.core import (
 )
 from qgis.utils import iface
 
-from infrared_sdk.buildings.types import AreaBuildings, DotBimMesh
-
 from ..infrared_logger import logger
 from ._buildings_compare_helpers import (
     make_xy_converters,
@@ -45,7 +44,6 @@ from ._buildings_compare_helpers import (
 from ._geometry_io import pick_layers_by_keyword
 from .feature_height import resolve_feature_height
 from .geojson2dotbim import create_building_extrusion, triangulate_volume
-
 
 # Heights below this threshold (m) produce a degenerate flat mesh that the
 # wind/solar API treats as no obstacle — surface them as a separate counter

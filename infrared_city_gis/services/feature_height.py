@@ -28,7 +28,6 @@ the user.
 
 from qgis.core import QgsWkbTypes
 
-
 # ---------------------------------------------------------------------------
 # Field-name candidates. All entries are pre-normalised (lowercase, no spaces,
 # `:` -> `_`, no diacritics on the German entries that need it).
@@ -78,7 +77,7 @@ GENERIC_FALLBACK_HEIGHT_M = 6.0
 # layer has a `building` field and the value is one of these well-known OSM
 # categories. Numbers are conservative averages drawn from urban typology
 # references; individual buildings vary widely. Use as a tier-5 fallback only.
-_OSM_BUILDING_HEIGHT_HINTS = {
+OSM_BUILDING_HEIGHT_HINTS = {
     # Small / utility — single-storey or shorter
     "garage": 3.0, "garages": 3.0, "shed": 3.0, "hut": 3.0,
     "carport": 3.0, "cabin": 3.0, "roof": 3.0, "container": 3.0,
@@ -179,7 +178,7 @@ def _resolve_from_building_type(feat, lookup):
             continue
         # OSM allows multi-valued semicolons (rare): take the first.
         token = raw.split(";")[0].strip().lower()
-        h = _OSM_BUILDING_HEIGHT_HINTS.get(token)
+        h = OSM_BUILDING_HEIGHT_HINTS.get(token)
         if h is not None:
             return h, token
     return None, None
