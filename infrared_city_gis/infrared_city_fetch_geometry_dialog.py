@@ -79,7 +79,7 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
 
             self.geojson_path = geojson_path
             self.dotbim_path = dotbim_path
-            self.bbox=bbox
+            self.bbox = bbox
 
             display_geojson(geojson_path)
             # TODO: adjust ground materil displya

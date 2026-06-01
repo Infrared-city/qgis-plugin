@@ -46,7 +46,7 @@ def process_run_analysis(
     api_key: str,
     analysis_type: str,
     do_crop: bool = False,
-    criteria = None
+    criteria=None
 ) -> str:
     logger.info("Processing run analysis endpoint...")
 
@@ -169,7 +169,7 @@ def process_run_analysis(
         if do_crop:
             matrix = crop_matrix(matrix)
 
-        generate_geotiff(matrix, bbox_tuple, crs, file_path, simulation_type=analysis_type,criteria=criteria)
+        generate_geotiff(matrix, bbox_tuple, crs, file_path, simulation_type=analysis_type, criteria=criteria)
 
         logger.info(f"Matrix shape: {matrix.shape}")
 
@@ -274,6 +274,7 @@ def get_solar_analyses_payload(analysis_type: str, month: int, hourly: str, lon:
         "month-stamp": month_stamp_array,
         "hour-stamp": hour_stamp_array,
     }
+
 
 def get_pwc_payload(wind_data: dict, criteria: str) -> dict:
 

@@ -26,6 +26,7 @@ from .utils.deps_bootstrap import ensure_deps as _ensure_deps  # noqa: E402
 
 _ensure_deps("infrared_city_gis")
 
+
 # noinspection PyPep8Naming
 def classFactory(iface):  # pylint: disable=invalid-name
     """Load InfraredCityGIS class from file InfraredCityGIS.

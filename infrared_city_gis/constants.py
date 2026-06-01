@@ -6,10 +6,10 @@ INFRARED_API_BASE_URL = "https://api.infrared.city"
 INFRARED_API_V2_URL = f"{INFRARED_API_BASE_URL}/v2"
 
 
-#Run analysis:
+# Run analysis:
 RUN_ANALYSIS_ENDPOINT = f"{INFRARED_API_V2_URL}/run-analysis"
 
-#Fetch
+# Fetch
 FETCH_GROUND_MATERIAL_URL = f"{INFRARED_API_V2_URL}/utils/ground-material/collect"
 FETCH_WEATHER_FILES_URL = f"{INFRARED_API_V2_URL}/utils/weather/location"
 FETCH_FROM_REGISTRY_URL = INFRARED_API_V2_URL
@@ -23,5 +23,3 @@ FETCH_FROM_REGISTRY_URL = INFRARED_API_V2_URL
 # generous; lighter endpoints (registry, EPW lookup) get shorter reads.
 RUN_ANALYSIS_HTTP_TIMEOUT = (10, 300)   # simulation can take several minutes
 FETCH_HTTP_TIMEOUT = (10, 30)           # weather / OSM / EPW metadata
-
-
