@@ -36,7 +36,7 @@ changelog=0.2.4
 # Tags are comma separated with spaces allowed
 tags=urban climate, simulation, thermal comfort, wind, solar, microclimate
 
-homepage=https://infrared.city
+homepage=https://github.com/Infrared-city/qgis-plugin
 category=Raster
 icon=icons/icon.png
 # experimental flag
