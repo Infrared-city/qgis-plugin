@@ -30,6 +30,7 @@ class DailyTimeFrameConfig(str, Enum):
     Afternoon = "afternoon"
     Evening = "evening"
 
+
 class DailyTimeFrameConfigUTCI(str, Enum):
     Morning = "morning"
     Noon = "noon"
@@ -69,6 +70,7 @@ class MonthConfig(str, Enum):
         }
         return mapping[self]
 
+
 Season = Literal["winter", "spring", "summer", "autumn"]
 
 
@@ -101,9 +103,11 @@ SEASON_LIMITS: dict[Literal["north", "south"], HemisphereLimits] = {
 
 HourBase = Literal["morning", "noon", "afternoon", "evening"]
 
+
 class HourLimit(TypedDict):
     startTime: int
     endTime: int
+
 
 HOURS_LIMIT: dict[HourBase, HourLimit] = {
     "morning": {"startTime": 6, "endTime": 10},
@@ -111,6 +115,7 @@ HOURS_LIMIT: dict[HourBase, HourLimit] = {
     "afternoon": {"startTime": 14, "endTime": 18},
     "evening": {"startTime": 18, "endTime": 22},
 }
+
 
 def makeTimeFrameObj(
     isNorthHem: bool,
@@ -149,6 +154,7 @@ def makeTimeFrameObj(
         endTime=TimePoint(month=endMonth, hour=endHour),
     )
 
+
 def makeTimeFrameObjWithMonth(
     month: int,
     hourly: Union[DailyTimeFrameConfig, str]
@@ -181,6 +187,7 @@ def makeTimeFrameObjWithMonth(
         endTime=TimePoint(month=endMonth, hour=endHour),
     )
 
+
 def adjustDatetime(datetime_str: str):
     """Adjust datetime string to include month, day, and minute stamps."""
     dt_obj = datetime.fromisoformat(datetime_str)
@@ -196,4 +203,3 @@ def adjustDatetime(datetime_str: str):
         "hour-stamp": hour_stamp,
         "minute-stamp": minute_stamp,
     }
-

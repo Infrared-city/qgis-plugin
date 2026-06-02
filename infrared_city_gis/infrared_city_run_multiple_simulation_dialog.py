@@ -86,8 +86,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self.tile_count = None
         self.weather_file_names = []
         try:
-            w,s,e,n = get_selected_bbox()
-            self.bbox =[w,s,e,n]
+            w, s, e, n = get_selected_bbox()
+            self.bbox = [w, s, e, n]
             self.crs = get_selected_crs()
 
             iface.messageBar().pushMessage(
@@ -120,7 +120,6 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         if self.analysis_type_dropdown.count() > 0:
             self.analysis_type_dropdown.setCurrentIndex(0)
             self.on_analysis_changed(self.analysis_type_dropdown.currentText())
-
 
         # Load API key from QSettings (or INFRARED_API_KEY env var) via the
         # secret_manager. The legacy settings/user.json file is no longer
@@ -222,7 +221,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.group_daylight_availability.setVisible(current == AnalysisType.DAYLIGHT_AVAILABILITY)
                 self.group_direct_sun_hours.setVisible(current == AnalysisType.DIRECT_SUN_HOURS)
                 self.group_sky_view_factors.setVisible(current == AnalysisType.SKY_VIEW_FACTORS)
-                #self.group_shadow_mask.setVisible(current == AnalysisType.SHADOW_MASK)
+                # self.group_shadow_mask.setVisible(current == AnalysisType.SHADOW_MASK)
             except AttributeError as e:
                 logger.error("Failed to update group visibility: %s", str(e), exc_info=True)
 
@@ -335,14 +334,18 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
 
             if not self.api_key:
-                QMessageBox.warning(self, "Missing API Key",
-                    "No API key found. Please save your API key first via the 'Save API Key' menu.")
+                QMessageBox.warning(
+                    self, "Missing API Key",
+                    "No API key found. Please save your API key first via the 'Save API Key' menu."
+                )
                 return
 
             if self.polygon is None:
                 logger.warning("No valid selection — cannot fetch buildings")
-                QMessageBox.warning(self, "No selection",
-                    "Select one or more features before running the simulation.")
+                QMessageBox.warning(
+                    self, "No selection",
+                    "Select one or more features before running the simulation."
+                )
                 return
             logger.info("Polygon (WGS84) ring length: %d", len(self.polygon["coordinates"][0]))
 

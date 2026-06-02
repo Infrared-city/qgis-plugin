@@ -12,11 +12,11 @@ class AnalysisType(str, Enum):
     DAYLIGHT_AVAILABILITY = "daylight-availability"
     DIRECT_SUN_HOURS = "direct-sun-hours"
     SKY_VIEW_FACTORS = "sky-view-factors"
-    #SHADOW_MASK = "shadow-mask"
-
+    # SHADOW_MASK = "shadow-mask"
 
     def __str__(self):
         return self.value
+
 
 @unique
 class PedestrianWindComfortType(str, Enum):
@@ -31,6 +31,7 @@ class PedestrianWindComfortType(str, Enum):
     def __str__(self):
         return self.value
 
+
 @unique
 class Seasons(str, Enum):
     SUMMER = "summer"
@@ -42,6 +43,7 @@ class Seasons(str, Enum):
     def __str__(self):
         return self.value
 
+
 @unique
 class ThermalComfortStatisticsType(str, Enum):
     THERMAL_COMFORT = "thermal-comfort"
@@ -51,8 +53,9 @@ class ThermalComfortStatisticsType(str, Enum):
     def __str__(self):
         return self.value
 
+
 @unique
-class GeometryTypes(str,Enum):
+class GeometryTypes(str, Enum):
     BUILDINGS = "buildings"
     TREES = "trees"
 

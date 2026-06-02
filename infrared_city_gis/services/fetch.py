@@ -50,6 +50,7 @@ def extract_height_from_tags(tags: dict) -> float:
     building_type = str(tags.get("building", "")).strip().lower()
     return OSM_BUILDING_HEIGHT_HINTS.get(building_type, DEFAULT_FLOOR_HEIGHT_M)
 
+
 def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str):
     base_url = FETCH_GROUND_MATERIAL_URL
     params = {
@@ -72,7 +73,6 @@ def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str
 
         # Raise if non-2xx
         response.raise_for_status()
-
 
         try:
             data = response.json()
@@ -171,134 +171,133 @@ def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str
         raise InfraredAPIError(status_code=status, server_message=parsed_message) from e
 
 
-def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries: int = 3, delay: int = 3,tile_id: int = 0) -> str:
-        logger.info(f"Fetching geometry with lon: {lon}, lat: {lat}, bbox_size_m: {bbox_size_m}")
+def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries: int = 3, delay: int = 3, tile_id: int = 0) -> str:
+    logger.info(f"Fetching geometry with lon: {lon}, lat: {lat}, bbox_size_m: {bbox_size_m}")
 
-        overpass_url = "https://overpass-api.de/api/interpreter"
+    overpass_url = "https://overpass-api.de/api/interpreter"
 
-        plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
-        os.makedirs(plugin_data_dir, exist_ok=True)
+    plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
+    os.makedirs(plugin_data_dir, exist_ok=True)
 
-        date_now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+    date_now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
 
-        geojson_path = os.path.join(plugin_data_dir,f"infrared_city_buildings_{date_now}.geojson")
-        dotbim_path = os.path.join(plugin_data_dir,f"infrared_city_buildings_{date_now}.bim")
+    geojson_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{date_now}.geojson")
+    dotbim_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{date_now}.bim")
 
+    bbox = get_bbox(lon, lat, bbox_size_m)
+    logger.info(f"BBox: {bbox}")
 
-        bbox = get_bbox(lon, lat, bbox_size_m)
-        logger.info(f"BBox: {bbox}")
+    bbox_request = {
+        "south": bbox[1],
+        "west": bbox[0],
+        "north": bbox[3],
+        "east": bbox[2],
+    }
 
-        bbox_request = {
-            "south": bbox[1],
-            "west": bbox[0],
-            "north": bbox[3],
-            "east": bbox[2],
-        }
+    logger.info(f"BBox : {bbox_request}")
 
-        logger.info(f"BBox : {bbox_request}")
+    query = f"""
+    [out:json];
+    (
+        way["building"]({bbox_request['south']},{bbox_request['west']},{bbox_request['north']},{bbox_request['east']});
+    );
+    out geom;
+    """
 
-        query = f"""
-        [out:json];
-        (
-            way["building"]({bbox_request['south']},{bbox_request['west']},{bbox_request['north']},{bbox_request['east']});
-        );
-        out geom;
-        """
-
-        # --- Overpass API query ---
-        data = None
-        for i in range(retries):
-            try:
-                logger.info(f"Overpass query attempt {i + 1}/{retries}...")
-                response = requests.post(overpass_url, data={'data': query}, timeout=20)
-
-                if response.status_code != 200 or not response.text.strip():
-                    logger.info(f"HTTP {response.status_code}, retrying...")
-                    time.sleep(delay)
-                    continue
-
-                try:
-                    logger.info("Response received, parsing JSON...")
-                    data = response.json()
-                    break
-                except ValueError:
-                    logger.info("Invalid JSON response, retrying...")
-                    time.sleep(delay)
-
-            except requests.exceptions.Timeout:
-                logger.error(f"Timeout, retrying in {delay}s...")
-                time.sleep(delay)
-            except requests.exceptions.RequestException as e:
-                logger.info(f"Request error: {e}")
-                status = e.response.status_code if e.response is not None else None
-                body_text = e.response.text if e.response is not None else ""
-                logger.error(f"Status: {status}")
-                logger.error(f"Body: {body_text}")
-                time.sleep(delay)
-
-        if not data:
-            logger.error("Failed to fetch valid data from Overpass API.")
-            return None, None, None
-
-        logger.info(f"Fetched {len(data.get('elements', []))} elements")
-
-        # --- GeoJSON creation ---
-        features = []
-
-        elements = data.get("elements", [])
-
-        if not elements:
-            logger.warning("No elements found in response please try with different lon, lat values.")
-            return None, None, None
-
-        for elem in elements:
-            if elem.get("type") == "way" and "geometry" in elem:
-                coords = [(p["lon"], p["lat"]) for p in elem["geometry"]]
-                # Close the polygon if not already closed
-                if coords[0] != coords[-1]:
-                    coords.append(coords[0])
-
-                height = extract_height_from_tags(elem.get('tags', {}))
-
-                feature = {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Polygon",
-                        "coordinates": [coords]
-                    },
-                    "properties": {
-                        "id": elem.get("id"),
-                        "building_height": height,
-                        **(elem.get("tags", {}) or {})
-                    }
-                }
-                features.append(feature)
-
-        geojson = {
-            "type": "FeatureCollection",
-            "features": features
-        }
-
-        logger.info("GeoJSON created")
-
-        # Save to disk
-        with open(geojson_path, "w", encoding="utf-8") as f:
-            json.dump(geojson, f, ensure_ascii=False, indent=2)
-
-        logger.info(f"GeoJSON saved to {geojson_path}")
-
-        logger.info("Converting GeoJSON to DotBIM...")
+    # --- Overpass API query ---
+    data = None
+    for i in range(retries):
         try:
-            dotbim_data = process_geojson_file(geojson, lon, lat, "EPSG:4326")
-        except Exception as e:
-            logger.error(f"Failed to convert GeoJSON to DotBIM: {e}")
-            return None, None, None
+            logger.info(f"Overpass query attempt {i + 1}/{retries}...")
+            response = requests.post(overpass_url, data={'data': query}, timeout=20)
 
-        logger.info("DotBIM created")
+            if response.status_code != 200 or not response.text.strip():
+                logger.info(f"HTTP {response.status_code}, retrying...")
+                time.sleep(delay)
+                continue
 
-        with open(dotbim_path, "w", encoding="utf-8") as f:
-            json.dump(dotbim_data, f, ensure_ascii=False, indent=2)
+            try:
+                logger.info("Response received, parsing JSON...")
+                data = response.json()
+                break
+            except ValueError:
+                logger.info("Invalid JSON response, retrying...")
+                time.sleep(delay)
 
-        logger.info(f"DotBIM saved to {dotbim_path}")
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout, retrying in {delay}s...")
+            time.sleep(delay)
+        except requests.exceptions.RequestException as e:
+            logger.info(f"Request error: {e}")
+            status = e.response.status_code if e.response is not None else None
+            body_text = e.response.text if e.response is not None else ""
+            logger.error(f"Status: {status}")
+            logger.error(f"Body: {body_text}")
+            time.sleep(delay)
 
-        return geojson_path, dotbim_path, bbox
+    if not data:
+        logger.error("Failed to fetch valid data from Overpass API.")
+        return None, None, None
+
+    logger.info(f"Fetched {len(data.get('elements', []))} elements")
+
+    # --- GeoJSON creation ---
+    features = []
+
+    elements = data.get("elements", [])
+
+    if not elements:
+        logger.warning("No elements found in response please try with different lon, lat values.")
+        return None, None, None
+
+    for elem in elements:
+        if elem.get("type") == "way" and "geometry" in elem:
+            coords = [(p["lon"], p["lat"]) for p in elem["geometry"]]
+            # Close the polygon if not already closed
+            if coords[0] != coords[-1]:
+                coords.append(coords[0])
+
+            height = extract_height_from_tags(elem.get('tags', {}))
+
+            feature = {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [coords]
+                },
+                "properties": {
+                    "id": elem.get("id"),
+                    "building_height": height,
+                    **(elem.get("tags", {}) or {})
+                }
+            }
+            features.append(feature)
+
+    geojson = {
+        "type": "FeatureCollection",
+        "features": features
+    }
+
+    logger.info("GeoJSON created")
+
+    # Save to disk
+    with open(geojson_path, "w", encoding="utf-8") as f:
+        json.dump(geojson, f, ensure_ascii=False, indent=2)
+
+    logger.info(f"GeoJSON saved to {geojson_path}")
+
+    logger.info("Converting GeoJSON to DotBIM...")
+    try:
+        dotbim_data = process_geojson_file(geojson, lon, lat, "EPSG:4326")
+    except Exception as e:
+        logger.error(f"Failed to convert GeoJSON to DotBIM: {e}")
+        return None, None, None
+
+    logger.info("DotBIM created")
+
+    with open(dotbim_path, "w", encoding="utf-8") as f:
+        json.dump(dotbim_data, f, ensure_ascii=False, indent=2)
+
+    logger.info(f"DotBIM saved to {dotbim_path}")
+
+    return geojson_path, dotbim_path, bbox

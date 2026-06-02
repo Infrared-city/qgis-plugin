@@ -7,14 +7,16 @@ from ..infrared_logger import logger
 from . import qgis_http as requests
 
 
-class Query_Type (str,Enum):
+class Query_Type (str, Enum):
     UTCI = "utci"
     WIND = "wind-seasonal"
 
-def make_uri (fileName: str):
+
+def make_uri(fileName: str):
     return f"https://app.infrared.city/api/public/weatherfiles/{fileName}/data"
 
-def query_infrared_epw (file_name: str, type: Query_Type, time_frame: dict, api_key: str):
+
+def query_infrared_epw(file_name: str, type: Query_Type, time_frame: dict, api_key: str):
     """
     Query ewp files from infrared-city data-base
 
@@ -56,5 +58,4 @@ def query_infrared_epw (file_name: str, type: Query_Type, time_frame: dict, api_
                 pass
         raise InfraredAPIError(status_code=status, server_message=parsed_message) from e
 
-
-    return  data
+    return data

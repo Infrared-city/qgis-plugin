@@ -44,6 +44,7 @@ from qgis.PyQt.QtNetwork import QNetworkRequest
 # Exception classes
 # ---------------------------------------------------------------------------
 
+
 class RequestException(Exception):
     """Base exception for all HTTP/network errors."""
 

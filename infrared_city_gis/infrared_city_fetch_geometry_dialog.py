@@ -83,7 +83,7 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
 
             display_geojson(geojson_path)
             # TODO: adjust ground materil displya
-            #display_ground_materials(ground_materials)
+            # display_ground_materials(ground_materials)
 
         except Exception as e:
             logger.error(f"Failed to fetch geometry: {e}")
