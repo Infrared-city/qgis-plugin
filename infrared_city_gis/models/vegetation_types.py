@@ -12,9 +12,9 @@ class TreeType(str, Enum):
     BUSHWILLOW = "Bushwillow"
     BALD_CYPRESS = "Bald Cypress"
 
-
     def __str__(self) -> str:
         return self.value
+
 
 @unique
 class TreeSize(str, Enum):

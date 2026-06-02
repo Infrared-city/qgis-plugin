@@ -29,6 +29,7 @@ def decode_gzip_base64_binary(b64_data: str) -> bytes:
         logger.info(f"Decoding error: {e}")
         return None
 
+
 def decode(response_content):
     try:
         logger.info("Decoding response content...")
@@ -60,7 +61,6 @@ def decode(response_content):
             if json_filename not in zip_file.namelist():
                 logger.info(f"Filename not found in zip archive: {json_filename}")
 
-
             with zip_file.open(json_filename) as f:
                 content = f.read().decode("utf-8")
                 data = json.loads(content)
@@ -70,6 +70,7 @@ def decode(response_content):
     except Exception as e:
         logger.info(f"Decoding pipeline failed: {e}")
         raise
+
 
 def _clean_up(folder_name):
     """Delete all files older then 30 days from directory."""
@@ -96,4 +97,3 @@ def cleanup_old_data():
     """Delete all files older than 1 month (00:00:00) from directory."""
     _clean_up("data")
     _clean_up("logs")
-

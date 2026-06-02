@@ -20,6 +20,7 @@ except Exception:
     earcut = None
     HAS_EARCUT = False
 
+
 def convert_to_local_coords(coords: List[Tuple[float, float]], center_x: float, center_y: float, crs: str) -> List[List[float]]:
     """Convert coordinates to local meters (x east, y north) relative to a center.
 
@@ -48,6 +49,7 @@ def convert_to_local_coords(coords: List[Tuple[float, float]], center_x: float, 
             local_coords.append([float(x) - float(center_x), float(y) - float(center_y)])
 
     return local_coords
+
 
 def create_building_extrusion(polygon_coords_local: List[List[float]], height: float):
     """
@@ -97,6 +99,7 @@ def create_building_extrusion(polygon_coords_local: List[List[float]], height: f
         logger.error(f"[create_building_extrusion] error: {e}")
         return None, None
 
+
 def update_geometry(dotbim, shiftSize=256):
     """
     Shift all mesh coordinates into the positive quadrant and filter trivial meshes.
@@ -122,7 +125,6 @@ def update_geometry(dotbim, shiftSize=256):
         coords[:, 0] += shiftSize
         coords[:, 1] += shiftSize
 
-
         # keep mesh
         mesh["coordinates"] = coords.flatten().tolist()
         fixed_data[key] = mesh
@@ -134,7 +136,8 @@ def update_geometry(dotbim, shiftSize=256):
 
         return None
 
-def get_bbox_center(bbox, crs = None):
+
+def get_bbox_center(bbox, crs=None):
     # bbox: [min_x, min_y, max_x, max_y]
     min_x, min_y, max_x, max_y = bbox
 
@@ -233,6 +236,7 @@ def triangulate_volume(rings: List[List[Tuple[float, float]]], height: float):
     all_faces = bottom_faces + top_faces + side_faces
     return flat_coordinates, all_faces
 
+
 def scale_mesh(mesh_coords, height, crownDiameter):
 
     # Compute bounding box of original mesh
@@ -285,9 +289,9 @@ def scale_mesh(mesh_coords, height, crownDiameter):
 
     return scaled_coords
 
-def convert_tree_to_dotbim(geojson,center_x: float, center_y: float,crs: str):
 
-                # Try to restore last saved selection from settings
+def convert_tree_to_dotbim(geojson, center_x: float, center_y: float, crs: str):
+    # Try to restore last saved selection from settings
     settings = QSettings()
     tree_type = settings.value("infrared_city/tree_type", None)
     tree_size = settings.value("infrared_city/tree_size", None)
@@ -324,11 +328,9 @@ def convert_tree_to_dotbim(geojson,center_x: float, center_y: float,crs: str):
             logger.info(f"Firsttree model was selected: {model.get('displayName')}")
             break
 
-
     if selected is None:
         logger.warning("No suitable tree model found in vegetation_registry.json")
         return None
-
 
     crownDiameter = selected.get("crownDiameter")
     height = selected.get("height")
@@ -345,8 +347,6 @@ def convert_tree_to_dotbim(geojson,center_x: float, center_y: float,crs: str):
         elif tree_size == "large":
             height = heightRange[1]
             crownDiameter = crownDiameterRange[1]
-
-
 
     mesh = selected.get("mesh")
     if mesh is None:
@@ -409,6 +409,7 @@ def convert_tree_to_dotbim(geojson,center_x: float, center_y: float,crs: str):
     dotbim_updated = update_geometry(dotbim_data)
 
     return dotbim_updated
+
 
 def process_geojson_file(geojson, center_x: float, center_y: float, crs: str):
     """
@@ -477,9 +478,9 @@ def process_geojson_file(geojson, center_x: float, center_y: float, crs: str):
                 else:
                     hs = str(height)
                     if "m" in hs:
-                        h_val = float(hs.replace("m","").strip())
+                        h_val = float(hs.replace("m", "").strip())
                     elif "ft" in hs or "'" in hs:
-                        h_f = float(hs.replace("ft","").replace("'","").strip())
+                        h_f = float(hs.replace("ft", "").replace("'", "").strip())
                         h_val = h_f * 0.3048
                     else:
                         h_val = float(hs)

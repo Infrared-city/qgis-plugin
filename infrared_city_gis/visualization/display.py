@@ -62,7 +62,6 @@ def add_geojson_then_raster(
 
     rlayer = QgsRasterLayer(geotiff_path, layer_name, "gdal")
 
-
     if not rlayer.isValid():
         raise RuntimeError(f"GeoTIFF layer loading failed: {geotiff_path}")
 

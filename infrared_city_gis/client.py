@@ -288,5 +288,3 @@ def get_pwc_payload(wind_data: dict, criteria: str) -> dict:
 
 def get_direct_sun_hours_payload(month: int, hourly: str, lon: float, lat: float) -> dict:
     return get_solar_analyses_payload("direct-sun-hours", month, hourly, lon, lat)
-
-
