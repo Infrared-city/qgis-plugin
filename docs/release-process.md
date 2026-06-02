@@ -23,9 +23,9 @@ This is a **two-PR process**:
    - The `release.yml` workflow triggers on the new tag and builds + attaches the plugin ZIP to a GitHub Release
 
 **Step 3 — Sync main back to staging manually**
-5. After the release, sync main back into staging:
+5. After the release, merge main back into staging:
    ```bash
-   git checkout staging && git reset --hard origin/main && git push origin staging --force-with-lease
+   git checkout staging && git merge main && git push origin staging
    ```
 
 ## Commit message conventions
