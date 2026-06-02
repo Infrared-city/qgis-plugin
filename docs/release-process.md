@@ -4,17 +4,27 @@ Releases are automated via [Release Please](https://github.com/googleapis/releas
 
 ## How it works
 
-1. Developers merge PRs into **staging** (integration branch)
-2. When staging is ready, open a PR from **staging → main** and merge it
-3. Release Please detects the new commits on `main` and opens (or updates) a release PR titled `chore(main): release X.Y.Z`
-4. The release PR contains:
-   - Bumped version in `infrared_city_gis/metadata.txt`
-   - Updated `CHANGELOG.md` based on conventional commit messages
-5. Review and merge the release PR
-6. Release Please automatically:
-   - Creates a `vX.Y.Z` git tag
-   - Creates a GitHub Release
-7. The existing `release.yml` workflow triggers on the new tag and builds + attaches the plugin ZIP to the GitHub Release
+This is a **two-PR process**:
+
+**Step 1 — Merge staging into main**
+1. When staging is ready to ship, open a PR from `staging → main` and merge it
+2. Release Please detects the new commits on `main` and opens (or updates) a release PR titled `chore(main): release X.Y.Z`
+   - This PR bumps the version in `infrared_city_gis/metadata.txt`
+   - This PR updates `CHANGELOG.md` based on conventional commit messages
+   - Merging `staging → main` alone does **not** create a release
+
+**Step 2 — Merge the Release Please PR**
+3. Review and merge the Release Please PR on `main`
+4. This triggers the full release pipeline automatically:
+   - Release Please creates a `vX.Y.Z` git tag
+   - Release Please creates a GitHub Release
+   - The `release.yml` workflow triggers on the new tag and builds + attaches the plugin ZIP
+
+**Step 3 — Sync main back to staging**
+5. After the release, merge `main → staging` to bring the version bump and changelog back:
+   ```bash
+   git checkout staging && git merge main && git push origin staging
+   ```
 
 ## Commit message conventions
 
