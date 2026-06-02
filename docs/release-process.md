@@ -11,7 +11,8 @@ This is a **two-PR process**:
    - **The PR title must start with `fix:` or `feat:` if the release contains user-facing changes** — Release Please reads the merge commit message to determine whether to open a release PR. A title starting with `chore:` or `docs:` will not trigger a version bump.
    - Example title: `fix: weather file upload and code quality improvements`
 2. Release Please detects the new commits on `main` and opens (or updates) a release PR titled `chore(main): release X.Y.Z`
-   - This PR bumps the version in `infrared_city_gis/metadata.txt`
+   - This PR bumps `version.txt` (primary version source for Release Please)
+   - This PR bumps `version=` in `infrared_city_gis/metadata.txt` via the `generic` pattern in `release-please-config.json`
    - This PR updates `CHANGELOG.md` based on conventional commit messages
    - Merging `staging → main` alone does **not** create a release
 
@@ -38,14 +39,23 @@ Release Please reads conventional commits to determine the version bump and gene
 
 > **Important:** When merging `staging → main`, use a PR title that reflects the highest-impact change in the batch. If the batch contains any `fix:` or `feat:` commits, the PR title should start with `fix:` or `feat:` accordingly.
 
+## Version sources
+
+There are two version files — both must stay in sync:
+
+| File | Purpose |
+|------|---------|
+| `version.txt` | Primary version source for Release Please — updated automatically |
+| `infrared_city_gis/metadata.txt` (`version=`) | QGIS plugin version — updated automatically via `release-please-config.json` `generic` pattern |
+
 ## Manual release (fallback)
 
-If Release Please is unavailable, bump the version manually:
+If Release Please is unavailable, bump the version manually in both files:
 
 ```bash
-# 1. Update version in metadata.txt
+# 1. Update version.txt and infrared_city_gis/metadata.txt
 # 2. Commit and push to main
-git tag v0.2.5 && git push --tags
+git tag v0.2.6 && git push --tags
 # CI builds the ZIP and creates the GitHub Release automatically
 ```
 
