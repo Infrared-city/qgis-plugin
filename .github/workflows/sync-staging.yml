@@ -1,0 +1,38 @@
+name: Sync main to staging
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Open PR to sync main into staging
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          BRANCH="chore/sync-main-to-staging-${TAG}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH" origin/main
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: sync main to staging after ${TAG}" \
+            --body "Automated PR to bring the version bump and changelog from the ${TAG} release back into staging." \
+            --base staging \
+            --head "$BRANCH"
