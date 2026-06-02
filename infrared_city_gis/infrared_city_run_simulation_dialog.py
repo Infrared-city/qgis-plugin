@@ -83,7 +83,7 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
 
 
 class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
-    def __init__(self, parent=None, dotbim_path=None, geojson_path=None ,bbox=None,crs=None):
+    def __init__(self, parent=None, dotbim_path=None, geojson_path=None, bbox=None, crs=None):
         super().__init__(parent)
         self.setupUi(self)
 
@@ -129,7 +129,6 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.analysis_type_dropdown.setCurrentIndex(0)
             self.on_analysis_changed(self.analysis_type_dropdown.currentText())
 
-
         # Load API key from QSettings (or INFRARED_API_KEY env var) via the
         # secret_manager. The legacy settings/user.json file is no longer
         # consulted — the Save API Key dialog writes only to QSettings.
@@ -149,8 +148,6 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.reject()
             return
 
-
-
         logger.info("Dialog loaded")
         logger.info("Dotbim path: %s", self.dotbim_path)
         logger.info("Geojson path: %s", self.geojson_path)
@@ -158,8 +155,6 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         logger.info("CRS: %s", self.crs)
 
         self._init_ok = True
-
-
 
     def on_analysis_changed(self, text):
         current = self.analysis_type_dropdown.currentData()
@@ -212,7 +207,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.group_daylight_availability.setVisible(current == AnalysisType.DAYLIGHT_AVAILABILITY)
                 self.group_direct_sun_hours.setVisible(current == AnalysisType.DIRECT_SUN_HOURS)
                 self.group_sky_view_factors.setVisible(current == AnalysisType.SKY_VIEW_FACTORS)
-                #self.group_shadow_mask.setVisible(current == AnalysisType.SHADOW_MASK)
+                # self.group_shadow_mask.setVisible(current == AnalysisType.SHADOW_MASK)
             except AttributeError as e:
                 logger.error("Failed to update group visibility: %s", str(e), exc_info=True)
 
@@ -433,7 +428,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     geojson_path_trees, dotbim_path_trees, bbox_512_trees, crs_authid_trees, bbox_256_trees = trees
                     logger.info("Trees found the selection.")
 
-                    tree_dotbim =  load_dotbim(dotbim_path_trees)
+                    tree_dotbim = load_dotbim(dotbim_path_trees)
                     logger.info("Tree dotbim was loaded")
 
             else:
@@ -449,7 +444,6 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.analysis_type = self.analysis_type_dropdown.currentData()
             self.sub_analysis_type = None
 
-
             if not self.api_key:
                 logger.warning("API key is empty.")
                 QMessageBox.warning(
@@ -459,13 +453,12 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 )
                 return
 
-
             if self.analysis_type == AnalysisType.WIND_SPEED:
                 # Validation
                 wind_speed = self.wind_speed_input.value()
                 wind_direction = self.wind_direction_input.value()
 
-                if  (wind_speed <= 0 or wind_direction < 0 or wind_direction > 360):
+                if (wind_speed <= 0 or wind_direction < 0 or wind_direction > 360):
                     logger.warning("Invalid parameters. Please check the input values.")
                     QMessageBox.warning(self, "Invalid Parameters", "Wind speed must be >0 and direction between 0-360°.")
                     return
@@ -499,12 +492,14 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                         time_frame=time_frame,
                         api_key=self.api_key
                     )
-                logger.info("Wind data: windSpeed length=%d, windDirection length=%d",
-                    len(wind_data["windSpeed"]), len(wind_data["windDirection"]))
+                logger.info(
+                    "Wind data: windSpeed length=%d, windDirection length=%d",
+                    len(wind_data["windSpeed"]), len(wind_data["windDirection"])
+                )
 
-                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
+                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
 
-                payload = get_pwc_payload(wind_data,self.sub_analysis_type.value)
+                payload = get_pwc_payload(wind_data, self.sub_analysis_type.value)
 
             elif self.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
                 # Validation
@@ -531,8 +526,8 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                         time_frame=time_frame,
                         api_key=self.api_key
                     )
-                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
-                payload = get_utci_payload(weather_data,center_lon, center_lat, time_frame)
+                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
+                payload = get_utci_payload(weather_data, center_lon, center_lat, time_frame)
 
             elif self.analysis_type == AnalysisType.THERMAL_COMFORT_STATISTICS:
                 # Validation
@@ -550,7 +545,7 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     QMessageBox.warning(self, "Missing Input", "TCS type is required.")
                     return
 
-                time_frame = makeTimeFrameObj(isNorthHem=True,season=selected_season.value,hourly=selected_hours.value,analysis_type=self.analysis_type)
+                time_frame = makeTimeFrameObj(isNorthHem=True, season=selected_season.value, hourly=selected_hours.value, analysis_type=self.analysis_type)
 
                 weather_data = query_infrared_epw(
                         file_name=weather_file,
@@ -558,8 +553,8 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                         time_frame=time_frame,
                         api_key=self.api_key
                     )
-                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
-                payload = get_tcs_payload(weather_data,center_lon,center_lat,time_frame,selected_tcs_type.value)
+                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
+                payload = get_tcs_payload(weather_data, center_lon, center_lat, time_frame, selected_tcs_type.value)
 
             elif self.analysis_type == AnalysisType.SOLAR_RADIATION:
                 # Validation
@@ -581,9 +576,9 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                         time_frame=time_frame,
                         api_key=self.api_key
                     )
-                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox,self.crs)
+                center_lon, center_lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
 
-                payload = get_solar_radiation_payload(weather_data,center_lon, center_lat, time_frame)
+                payload = get_solar_radiation_payload(weather_data, center_lon, center_lat, time_frame)
 
             elif self.analysis_type == AnalysisType.DAYLIGHT_AVAILABILITY:
                 try:
@@ -613,10 +608,10 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
             elif self.analysis_type == AnalysisType.SKY_VIEW_FACTORS:
 
-                payload = { "analysis-type": self.analysis_type.value, "geometries": None}
+                payload = {"analysis-type": self.analysis_type.value, "geometries": None}
 
             logger.info(f"\n✨ ✨ ✨ ✨\nPayload: \n{payload}\n✨ ✨ ✨ ✨")
-            #Load dotbim
+            # Load dotbim
             dotbim = load_dotbim(self.dotbim_path)
             if dotbim is not None:
                 payload["geometries"] = dotbim
@@ -677,7 +672,6 @@ class InfraredCityRunSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 raster_opacity=0.7,
                 min_legend_value=min_legend_value,
                 max_legend_value=max_legend_value)
-
 
             super().accept()
 

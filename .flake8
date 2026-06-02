@@ -1,0 +1,8 @@
+[flake8]
+max-line-length = 120
+exclude =
+    infrared_city_gis/.venv,
+    infrared_city_gis/venv,
+    infrared_city_gis/test,
+    infrared_city_gis/tests
+extend-ignore = E501

@@ -40,7 +40,7 @@ from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
 from .infrared_logger import logger
 
 # Initialize Qt resources from file resources.py
-from .resources import *  # noqa: F403
+from .resources import *  # noqa: F401,F403
 from .services.fetch_from_registry import _load_api_key, fetch_from_registry
 from .utils.helper import cleanup_old_data
 
@@ -96,6 +96,7 @@ class InfraredCityGIS:
                 logger.warning("Startup registry refresh failed: %s", e)
 
     # noinspection PyMethodMayBeStatic
+
     def tr(self, message):
         """Get the translation for a string using Qt translation API.
 
@@ -110,7 +111,6 @@ class InfraredCityGIS:
         # noinspection PyTypeChecker,PyArgumentList,PyCallByClass
         return QCoreApplication.translate('InfraredCityGIS', message)
 
-
     def add_action(
         self,
         icon_path,
@@ -121,7 +121,8 @@ class InfraredCityGIS:
         add_to_toolbar=True,
         status_tip=None,
         whats_this=None,
-        parent=None):
+        parent=None,
+    ):
         """Add a toolbar icon to the toolbar.
 
         :param icon_path: Path to the icon for this action. Can be a resource
@@ -263,7 +264,6 @@ class InfraredCityGIS:
         else:
             logger.info("Multiple simulations dialog cancelled")
 
-
     def select_bbox(self):
         """Run method that performs all the real work"""
 
@@ -278,14 +278,12 @@ class InfraredCityGIS:
 
             self.last_geojson_path = getattr(self.dlg, "geojson_path", None)
             self.last_dotbim_path = getattr(self.dlg, "dotbim_path", None)
-            self.bbox = getattr(self.dlg,"bbox",None)
-            self.crs = getattr(self.dlg,"crs",None)
-
+            self.bbox = getattr(self.dlg, "bbox", None)
+            self.crs = getattr(self.dlg, "crs", None)
 
             logger.info("BBox selected successfully")
         else:
             logger.error("BBox selection cancelled")
-
 
     def select_tree_type(self):
         self.dlg = InfraredCityTreeCatalogDialog()
@@ -324,25 +322,25 @@ class InfraredCityGIS:
         result = self.dlg.exec_()
         # See if OK was pressed
         if result:  # OK was pressed
-                self.last_geojson_path = getattr(self.dlg, "geojson_path", None)
-                self.last_dotbim_path = getattr(self.dlg, "dotbim_path", None)
-                self.bbox = getattr(self.dlg,"bbox",None)
-                self.crs = "EPSG:4326"
+            self.last_geojson_path = getattr(self.dlg, "geojson_path", None)
+            self.last_dotbim_path = getattr(self.dlg, "dotbim_path", None)
+            self.bbox = getattr(self.dlg, "bbox", None)
+            self.crs = "EPSG:4326"
 
-                if self.last_geojson_path and self.bbox and self.last_dotbim_path:
-                    self.iface.messageBar().pushMessage(
-                        "InfraredCity",
-                        f"Fetched geometry saved to: {self.last_geojson_path} \n "
-                        f"and .bim to {self.last_dotbim_path} \n"
-                        f"with bbox: {self.bbox}",
-                        level=Qgis.Info,
-                        duration=5
-                    )
-                else:
-                    self.iface.messageBar().pushWarning(
-                        "InfraredCity",
-                        "No file path returned from fetch dialog."
-                    )
+            if self.last_geojson_path and self.bbox and self.last_dotbim_path:
+                self.iface.messageBar().pushMessage(
+                    "InfraredCity",
+                    f"Fetched geometry saved to: {self.last_geojson_path} \n "
+                    f"and .bim to {self.last_dotbim_path} \n"
+                    f"with bbox: {self.bbox}",
+                    level=Qgis.Info,
+                    duration=5
+                )
+            else:
+                self.iface.messageBar().pushWarning(
+                    "InfraredCity",
+                    "No file path returned from fetch dialog."
+                )
 
     def run_simulation(self):
         """Run method that performs all the real work"""
@@ -351,7 +349,12 @@ class InfraredCityGIS:
             return
 
         logger.info("Simulation dialog creation started")
-        self.dlg = InfraredCityRunSimulationDialog(dotbim_path=self.last_dotbim_path,geojson_path=self.last_geojson_path,bbox=self.bbox,crs=self.crs)
+        self.dlg = InfraredCityRunSimulationDialog(
+            dotbim_path=self.last_dotbim_path,
+            geojson_path=self.last_geojson_path,
+            bbox=self.bbox,
+            crs=self.crs,
+        )
         logger.info("Simulation dialog created")
 
         if not self.dlg._init_ok:

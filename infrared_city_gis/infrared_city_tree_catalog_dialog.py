@@ -116,11 +116,11 @@ _INDEX_SIZE = {0: TreeSize.SMALL, 1: TreeSize.MEDIUM, 2: TreeSize.LARGE}
 # Tree card widget
 # ---------------------------------------------------------------------------
 
-_CARD_DEFAULT_BG  = "transparent"
+_CARD_DEFAULT_BG = "transparent"
 _CARD_SELECTED_BG = "#e8f4e8"
-_CARD_HOVER_BG    = "#f0f8f0"
-_CARD_BORDER_SEL  = "#4a9a4a"
-_CARD_BORDER_DEF  = "#d0d0d0"
+_CARD_HOVER_BG = "#f0f8f0"
+_CARD_BORDER_SEL = "#4a9a4a"
+_CARD_BORDER_DEF = "#d0d0d0"
 
 _BTN_CHECKED_STYLE = (
     "QPushButton {"

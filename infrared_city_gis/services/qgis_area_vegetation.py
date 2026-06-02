@@ -118,6 +118,7 @@ def _resolve_current_species() -> Tuple[Optional[dict], Optional[str]]:
 
     return None, tree_size
 
+
 def _polygon_wgs84_bbox_with_margin(
     polygon: dict, margin_m: float,
 ) -> Tuple[float, float, float, float]:
@@ -282,7 +283,6 @@ def collect_qgis_area_vegetation(
             "geometry": {"type": "Point", "coordinates": [float(lon), float(lat)]},
             "properties": props,
         }
-
 
     elapsed = time.monotonic() - t0
     logger.info(

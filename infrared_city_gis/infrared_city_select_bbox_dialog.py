@@ -73,8 +73,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
         logger.info("Map clicked at: %.6f, %.6f", point.x(), point.y())
 
         try:
-
-        # --- Restore map tool ---
+            # --- Restore map tool ---
             try:
                 canvas = iface.mapCanvas()
                 if self.map_tool:
@@ -212,7 +211,6 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
         except Exception as e:
             logger.error("Failed to select features: %s", e)
             return
-
 
         self.accept()
 
