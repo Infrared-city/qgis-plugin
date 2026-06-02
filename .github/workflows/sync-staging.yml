@@ -29,10 +29,22 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git checkout -b "$BRANCH" origin/main
-          git push origin "$BRANCH"
 
-          gh pr create \
-            --title "chore: sync main to staging after ${TAG}" \
-            --body "Automated PR to bring the version bump and changelog from the ${TAG} release back into staging." \
-            --base staging \
-            --head "$BRANCH"
+          # Push branch — skip if it already exists (idempotent rerun)
+          if git ls-remote --exit-code origin "$BRANCH" > /dev/null 2>&1; then
+            echo "Branch $BRANCH already exists — skipping push"
+          else
+            git push origin "$BRANCH"
+          fi
+
+          # Open PR — skip if one already exists for this branch
+          EXISTING_PR=$(gh pr list --head "$BRANCH" --base staging --json number --jq '.[0].number')
+          if [ -n "$EXISTING_PR" ]; then
+            echo "PR #$EXISTING_PR already exists for $BRANCH — skipping"
+          else
+            gh pr create \
+              --title "chore: sync main to staging after ${TAG}" \
+              --body "Automated PR to bring the version bump and changelog from the ${TAG} release back into staging." \
+              --base staging \
+              --head "$BRANCH"
+          fi
