@@ -15,8 +15,8 @@ from qgis.PyQt.QtWidgets import QLabel, QPushButton, QVBoxLayout
 from qgis.utils import iface
 
 from .infrared_logger import logger
-from .models.analysis import GeometryTypes
-from .services.geometry import collect_geometries, get_bbox
+from .services import single_tile_selection
+from .services.geometry import get_bbox
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'infrared_city_select_bbox_dialog.ui'))
@@ -164,49 +164,49 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
             if ref_crs.authid() != "EPSG:4326":
                 transform_bbox_ref = QgsCoordinateTransform(wgs84, ref_crs, QgsProject.instance())
                 bbox_rect_ref = transform_bbox_ref.transformBoundingBox(bbox_rect_wgs84)
-                t_pt = QgsCoordinateTransform(wgs84, ref_crs, QgsProject.instance())
-                ref_pt = t_pt.transform(lonlat)
-                center_x_ref, center_y_ref = ref_pt.x(), ref_pt.y()
             else:
                 bbox_rect_ref = bbox_rect_wgs84
-                center_x_ref, center_y_ref = lonlat.x(), lonlat.y()
 
             # --- Visual feedback: highlight features in the reference layer
+            count = 0
             try:
                 ref_layer.removeSelection()
                 ref_layer.selectByRect(bbox_rect_ref, QgsVectorLayer.SetSelection)
                 count = ref_layer.selectedFeatureCount()
                 logger.info("Selected %d features in '%s'.", count, ref_layer.name())
-                iface.messageBar().pushMessage("InfraredCity", f"{count} features selected.", level=0)
             except Exception as e:
                 logger.warning("selectByRect failed on '%s': %s", ref_layer.name(), e)
 
-            # --- Real export: shared pipeline (resolves height correctly + writes geojson + dotbim).
-            result = collect_geometries(
-                center_x_ref, center_y_ref, 0,
-                geometry_type=GeometryTypes.BUILDINGS,
+            # --- Store the 512×512 m tile as a one-shot single-tile selection
+            # (ArcGIS-style). No dotbim/geojson export here — the Run
+            # Simulation dialog consumes this selection, collects buildings
+            # from the active QGIS layer at run time, and submits ONE tile via
+            # analyses.execute (≈10 tokens) instead of the area tiler.
+            w = bbox_rect_wgs84.xMinimum()
+            s = bbox_rect_wgs84.yMinimum()
+            e = bbox_rect_wgs84.xMaximum()
+            n = bbox_rect_wgs84.yMaximum()
+            polygon = {
+                "type": "Polygon",
+                "coordinates": [[[w, s], [e, s], [e, n], [w, n], [w, s]]],
+            }
+            single_tile_selection.set_selection(
+                polygon=polygon,
+                center_lon=center_lon,
+                center_lat=center_lat,
+                bbox=(w, s, e, n),
+                crs="EPSG:4326",
+                building_count=count,
             )
-
-            if result is None:
-                iface.messageBar().pushMessage("InfraredCity", "No buildings found in bbox.", level=1)
-                logger.warning("collect_geometries returned None for bbox center (%.6f, %.6f).",
-                               center_lon, center_lat)
-                self.geojson_path = None
-                self.dotbim_path = None
-                self.bbox = (
-                    bbox_rect_ref.xMinimum(), bbox_rect_ref.yMinimum(),
-                    bbox_rect_ref.xMaximum(), bbox_rect_ref.yMaximum(),
-                )
-                self.crs = ref_crs.authid()
-            else:
-                geojson_path, dotbim_path, bbox_512, crs_authid, _bbox_256 = result
-                self.geojson_path = geojson_path
-                self.dotbim_path = dotbim_path
-                self.bbox = bbox_512
-                self.crs = crs_authid
-                iface.messageBar().pushMessage("InfraredCity", f"Saved to {geojson_path}", level=0)
-                logger.info("Saved geojson: %s", geojson_path)
-                logger.info("Saved dotbim:  %s", dotbim_path)
+            self.bbox = (w, s, e, n)
+            self.crs = "EPSG:4326"
+            iface.messageBar().pushMessage(
+                "InfraredCity",
+                f"512×512 m tile selected ({count} buildings). "
+                "Open 'Run simulation' to run it.",
+                level=0,
+                duration=8,
+            )
 
         except Exception as e:
             logger.error("Failed to select features: %s", e)

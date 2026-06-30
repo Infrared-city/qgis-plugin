@@ -33,7 +33,6 @@ from .infrared_city_fetch_geometry_dialog import InfraredCityFetchGeometryDialog
 from .infrared_city_run_multiple_simulation_dialog import (
     InfraredCityRunMultipleSimulationDialog,
 )
-from .infrared_city_run_simulation_dialog import InfraredCityRunSimulationDialog
 from .infrared_city_save_auth import InfraredCitySaveAuthDialog
 from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
 from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
@@ -60,7 +59,6 @@ class InfraredCityGIS:
         self.iface = iface
         self.last_geojson_path = None
         self.last_dotbim_path = None
-        self.last_geotiff_path = None
         self.bbox = None
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -193,7 +191,6 @@ class InfraredCityGIS:
         fetch_geometry_icon_path = ':/plugins/infrared_city_gis/icons/get_geometry.png'
         select_bbox_icon_path = ':/plugins/infrared_city_gis/icons/select_area.png'
         tree_icon_path = ':/plugins/infrared_city_gis/icons/tree.svg'
-        run_single_icon_path = ':/plugins/infrared_city_gis/icons/run_single.svg'
         run_multiple_icon_path = ':/plugins/infrared_city_gis/icons/run_multiple.svg'
 
         self.add_action(
@@ -211,7 +208,7 @@ class InfraredCityGIS:
 
         self.add_action(
             select_bbox_icon_path,
-            text=self.tr(u'Select bbox by center'),
+            text=self.tr(u'Select tile'),
             callback=self.select_bbox,
             parent=self.iface.mainWindow()
         )
@@ -223,16 +220,15 @@ class InfraredCityGIS:
             parent=self.iface.mainWindow()
         )
 
-        self.add_action(
-            run_single_icon_path,
-            text=self.tr(u'Run simulation'),
-            callback=self.run_simulation,
-            parent=self.iface.mainWindow()
-        )
-
+        # NOTE: the legacy single-simulation action and its
+        # InfraredCityRunSimulationDialog have been removed — the "Run
+        # simulation" dialog below now handles both single-tile (via the
+        # "Select tile" tool + analyses.execute) and area runs, mirroring the
+        # ArcGIS plugin. The "Fetch geometry from OSM" action above is kept as
+        # a standalone geometry-export utility.
         self.add_action(
             run_multiple_icon_path,
-            text=self.tr(u'Run multiple simulations'),
+            text=self.tr(u'Run simulation'),
             callback=self.run_multiple_simulations,
             parent=self.iface.mainWindow()
         )
@@ -341,41 +337,3 @@ class InfraredCityGIS:
                     "InfraredCity",
                     "No file path returned from fetch dialog."
                 )
-
-    def run_simulation(self):
-        """Run method that performs all the real work"""
-        if not self.last_geojson_path or not self.last_dotbim_path or not self.bbox or not self.crs:
-            self.iface.messageBar().pushWarning("InfraredCity", "Please select geometry first.")
-            return
-
-        logger.info("Simulation dialog creation started")
-        self.dlg = InfraredCityRunSimulationDialog(
-            dotbim_path=self.last_dotbim_path,
-            geojson_path=self.last_geojson_path,
-            bbox=self.bbox,
-            crs=self.crs,
-        )
-        logger.info("Simulation dialog created")
-
-        if not self.dlg._init_ok:
-            return
-
-        # show the dialog
-        self.dlg.show()
-        # Run the dialog event loop
-        result = self.dlg.exec_()
-        # See if OK was pressed
-        if result:
-            logger.info("Simulation dialog closed")
-
-            self.last_geotiff_path = getattr(self.dlg, "geotiff_path", None)
-
-            if self.last_geotiff_path:
-                self.iface.messageBar().pushMessage(
-                        "InfraredCity",
-                        f"Simulation result saved to geotiff: {self.last_geotiff_path}",
-                        level=Qgis.Info,
-                        duration=5
-                    )
-
-            pass

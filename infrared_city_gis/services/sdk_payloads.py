@@ -154,6 +154,24 @@ def _subtype_from_tcs(tcs: ThermalComfortStatisticsType) -> TcsSubtype:
     return TcsSubtype(tcs.value)
 
 
+def _weather_data(dlg, analysis_type, weather_file: str, query_type, tf) -> dict:
+    """Return the weather-array dict for a thermal/wind analysis.
+
+    If the dialog has a custom EPW uploaded for this analysis type
+    (``dlg._epw_paths[analysis_type]``), parse it locally with the SAME time
+    frame the endpoint uses; otherwise query the infrared.city weather file.
+    Both produce the same camelCase keys, so callers are agnostic to source.
+    """
+    epw_path = getattr(dlg, "_epw_paths", {}).get(analysis_type)
+    if epw_path:
+        from .epw_parser import parse as parse_epw
+        logger.info("Using uploaded EPW for %s: %s", analysis_type, epw_path)
+        return parse_epw(epw_path, tf)
+    return query_infrared_epw(
+        file_name=weather_file, type=query_type, time_frame=tf, api_key=dlg.api_key,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -192,13 +210,15 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
         season = dlg.season_dropdown_pwc.currentData()
         hours = dlg.hours_dropdown_pwc.currentData()
         weather_file = dlg.weather_file_input_pwc.currentText().strip()
-        if not (pwc_type and season and hours and weather_file):
-            QMessageBox.warning(dlg, "Missing Input", "Please fill in all PWC fields.")
+        epw_path = getattr(dlg, "_epw_paths", {}).get(at)
+        if not (pwc_type and season and hours and (weather_file or epw_path)):
+            QMessageBox.warning(
+                dlg, "Missing Input",
+                "Please fill in all PWC fields (pick a weather file or upload an EPW).",
+            )
             return None
         tf = makeTimeFrameObj(isNorthHem=True, season=season.value, hourly=hours.value)
-        wind_data = query_infrared_epw(
-            file_name=weather_file, type=Query_Type.WIND, time_frame=tf, api_key=dlg.api_key,
-        )
+        wind_data = _weather_data(dlg, at, weather_file, Query_Type.WIND, tf)
         dlg.sub_analysis_type = pwc_type
         return PwcModelRequest(
             analysis_type=AnalysesName.pedestrian_wind_comfort,
@@ -230,13 +250,12 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
         month = dlg.month_dropdown_sr.currentData().number
         hours = dlg.hours_dropdown_sr.currentData()
         weather_file = dlg.weather_file_input_sr.currentText().strip()
-        if not weather_file:
-            QMessageBox.warning(dlg, "Missing Input", "Weather file is required.")
+        epw_path = getattr(dlg, "_epw_paths", {}).get(at)
+        if not (weather_file or epw_path):
+            QMessageBox.warning(dlg, "Missing Input", "Weather file or uploaded EPW is required.")
             return None
         tf = makeTimeFrameObjWithMonth(month=month, hourly=hours.value)
-        wd = query_infrared_epw(
-            file_name=weather_file, type=Query_Type.UTCI, time_frame=tf, api_key=dlg.api_key,
-        )
+        wd = _weather_data(dlg, at, weather_file, Query_Type.UTCI, tf)
         lon, lat = get_center_lon_lat_from_bbox(dlg.bbox, dlg.crs)
         return SolarRadiationModelRequest(
             analysis_type=AnalysesName.solar_radiation,
@@ -250,13 +269,12 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
         month = dlg.month_dropdown_tci.currentData().number
         hours = dlg.hours_dropdown_tci.currentData()
         weather_file = dlg.weather_file_input_tci.currentText().strip()
-        if not weather_file:
-            QMessageBox.warning(dlg, "Missing Input", "Weather file is required.")
+        epw_path = getattr(dlg, "_epw_paths", {}).get(at)
+        if not (weather_file or epw_path):
+            QMessageBox.warning(dlg, "Missing Input", "Weather file or uploaded EPW is required.")
             return None
         tf = makeTimeFrameObjWithMonth(month=month, hourly=hours.value)
-        wd = query_infrared_epw(
-            file_name=weather_file, type=Query_Type.UTCI, time_frame=tf, api_key=dlg.api_key,
-        )
+        wd = _weather_data(dlg, at, weather_file, Query_Type.UTCI, tf)
         lon, lat = get_center_lon_lat_from_bbox(dlg.bbox, dlg.crs)
         if dlg.legend_min_enable_tci.isChecked():
             dlg.min_legend_value = dlg.legend_min_input_tci.value()
@@ -280,15 +298,17 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
         hours = dlg.hours_dropdown_tcs.currentData()
         tcs_type = dlg.tcs_type_dropdown.currentData()
         weather_file = dlg.weather_file_input_tcs.currentText().strip()
-        if not (season and hours and tcs_type and weather_file):
-            QMessageBox.warning(dlg, "Missing Input", "Please fill in all TCS fields.")
+        epw_path = getattr(dlg, "_epw_paths", {}).get(at)
+        if not (season and hours and tcs_type and (weather_file or epw_path)):
+            QMessageBox.warning(
+                dlg, "Missing Input",
+                "Please fill in all TCS fields (pick a weather file or upload an EPW).",
+            )
             return None
         tf = makeTimeFrameObj(
             isNorthHem=True, season=season.value, hourly=hours.value, analysis_type=at,
         )
-        wd = query_infrared_epw(
-            file_name=weather_file, type=Query_Type.UTCI, time_frame=tf, api_key=dlg.api_key,
-        )
+        wd = _weather_data(dlg, at, weather_file, Query_Type.UTCI, tf)
         lon, lat = get_center_lon_lat_from_bbox(dlg.bbox, dlg.crs)
         dlg.sub_analysis_type = tcs_type
         return TcsModelRequest(

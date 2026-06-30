@@ -168,6 +168,27 @@ def _prepare_run(dlg) -> "Optional[Any]":
     return payload
 
 
+def clear_layer_selections() -> None:
+    """Remove feature-selection highlights from all vector layers.
+
+    Called after a result renders so the picked single tile / selected area
+    buildings stop being highlighted on the canvas — the result raster is the
+    thing to look at now.
+    """
+    try:
+        from qgis.core import QgsProject, QgsVectorLayer
+        cleared = 0
+        for lyr in QgsProject.instance().mapLayers().values():
+            if isinstance(lyr, QgsVectorLayer) and lyr.selectedFeatureCount() > 0:
+                lyr.removeSelection()
+                cleared += 1
+        if cleared and iface is not None:
+            iface.mapCanvas().refresh()
+        logger.info("Cleared feature selection on %d layer(s) after render", cleared)
+    except Exception as e:
+        logger.debug("clear_layer_selections failed: %s", e)
+
+
 def render_area_result(
     render_state: AreaRenderState, polygon: dict, area, result,
 ) -> None:
@@ -258,6 +279,8 @@ def render_area_result(
         max_legend_value=leg_max,
         tile_id=None,
     )
+    # Drop the selection highlight now the result raster is on the canvas.
+    clear_layer_selections()
     if iface is not None:
         iface.mapCanvas().refresh()
     QApplication.processEvents()
