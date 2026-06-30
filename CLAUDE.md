@@ -36,7 +36,11 @@ The plugin **must** ship as a single folder (`infrared_city_gis/`) zipped at the
 
 ```bash
 # Build a plugin ZIP locally (mirrors what CI does on tag push)
-zip -r infrared-city-qgis.zip infrared_city_gis/ -x "*__pycache__*" "*.pyc"
+# Excludes caches, hidden files, and the dev-only tests/ dir so the package
+# stays clean for plugins.qgis.org (no hidden-file warnings).
+zip -r infrared-city-qgis.zip infrared_city_gis/ \
+  -x "*__pycache__*" "*.pyc" "*.pyo" "*.DS_Store" "*/.*" \
+     "infrared_city_gis/tests/*" "infrared_city_gis/test/*"
 
 # Lint
 pylint --rcfile=infrared_city_gis/pylintrc infrared_city_gis/
