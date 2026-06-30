@@ -202,7 +202,7 @@ class InfraredCityGIS:
 
         self.add_action(
             fetch_geometry_icon_path,
-            text=self.tr(u'Fetch geometry from OSM'),
+            text=self.tr(u'Fetch building geometry'),
             callback=self.fetch_geometry,
             parent=self.iface.mainWindow())
 
@@ -319,15 +319,13 @@ class InfraredCityGIS:
         # See if OK was pressed
         if result:  # OK was pressed
             self.last_geojson_path = getattr(self.dlg, "geojson_path", None)
-            self.last_dotbim_path = getattr(self.dlg, "dotbim_path", None)
             self.bbox = getattr(self.dlg, "bbox", None)
             self.crs = "EPSG:4326"
 
-            if self.last_geojson_path and self.bbox and self.last_dotbim_path:
+            if self.last_geojson_path and self.bbox:
                 self.iface.messageBar().pushMessage(
                     "InfraredCity",
-                    f"Fetched geometry saved to: {self.last_geojson_path} \n "
-                    f"and .bim to {self.last_dotbim_path} \n"
+                    f"Fetched geometry saved to: {self.last_geojson_path} \n"
                     f"with bbox: {self.bbox}",
                     level=Qgis.Info,
                     duration=5

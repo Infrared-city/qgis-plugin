@@ -4,7 +4,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
 
 ## Features
 
-- Fetch building geometry from OpenStreetMap for any location
+- Fetch building geometry (1 km × 1 km) with the help of Infrared City platform for any location
 - Run climate simulations:
   - Wind Speed
   - Pedestrian Wind Comfort (PWC)
@@ -35,7 +35,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
 1. Open the plugin from the QGIS toolbar or **Plugins** menu
 2. Enter your Infrared City API key (saved locally for future sessions)
 3. Select an area of interest on the map
-4. Fetch building geometry from OpenStreetMap
+4. Fetch building geometry (a 1 km × 1 km area around the entered coordinates)
 5. Choose a simulation type and configure the parameters
 6. Run the simulation — results appear as a raster layer in QGIS
 

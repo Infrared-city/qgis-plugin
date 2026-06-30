@@ -12,6 +12,10 @@ RUN_ANALYSIS_ENDPOINT = f"{INFRARED_API_V2_URL}/run-analysis"
 # Fetch
 FETCH_GROUND_MATERIAL_URL = f"{INFRARED_API_V2_URL}/utils/ground-material/collect"
 FETCH_WEATHER_FILES_URL = f"{INFRARED_API_V2_URL}/utils/weather/location"
+# Building geometry (core-geometries-service, Mapbox-backed). NOTE: NOT under
+# /utils — it is mounted directly at /v2/buildings (same endpoint the SDK's
+# client.buildings.get_area uses).
+FETCH_BUILDINGS_URL = f"{INFRARED_API_V2_URL}/buildings"
 FETCH_FROM_REGISTRY_URL = INFRARED_API_V2_URL
 
 

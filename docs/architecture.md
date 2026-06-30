@@ -1,9 +1,9 @@
 # Architecture
-_Last updated: 2026-05-07_
+_Last updated: 2026-06-30_
 
 ## Overview
 
-QGIS plugin that exposes the Infrared City simulation platform inside QGIS. Users authenticate, define an area of interest, fetch building geometry from OpenStreetMap, run a microclimate simulation, and visualize the result raster — all from QGIS dialogs.
+QGIS plugin that exposes the Infrared City simulation platform inside QGIS. Users authenticate, define an area of interest, fetch building geometry from the Infrared City buildings API, run a microclimate simulation, and visualize the result raster — all from QGIS dialogs.
 
 ## Structure
 
@@ -13,8 +13,7 @@ infrared_city_gis/
 ├── infrared_city_save_auth.{py,ui}
 ├── infrared_city_fetch_geometry_dialog.{py,ui}
 ├── infrared_city_select_bbox_dialog.{py,ui}
-├── infrared_city_run_simulation_dialog.{py,ui}
-├── infrared_city_run_multiple_simulation_dialog.{py,ui}
+├── infrared_city_run_multiple_simulation_dialog.{py,ui}  # "Run simulation" (single-tile + area)
 ├── infrared_city_tree_catalog_dialog.{py,ui}
 ├── infrared_city_dialog_base.ui  # Shared dialog base
 ├── client.py                # HTTP wrapper around infrared-sdk
@@ -22,7 +21,7 @@ infrared_city_gis/
 ├── exceptions.py            # Domain exceptions
 ├── infrared_logger.py       # structlog setup
 ├── services/                # API + I/O helpers
-│   ├── fetch.py             # OSM building fetch
+│   ├── fetch.py             # Building fetch (Infrared City /v2/buildings)
 │   ├── area_poller.py       # Long-poll job status
 │   ├── converter.py         # Geometry conversion
 │   ├── feature_height.py    # Building height heuristics
@@ -44,24 +43,23 @@ infrared_city_gis/
 |---|---|
 | `infrared_city_gis.py` | QGIS plugin lifecycle — registers menu/toolbar entries, opens dialogs |
 | `client.py` | Thin HTTP wrapper. Reads API key from auth-dialog-saved credentials |
-| `services/fetch.py` | Pulls building footprints from OSM (Overpass / Infrared OSM proxy) |
+| `services/fetch.py` | Pulls building footprints from the Infrared City buildings API (`POST /v2/buildings`, GeoJson), single request with a 512 m-tile fallback |
 | `services/area_poller.py` | Polls long-running simulation job status until done |
 | `models/analysis.py` | Request/response shapes for each simulation type |
 | `visualization/` | Converts raw simulation arrays → QGIS-styled raster layers |
 
 ## External Dependencies
 
-- **Infrared City API** (`api.infrared.city/v2`) — simulation backend (subscription required)
-- **OpenStreetMap** — building geometry source (via Overpass or proxy)
+- **Infrared City API** (`api.infrared.city/v2`) — simulation backend and building geometry source (`/v2/buildings`, Mapbox-backed core-geometries-service; subscription required)
 - **QGIS / PyQGIS** — host application
-- **`infrared-sdk`** (≥0.4.2) — Python SDK; pinned in `requirements.txt`
+- **`infrared-sdk`** (≥0.4.10) — Python SDK; pinned in `requirements.txt`
 - **shapely**, **pyproj**, **mapbox_earcut**, **numpy**, **structlog**, **requests**
 
 ## Data Flow
 
 ```
 User → Auth Dialog → API key stored in QGIS settings
-     → Select bbox → Fetch buildings (OSM)
+     → Select bbox → Fetch buildings (POST /v2/buildings, GeoJson)
      → Configure simulation → POST /api/run-analysis → poll job status
      → Download result → render as raster layer
 
@@ -99,9 +97,9 @@ Name your height attribute using any of the recognized field names above and the
 
 If your attribute has a non-standard name, the code supports an `override_field` parameter internally — a future UI release will expose this as a dropdown in the simulation dialog.
 
-### OSM Overpass path
+### Fetch Geometry dialog path
 
-When buildings are fetched directly from OpenStreetMap (via the Fetch Geometry dialog), height is extracted from OSM tags using the same tier priority and the same type-hint table. Unit strings like `"10 m"` and `"33 ft"` are parsed and converted automatically.
+The **Fetch building geometry** dialog (`services/fetch.py:fetch_geometry_from_infrared`) pulls footprints from the Infrared City buildings API (`POST /v2/buildings`, `outputFormat=GeoJson`) over a fixed **1 km × 1 km** area (1024 m) centred on the entered coordinates, writes a `FeatureCollection`, and loads it as a layer. Heights come from the API response, not from local tag parsing. It tries one request for the whole area first; if that returns nothing it falls back to fetching 512 m tiles (a 2×2 grid for 1024 m) and merging + de-duplicating them, and surfaces a clear error if both paths fail. The tier table above applies to the **separate** path where you run a simulation from your own QGIS buildings layer (`collect_qgis_area_buildings` + `feature_height.py`).
 
 ## Why This Shape
 

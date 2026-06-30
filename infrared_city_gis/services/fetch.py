@@ -1,54 +1,25 @@
 import json
+import math
 import os
-import time
 from datetime import datetime
 
 from qgis.core import QgsApplication
 
-from ..constants import FETCH_GROUND_MATERIAL_URL, FETCH_WEATHER_FILES_URL
+from ..constants import (
+    FETCH_BUILDINGS_URL,
+    FETCH_GROUND_MATERIAL_URL,
+    FETCH_HTTP_TIMEOUT,
+    FETCH_WEATHER_FILES_URL,
+)
 from ..exceptions import InfraredAPIError
 from ..infrared_logger import logger
 from . import qgis_http as requests
-from .feature_height import DEFAULT_FLOOR_HEIGHT_M, OSM_BUILDING_HEIGHT_HINTS
-from .geojson2dotbim import process_geojson_file
 from .geometry import get_bbox
 
-
-def extract_height_from_tags(tags: dict) -> float:
-    """Extract building height in metres from a raw OSM tag dict.
-
-    Mirrors the tier priority of ``feature_height.resolve_feature_height_with_source``
-    but operates on plain string tag dicts (Overpass API responses) rather than
-    QgsFeature objects. Unit strings like "10 m" and "33 ft" are parsed and
-    converted. Shared constants (floor height, building-type hints) are imported
-    from ``feature_height`` so both code paths stay in sync.
-    """
-    for tag in ("height", "building:height"):
-        raw = tags.get(tag)
-        if not raw:
-            continue
-        try:
-            s = str(raw).strip()
-            if "ft" in s or "'" in s:
-                height = float(s.replace("ft", "").replace("'", "").strip()) * 0.3048
-            else:
-                height = float(s.replace("m", "").strip())
-            if height > 0:
-                return max(height, 0.5)
-        except (ValueError, TypeError):
-            continue
-
-    raw_levels = tags.get("building:levels")
-    if raw_levels:
-        try:
-            levels = float(raw_levels)
-            if levels > 0:
-                return max(levels * DEFAULT_FLOOR_HEIGHT_M, 1.0)
-        except (ValueError, TypeError):
-            pass
-
-    building_type = str(tags.get("building", "")).strip().lower()
-    return OSM_BUILDING_HEIGHT_HINTS.get(building_type, DEFAULT_FLOOR_HEIGHT_M)
+# Tile size (m) for the buildings fetch fallback. Matches the single-tile
+# selection size and the SDK's per-tile request size, so a 1024 m area splits
+# cleanly into a 2x2 grid.
+_TILE_SIZE_M = 512.0
 
 
 def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str):
@@ -171,133 +142,204 @@ def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str
         raise InfraredAPIError(status_code=status, server_message=parsed_message) from e
 
 
-def fetch_geometry_from_osm(lon: float, lat: float, bbox_size_m: float, retries: int = 3, delay: int = 3, tile_id: int = 0) -> str:
-    logger.info(f"Fetching geometry with lon: {lon}, lat: {lat}, bbox_size_m: {bbox_size_m}")
+def fetch_geometry_from_infrared(lon: float, lat: float, size_m: float, api_key: str):
+    """Fetch building footprints around (lon, lat) from infrared.city as GeoJSON.
 
-    overpass_url = "https://overpass-api.de/api/interpreter"
+    Replaces the old OSM/Overpass fetch. Calls ``POST /v2/buildings``
+    (core-geometries-service, Mapbox-backed) with ``outputFormat=GeoJson`` over a
+    ``size_m`` x ``size_m`` area centred on the point, writes the resulting
+    FeatureCollection to the plugin data dir, and returns ``(geojson_path, bbox)``.
 
-    plugin_data_dir = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
-    os.makedirs(plugin_data_dir, exist_ok=True)
+    Strategy: try ONE request for the whole area first; if that fails (the server
+    can cap the request size, or a dense area can exceed the gateway response
+    limit) fall back to fetching ``_TILE_SIZE_M`` tiles and merging them. If both
+    fail, log the failure and return ``(None, None)`` so the caller can surface a
+    message.
 
-    date_now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-
-    geojson_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{date_now}.geojson")
-    dotbim_path = os.path.join(plugin_data_dir, f"infrared_city_buildings_{date_now}.bim")
-
-    bbox = get_bbox(lon, lat, bbox_size_m)
-    logger.info(f"BBox: {bbox}")
-
-    bbox_request = {
-        "south": bbox[1],
-        "west": bbox[0],
-        "north": bbox[3],
-        "east": bbox[2],
-    }
-
-    logger.info(f"BBox : {bbox_request}")
-
-    query = f"""
-    [out:json];
-    (
-        way["building"]({bbox_request['south']},{bbox_request['west']},{bbox_request['north']},{bbox_request['east']});
-    );
-    out geom;
+    Requires a subscription API key. ``bbox`` is ``[west, south, east, north]``
+    in WGS84, matching ``get_bbox``.
     """
+    logger.info(
+        "Fetching geometry from infrared.city: lon=%s lat=%s size_m=%s", lon, lat, size_m
+    )
 
-    # --- Overpass API query ---
-    data = None
-    for i in range(retries):
-        try:
-            logger.info(f"Overpass query attempt {i + 1}/{retries}...")
-            response = requests.post(overpass_url, data={'data': query}, timeout=20)
+    if not api_key:
+        logger.error("No API key configured — cannot fetch geometry from infrared.city")
+        return None, None
 
-            if response.status_code != 200 or not response.text.strip():
-                logger.info(f"HTTP {response.status_code}, retrying...")
-                time.sleep(delay)
-                continue
+    bbox = get_bbox(lon, lat, size_m)
 
-            try:
-                logger.info("Response received, parsing JSON...")
-                data = response.json()
-                break
-            except ValueError:
-                logger.info("Invalid JSON response, retrying...")
-                time.sleep(delay)
+    # 1. Single request for the whole area (happy path).
+    features = _fetch_buildings_request(lat, lon, size_m, size_m, api_key)
 
-        except requests.exceptions.Timeout:
-            logger.error(f"Timeout, retrying in {delay}s...")
-            time.sleep(delay)
-        except requests.exceptions.RequestException as e:
-            logger.info(f"Request error: {e}")
-            status = e.response.status_code if e.response is not None else None
-            body_text = e.response.text if e.response is not None else ""
-            logger.error(f"Status: {status}")
-            logger.error(f"Body: {body_text}")
-            time.sleep(delay)
+    # 2. Fallback: tile the area into _TILE_SIZE_M cells and merge.
+    if not features:
+        logger.warning(
+            "Single-request buildings fetch returned nothing; falling back to "
+            "%dm tiling for the %dx%d m area.",
+            int(_TILE_SIZE_M), int(size_m), int(size_m),
+        )
+        features = _fetch_buildings_tiled(bbox, size_m, api_key)
 
-    if not data:
-        logger.error("Failed to fetch valid data from Overpass API.")
-        return None, None, None
+    # 3. Hard failure — neither path produced buildings.
+    if not features:
+        logger.error(
+            "Buildings fetch FAILED for lon=%s lat=%s size_m=%s — both the single "
+            "request and the tiled fallback returned no features.",
+            lon, lat, size_m,
+        )
+        return None, None
 
-    logger.info(f"Fetched {len(data.get('elements', []))} elements")
+    plugin_data_dir = os.path.join(
+        QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data"
+    )
+    os.makedirs(plugin_data_dir, exist_ok=True)
+    date_now = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    geojson_path = os.path.join(
+        plugin_data_dir, f"infrared_city_buildings_{date_now}.geojson"
+    )
 
-    # --- GeoJSON creation ---
-    features = []
-
-    elements = data.get("elements", [])
-
-    if not elements:
-        logger.warning("No elements found in response please try with different lon, lat values.")
-        return None, None, None
-
-    for elem in elements:
-        if elem.get("type") == "way" and "geometry" in elem:
-            coords = [(p["lon"], p["lat"]) for p in elem["geometry"]]
-            # Close the polygon if not already closed
-            if coords[0] != coords[-1]:
-                coords.append(coords[0])
-
-            height = extract_height_from_tags(elem.get('tags', {}))
-
-            feature = {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates": [coords]
-                },
-                "properties": {
-                    "id": elem.get("id"),
-                    "building_height": height,
-                    **(elem.get("tags", {}) or {})
-                }
-            }
-            features.append(feature)
-
-    geojson = {
-        "type": "FeatureCollection",
-        "features": features
-    }
-
-    logger.info("GeoJSON created")
-
-    # Save to disk
+    geojson = {"type": "FeatureCollection", "features": features}
     with open(geojson_path, "w", encoding="utf-8") as f:
         json.dump(geojson, f, ensure_ascii=False, indent=2)
+    logger.info("Saved %d building features to %s", len(features), geojson_path)
 
-    logger.info(f"GeoJSON saved to {geojson_path}")
+    return geojson_path, bbox
 
-    logger.info("Converting GeoJSON to DotBIM...")
+
+def _fetch_buildings_request(lat, lon, size_x, size_y, api_key):
+    """One ``POST /v2/buildings`` GeoJson request.
+
+    Returns the list of GeoJSON Features on success (possibly empty), or
+    ``None`` on an HTTP/parse/API error so the caller can distinguish "no
+    buildings here" from "the request failed".
+    """
+    payload = {
+        "coordinates": {"latitude": lat, "longitude": lon},
+        "size": {"x": size_x, "y": size_y},
+        "outputFormat": "GeoJson",
+        "returnBuildingIds": False,
+        "compress": False,
+    }
+    headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+
+    logger.info("POST %s (size=%sx%s m)", FETCH_BUILDINGS_URL, size_x, size_y)
     try:
-        dotbim_data = process_geojson_file(geojson, lon, lat, "EPSG:4326")
-    except Exception as e:
-        logger.error(f"Failed to convert GeoJSON to DotBIM: {e}")
-        return None, None, None
+        response = requests.post(
+            FETCH_BUILDINGS_URL, json=payload, headers=headers, timeout=FETCH_HTTP_TIMEOUT
+        )
+        response.raise_for_status()
+    except requests.RequestException as e:
+        status = e.response.status_code if e.response is not None else None
+        body_text = e.response.text if e.response is not None else ""
+        logger.error("Buildings request failed (status=%s): %s", status, body_text or e)
+        return None
 
-    logger.info("DotBIM created")
+    try:
+        body = response.json()
+    except ValueError:
+        logger.error("Buildings response was not valid JSON")
+        return None
 
-    with open(dotbim_path, "w", encoding="utf-8") as f:
-        json.dump(dotbim_data, f, ensure_ascii=False, indent=2)
+    if isinstance(body, dict) and body.get("success") is False:
+        logger.error("Buildings API returned an error: %s", body.get("error"))
+        return None
 
-    logger.info(f"DotBIM saved to {dotbim_path}")
+    return _buildings_to_features(body)
 
-    return geojson_path, dotbim_path, bbox
+
+def _fetch_buildings_tiled(bbox, size_m, api_key) -> list:
+    """Fallback: split the area into ``_TILE_SIZE_M`` tiles, fetch each, merge.
+
+    Splits the ``bbox`` into an ``n x n`` grid (``n = ceil(size_m/_TILE_SIZE_M)``)
+    and requests one ``_TILE_SIZE_M`` tile per cell centre. Per-tile failures are
+    logged but don't abort the others — partial coverage beats nothing. Buildings
+    that straddle a tile boundary are de-duplicated.
+    """
+    west, south, east, north = bbox[0], bbox[1], bbox[2], bbox[3]
+    n_side = max(1, math.ceil(size_m / _TILE_SIZE_M))
+    dlon = (east - west) / n_side
+    dlat = (north - south) / n_side
+
+    all_features: list = []
+    failed = 0
+    total = n_side * n_side
+    for i in range(n_side):
+        for j in range(n_side):
+            tile_lon = west + (i + 0.5) * dlon
+            tile_lat = south + (j + 0.5) * dlat
+            feats = _fetch_buildings_request(
+                tile_lat, tile_lon, _TILE_SIZE_M, _TILE_SIZE_M, api_key
+            )
+            if feats is None:
+                failed += 1
+                logger.warning(
+                    "Tiled fallback: tile (%d,%d) at lon=%.6f lat=%.6f FAILED",
+                    i, j, tile_lon, tile_lat,
+                )
+                continue
+            all_features.extend(feats)
+
+    if failed:
+        logger.error("Tiled fallback: %d/%d tiles failed", failed, total)
+    else:
+        logger.info("Tiled fallback: all %d tiles fetched", total)
+
+    return _dedup_features(all_features)
+
+
+def _dedup_features(features: list) -> list:
+    """Drop duplicate building features (adjacent tiles overlap at boundaries).
+
+    Keys on the feature ``id`` (or ``properties.id``) when present, else on the
+    serialised geometry as a stable fallback.
+    """
+    seen: set = set()
+    unique: list = []
+    for feat in features:
+        if not isinstance(feat, dict):
+            continue
+        fid = feat.get("id")
+        if fid is None and isinstance(feat.get("properties"), dict):
+            fid = feat["properties"].get("id")
+        key = str(fid) if fid is not None else json.dumps(
+            feat.get("geometry"), sort_keys=True
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(feat)
+    return unique
+
+
+def _buildings_to_features(body) -> list:
+    """Flatten the /v2/buildings GeoJson payload into a list of GeoJSON Features.
+
+    The endpoint returns ``data.buildings`` as a mapping ``{key: [Feature, ...]}``
+    (one entry per building / group). We defensively also accept a plain
+    FeatureCollection or a bare list so a future response-shape tweak doesn't
+    silently drop everything.
+    """
+    data = body.get("data", body) if isinstance(body, dict) else body
+    buildings = data.get("buildings", data) if isinstance(data, dict) else data
+
+    features: list = []
+
+    def _add(obj):
+        if isinstance(obj, dict) and obj.get("type") == "Feature":
+            features.append(obj)
+        elif isinstance(obj, dict) and obj.get("type") == "FeatureCollection":
+            features.extend(obj.get("features", []))
+        elif isinstance(obj, list):
+            for item in obj:
+                _add(item)
+
+    if isinstance(buildings, dict) and buildings.get("type") in ("Feature", "FeatureCollection"):
+        _add(buildings)
+    elif isinstance(buildings, dict):
+        for value in buildings.values():
+            _add(value)
+    else:
+        _add(buildings)
+
+    return features

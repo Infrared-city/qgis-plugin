@@ -2,13 +2,13 @@
 
 QGIS plugin that connects to the [Infrared City](https://infrared.city) simulation platform for urban climate analysis.
 
-Fetch building geometry from OpenStreetMap, run microclimate simulations, and visualize results as raster layers — all without leaving QGIS.
+Fetch building geometry with the help of Infrared City platform, run microclimate simulations, and visualize results as raster layers — all without leaving QGIS.
 
 **An Infrared City subscription is required to run simulations.** [Get access →](https://infrared.city)
 
 ## Features
 
-- Fetch building geometry from OpenStreetMap
+- Fetch building geometry for a 1 km × 1 km area with the help of Infrared City platform
 - Run climate simulations: wind speed, pedestrian wind comfort (PWC), thermal comfort (UTCI/TCS), solar radiation, daylight availability, direct sun hours, sky view factors, shadow mask
 - Tree catalog integration for vegetation analysis
 - Results visualized as raster layers in QGIS
@@ -31,7 +31,7 @@ Fetch building geometry from OpenStreetMap, run microclimate simulations, and vi
 1. Open the plugin from the QGIS toolbar or **Plugins** menu
 2. Enter your Infrared City API key (stored locally)
 3. Select an area of interest on the map
-4. Fetch building geometry from OpenStreetMap
+4. Fetch building geometry (a 1 km × 1 km area around the entered coordinates)
 5. Choose a simulation type and configure parameters
 6. Run — results appear as a raster layer
 

@@ -7,7 +7,7 @@ analyses directly inside QGIS.
 
 Features
 --------
-- Fetch building geometry from OpenStreetMap
+- Fetch building geometry (1 km x 1 km) with the help of Infrared City platform
 - Run microclimate simulations: wind speed, pedestrian wind comfort,
   thermal comfort (UTCI/TCS), solar radiation, daylight availability,
   direct sun hours, sky view factors

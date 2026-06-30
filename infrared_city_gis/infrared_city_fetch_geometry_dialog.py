@@ -28,7 +28,8 @@ from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtWidgets import QMessageBox
 
 from .infrared_logger import logger
-from .services.fetch import fetch_geometry_from_osm
+from .services.fetch import fetch_geometry_from_infrared
+from .services.secret_manager import get_api_key
 from .visualization.display import display_geojson
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
@@ -51,7 +52,6 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         """Run fetch when OK is pressed."""
         longitude = self.longitude_input.text().strip()
         latitude = self.latitude_input.text().strip()
-        bbox_val = float(self.bbox_input.value())
 
         # --- Validation ---
         if not longitude or not latitude:
@@ -64,29 +64,51 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
             lat = float(latitude)
         except ValueError:
             logger.error("Invalid input")
-            QMessageBox.warning(self, "Invalid Input", "Coordinates and bbox must be numbers.")
+            QMessageBox.warning(self, "Invalid Input", "Coordinates must be numbers.")
             return
 
-        # --- Fetch ---
-        try:
-            geojson_path, dotbim_path, bbox = fetch_geometry_from_osm(lon, lat, bbox_val)
-            # TODO: apply ground material fetching
+        api_key = get_api_key()
+        if not api_key:
+            QMessageBox.warning(
+                self, "No API Key",
+                "Fetching building geometry requires an Infrared City API key.\n"
+                "Please save your API key first (Save API Key).",
+            )
+            return
 
-            if not geojson_path or not dotbim_path or not bbox:
-                logger.error("Failed to fetch geometry")
-                QMessageBox.warning(self, "Invalid Input", "Invalid coordinates, please use different lon,lat coords.")
+        # Area size in metres comes from the (disabled) spinbox — fixed at the
+        # 1 km × 1 km default (1024 m) the .ui ships with.
+        size_m = float(self.bbox_input.value())
+
+        # --- Fetch a 1 km × 1 km area of building footprints as GeoJSON ---
+        try:
+            geojson_path, bbox = fetch_geometry_from_infrared(lon, lat, size_m, api_key)
+
+            if not geojson_path or not bbox:
+                logger.error(
+                    "Geometry fetch FAILED for lon=%s lat=%s (single request + "
+                    "tiled fallback both returned nothing)", lon, lat,
+                )
+                QMessageBox.critical(
+                    self, "Fetch Failed",
+                    "Failed to fetch building geometry for this location.\n\n"
+                    "Both the single request and the tiled fallback returned no "
+                    "buildings. Check your API key/subscription and network, or "
+                    "try different coordinates.\n\nSee the plugin log for details.",
+                )
                 return
 
             self.geojson_path = geojson_path
-            self.dotbim_path = dotbim_path
             self.bbox = bbox
 
             display_geojson(geojson_path)
-            # TODO: adjust ground materil displya
-            # display_ground_materials(ground_materials)
 
         except Exception as e:
             logger.error(f"Failed to fetch geometry: {e}")
+            QMessageBox.critical(
+                self, "Fetch Error",
+                f"Failed to fetch geometry.\n\n{e}\n\nSee the plugin log for details.",
+            )
             return
 
         super().accept()
