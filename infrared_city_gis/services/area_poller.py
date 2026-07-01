@@ -194,6 +194,17 @@ class AreaPoller(QObject):
             return
 
         n_jobs = len(self._schedule.jobs) if self._schedule is not None else 0
+        if n_jobs == 0:
+            # Submission scheduled 0 jobs — e.g. the selected area contained
+            # no buildings / no valid tiles. There is nothing to poll for, so
+            # fail fast with a clear message instead of spinning the timer
+            # until area_timeout_s elapses.
+            self._fail(
+                "submission scheduled 0 jobs — nothing to run "
+                "(check that the selected area contains buildings)",
+                exc=None,
+            )
+            return
         logger.info(
             "AreaPoller: submitted, %d jobs scheduled, polling every %d ms "
             "(timeout=%ds)",

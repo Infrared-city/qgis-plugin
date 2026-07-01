@@ -52,7 +52,7 @@
       <item row="2" column="0">
        <widget class="QLabel" name="label_bbox">
         <property name="text">
-         <string>Bbox (m):</string>
+         <string>Area size (1 km × 1 km):</string>
         </property>
        </widget>
       </item>
@@ -71,7 +71,7 @@
          <number>16</number>
         </property>
         <property name="value">
-         <number>512</number>
+         <number>1024</number>
         </property>
        </widget>
       </item>

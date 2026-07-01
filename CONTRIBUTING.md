@@ -44,7 +44,7 @@ The plugin is QGIS-runtime-only — there's no headless test harness yet. Manual
 
 - Plugin loads (no exceptions in QGIS Python console)
 - Auth dialog accepts a valid API key
-- Fetch geometry pulls buildings for a known area (e.g. Hamburg city center)
+- Fetch geometry pulls buildings (1 km × 1 km) for a known area (e.g. Hamburg city center)
 - Run a simulation end-to-end (try **wind speed** as the smoke test)
 - Result raster appears as a layer with a sensible style
 

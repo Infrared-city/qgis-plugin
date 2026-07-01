@@ -36,7 +36,11 @@ The plugin **must** ship as a single folder (`infrared_city_gis/`) zipped at the
 
 ```bash
 # Build a plugin ZIP locally (mirrors what CI does on tag push)
-zip -r infrared-city-qgis.zip infrared_city_gis/ -x "*__pycache__*" "*.pyc"
+# Excludes caches, hidden files, and the dev-only tests/ dir so the package
+# stays clean for plugins.qgis.org (no hidden-file warnings).
+zip -r infrared-city-qgis.zip infrared_city_gis/ \
+  -x "*__pycache__*" "*.pyc" "*.pyo" "*.DS_Store" "*/.*" \
+     "infrared_city_gis/tests/*" "infrared_city_gis/test/*"
 
 # Lint
 pylint --rcfile=infrared_city_gis/pylintrc infrared_city_gis/
@@ -59,11 +63,14 @@ CI builds the ZIP and creates a GitHub Release. Upload to `plugins.qgis.org` is 
 
 See [`docs/deployment.md`](docs/deployment.md) for full deploy details.
 
-## Architecture & Decisions
+## Doc Map
 
+- [`README.md`](README.md) — user-facing overview, install, and usage.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contributing guide (canonical filename; there is no `CONTRIBUTION.md`).
 - [`docs/architecture.md`](docs/architecture.md) — component overview, dialog flow, API contract.
 - [`docs/battle-scars.md`](docs/battle-scars.md) — non-obvious gotchas and workarounds (PyQGIS, pb_tool, plugin distribution).
 - [`docs/deployment.md`](docs/deployment.md) — how to cut a release, plugins.qgis.org review process.
+- [`docs/release-process.md`](docs/release-process.md) — Release Please flow (staging → main → tag).
 
 ## License & Distribution
 

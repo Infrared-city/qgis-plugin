@@ -1,3 +1,4 @@
+import hashlib
 import os
 import shutil
 import subprocess
@@ -7,13 +8,112 @@ from typing import List, Optional
 
 # Paths relative to this file (utils/)
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
-THIRDPARTY = PLUGIN_DIR / "thirdparty"
-MARKER = PLUGIN_DIR / ".deps_ok"
+
+# Legacy install location: deps used to live *inside* the plugin folder. That
+# breaks plugin uninstall — QGIS deletes the whole plugin directory, but the
+# loaded numpy/mapbox_earcut native extensions (.pyd/.dll) are locked by the
+# running process on Windows, so the folder can't be removed and the uninstall
+# fails. We now install outside the plugin dir (see _deps_dir) and best-effort
+# remove this stale folder on load.
+_LEGACY_THIRDPARTY = PLUGIN_DIR / "thirdparty"
+_LEGACY_MARKER = PLUGIN_DIR / ".deps_ok"
 
 # Re-entry guard. Set in the env when we spawn a pip subprocess so that if the
 # child process happens to be a QGIS-style binary that re-loads the plugin, the
 # nested ensure_deps() call returns immediately instead of recursing.
 _REENTRY_ENV = "INFRARED_BOOTSTRAP_RUNNING"
+
+# Cached resolved deps directory (resolved lazily — qgis may be unavailable at
+# import time, e.g. under pytest).
+_DEPS_DIR: Optional[Path] = None
+
+
+def _deps_root() -> Path:
+    """Parent dir holding the per-requirement-set deps folders — OUTSIDE the plugin.
+
+    Kept in the active QGIS profile dir so that uninstalling the plugin (which
+    deletes the plugin folder) never has to touch these files. On Windows the
+    loaded native extensions are locked by the running process; if they lived
+    under the plugin folder the uninstall would abort with "folder in use".
+
+    Falls back to ``~/.qgis_infrared_city_gis`` if the QGIS settings dir can't
+    be resolved (e.g. running outside QGIS).
+    """
+    base: Optional[Path] = None
+    try:
+        from qgis.core import QgsApplication
+        settings = QgsApplication.qgisSettingsDirPath()
+        if settings:
+            base = Path(settings)
+    except Exception:
+        base = None
+    if base is None:
+        base = Path.home() / ".qgis_infrared_city_gis"
+    return base / "infrared_city_gis"
+
+
+def _reqs_hash() -> str:
+    """Short, order-independent hash of the requirement specs.
+
+    Used to namespace the deps folder so that a plugin version with a DIFFERENT
+    dependency set installs into a fresh, empty folder (correct versions) rather
+    than reusing stale packages from the previous set. ``_find_missing`` only
+    checks importability, not version, so without this a bumped pin (e.g.
+    ``infrared-sdk>=0.4.10`` -> ``>=0.5.0``) would never be reinstalled.
+    """
+    specs = sorted(_read_requirements())
+    digest = hashlib.sha1("\n".join(specs).encode("utf-8")).hexdigest()
+    return digest[:12]
+
+
+def _deps_dir() -> Path:
+    """The deps folder for the CURRENT requirement set: ``<root>/deps-<hash>``."""
+    global _DEPS_DIR
+    if _DEPS_DIR is not None:
+        return _DEPS_DIR
+    _DEPS_DIR = _deps_root() / f"deps-{_reqs_hash()}"
+    return _DEPS_DIR
+
+
+def _marker() -> Path:
+    return _deps_dir() / ".deps_ok"
+
+
+def _cleanup_legacy_thirdparty() -> None:
+    """Best-effort removal of the old in-plugin thirdparty/ folder.
+
+    Safe because we no longer add it to ``sys.path``, so on a fresh QGIS
+    session nothing has imported from it and the files aren't locked. Uses
+    ``ignore_errors`` so a still-locked leftover never breaks plugin load.
+    """
+    for stale in (_LEGACY_THIRDPARTY, _LEGACY_MARKER):
+        try:
+            if stale.is_dir():
+                shutil.rmtree(stale, ignore_errors=True)
+            elif stale.exists():
+                stale.unlink()
+        except Exception:
+            pass
+
+
+def _cleanup_old_deps_dirs() -> None:
+    """Remove deps folders for OTHER requirement sets (previous plugin versions).
+
+    Only the current ``deps-<hash>`` is on ``sys.path`` this session, so sibling
+    folders aren't loaded and can be deleted. ``ignore_errors`` keeps a folder
+    still locked from a same-session reload from breaking the load — it'll be
+    cleaned on the next fresh start.
+    """
+    keep = _deps_dir().name
+    root = _deps_root()
+    try:
+        if not root.is_dir():
+            return
+        for child in root.iterdir():
+            if child.is_dir() and child.name.startswith("deps-") and child.name != keep:
+                shutil.rmtree(child, ignore_errors=True)
+    except Exception:
+        pass
 
 
 def _read_requirements() -> List[str]:
@@ -30,8 +130,9 @@ def _read_requirements() -> List[str]:
 
 
 def _ensure_sys_path():
-    THIRDPARTY.mkdir(exist_ok=True)
-    p = str(THIRDPARTY)
+    deps = _deps_dir()
+    deps.mkdir(parents=True, exist_ok=True)
+    p = str(deps)
     if p not in sys.path:
         sys.path.insert(0, p)
 
@@ -97,7 +198,7 @@ def _pip_install(packages: List[str]):
         "--disable-pip-version-check",
         "--no-input",
         "--target",
-        str(THIRDPARTY),
+        str(_deps_dir()),
     ]
 
     # 1) In-process pip (modern API) — same interpreter, no subprocess needed.
@@ -124,7 +225,7 @@ def _pip_install(packages: List[str]):
             "pip in subprocess (in-process pip also failed). sys.executable="
             f"{sys.executable!r}. The plugin cannot install its dependencies "
             "automatically; install them manually into "
-            f"{THIRDPARTY!s} or report this with the QGIS Message Log."
+            f"{_deps_dir()!s} or report this with the QGIS Message Log."
         )
 
     # Set re-entry guard env var so a nested QGIS load (defense in depth)
@@ -190,8 +291,10 @@ def _candidate_pythons() -> List[str]:
 def ensure_deps(plugin_name: str = "infrared_city_gis") -> None:
     """Ensure dependencies listed in requirements.txt are available.
 
-    - Adds local 'thirdparty' to sys.path
-    - Installs any missing packages into 'thirdparty'
+    - Adds the (out-of-plugin) per-requirement-set deps dir to sys.path
+    - Installs any missing packages into it
+    - Removes the stale in-plugin thirdparty/ folder and deps dirs from other
+      requirement sets (migration / version-bump cleanup)
     - Creates a '.deps_ok' marker to avoid repeated installs
     - Returns immediately if invoked recursively from a child pip subprocess
       (defense-in-depth against any future regression in candidate selection)
@@ -200,6 +303,8 @@ def ensure_deps(plugin_name: str = "infrared_city_gis") -> None:
         # Inside a child process spawned by _pip_install. Do nothing.
         return
 
+    _cleanup_legacy_thirdparty()
+    _cleanup_old_deps_dirs()
     _ensure_sys_path()
     reqs = _read_requirements()
     missing = _find_missing(reqs)
@@ -207,7 +312,7 @@ def ensure_deps(plugin_name: str = "infrared_city_gis") -> None:
         _pip_install(missing)
     try:
         if not _find_missing(reqs):
-            MARKER.write_text("ok", encoding="utf-8")
+            _marker().write_text("ok", encoding="utf-8")
     except Exception:
         # Non-fatal if marker can't be written
         pass

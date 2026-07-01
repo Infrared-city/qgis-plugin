@@ -43,6 +43,7 @@ from .models.timeframes_parser import (
     MonthConfig,
     SeasonalTimeFrameConfig,
 )
+from .services import single_tile_selection
 from .services.fetch import fetch_weather_file_names
 from .services.geometry import (
     create_wgs84_geojson_polygon_from_selection,
@@ -52,6 +53,7 @@ from .services.geometry import (
 )
 from .services.qgis_area_buildings import collect_qgis_area_buildings
 from .services.sdk_runner import run_sdk_area_async
+from .services.sdk_single_tile import run_sdk_single_tile_async
 from .services.secret_manager import get_api_key
 from .services.tree_layer_picker import (
     populate_tree_layer_dropdown,
@@ -85,23 +87,45 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self.polygon = None
         self.tile_count = None
         self.weather_file_names = []
-        try:
-            w, s, e, n = get_selected_bbox()
-            self.bbox = [w, s, e, n]
-            self.crs = get_selected_crs()
+        # Per-analysis uploaded EPW paths ({AnalysisType: path}); set by the
+        # "Upload EPW…" controls and read by build_sdk_payload.
+        self._epw_paths = {}
 
-            iface.messageBar().pushMessage(
-                            "InfraredCity",
-                            f"Layer CRS is the following: {self.crs}",
-                            level=Qgis.Info,
-                            duration=7
-                        )
+        # ArcGIS-style mode detection: if the "Select tile" tool stored a
+        # one-shot single-tile selection, consume it and run that single
+        # 512×512 m tile via analyses.execute (1 tile ≈ 10 tokens). Otherwise
+        # fall back to area mode driven by the current QGIS feature selection.
+        self.is_single_tile = False
+        _sel = single_tile_selection.consume()
+        if _sel is not None:
+            self.is_single_tile = True
+            self.polygon = _sel.polygon
+            self.bbox = list(_sel.bbox)
+            self.crs = _sel.crs
+            self.tile_count = 1
+            logger.info(
+                "Single-tile mode: 1 tile (512×512 m), center=(%.6f, %.6f), "
+                "%d buildings highlighted at pick time",
+                _sel.center_lon, _sel.center_lat, _sel.building_count,
+            )
+        else:
+            try:
+                w, s, e, n = get_selected_bbox()
+                self.bbox = [w, s, e, n]
+                self.crs = get_selected_crs()
 
-        except Exception as e:
-            logger.error(f"Failed to get selected bbox: {e}")
-            QMessageBox.warning(self, "Invalid selection", "Invalid selection please select geometry.")
-            self.reject()
-            return
+                iface.messageBar().pushMessage(
+                    "InfraredCity",
+                    f"Layer CRS is the following: {self.crs}",
+                    level=Qgis.Info,
+                    duration=7
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to get selected bbox: {e}")
+                QMessageBox.warning(self, "Invalid selection", "Invalid selection please select geometry.")
+                self.reject()
+                return
 
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
@@ -116,6 +140,9 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             # Older .ui without the tree_layer_dropdown widget — fall back
             # silently rather than failing the whole dialog.
             logger.warning("tree_layer_dropdown not present in dialog — skipping")
+
+        # Add the "Upload EPW…" controls to the weather-based analysis pages.
+        self._setup_epw_uploads()
 
         if self.analysis_type_dropdown.count() > 0:
             self.analysis_type_dropdown.setCurrentIndex(0)
@@ -140,35 +167,44 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.reject()
             return
 
-        try:
+        if self.is_single_tile:
+            # Polygon already set from the tile selection; skip preview_area /
+            # tiling entirely — the single tile is submitted via
+            # analyses.execute so the 512 m box is never split into overlapping
+            # 256 m-step tiles (which would multiply the token cost).
+            self.setWindowTitle("Run Simulation — single tile (512×512 m) · 1 tile · ~10 tokens")
+            logger.info("Dialog loaded in single-tile mode")
+        else:
+            try:
 
-            client = InfraredClient(api_key=self.api_key)
-            self.polygon = create_wgs84_geojson_polygon_from_selection()
-            preview = client.preview_area(self.polygon)
-            logger.info("Preview area: %s", preview.tile_count)
-            self.tile_count = preview.tile_count
+                client = InfraredClient(api_key=self.api_key)
+                self.polygon = create_wgs84_geojson_polygon_from_selection()
+                preview = client.preview_area(self.polygon)
+                logger.info("Preview area: %s", preview.tile_count)
+                self.tile_count = preview.tile_count
 
-            if preview.tile_count > 100:
+                if preview.tile_count > 100:
+                    QMessageBox.warning(
+                        self,
+                        "Wrong selection",
+                        "The tile size can be between 0 and 100. Larger areas are not allowed. 2"
+                    )
+                    self.reject()
+                    return
+
+            except Exception as e:
+                logger.exception("Error computing/plotting selection polygon: %s", e)
                 QMessageBox.warning(
                     self,
-                    "Wrong selection",
-                    "The tile size can be between 0 and 100. Larger areas are not allowed. 2"
+                    "Error",
+                    f"An error occurred while computing the selection polygon. Please try again. Message: {e}"
                 )
                 self.reject()
                 return
 
-        except Exception as e:
-            logger.exception("Error computing/plotting selection polygon: %s", e)
-            QMessageBox.warning(
-                self,
-                "Error",
-                f"An error occurred while computing the selection polygon. Please try again. Message: {e}"
-            )
-            self.reject()
-            return
+            self.setWindowTitle(f"Run Simulation — {self.tile_count} tile{'s' if self.tile_count != 1 else ''} selected")
+            logger.info("Dialog loaded, tile count: %d", self.tile_count)
 
-        self.setWindowTitle(f"Run Multiple Simulations — {self.tile_count} tile{'s' if self.tile_count != 1 else ''} selected")
-        logger.info("Dialog loaded, tile count: %d", self.tile_count)
         self._init_ok = True
 
     def on_analysis_changed(self, text):
@@ -329,6 +365,95 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             except Exception as e:
                 logger.error("Failed to populate direct sun hours dialog elements: %s", str(e), exc_info=True)
 
+    def _setup_epw_uploads(self):
+        """Add an 'Upload EPW…' control to each weather-based analysis page.
+
+        Lets the user run PWC / TCI / TCS / Solar Radiation against a local
+        ``.epw`` file instead of an infrared.city weather station — mirrors the
+        ArcGIS plugin's upload toggle. Picking a file disables the station
+        combo and flips the button to 'Remove uploaded file'.
+        """
+        specs = [
+            (getattr(self, "page_pedestrian_wind_comfort", None),
+             getattr(self, "weather_file_input_pwc", None),
+             AnalysisType.PEDESTRIAN_WIND_COMFORT),
+            (getattr(self, "page_thermal_comfort_index", None),
+             getattr(self, "weather_file_input_tci", None),
+             AnalysisType.THERMAL_COMFORT_INDEX),
+            (getattr(self, "page_thermal_comfort_statistics", None),
+             getattr(self, "weather_file_input_tcs", None),
+             AnalysisType.THERMAL_COMFORT_STATISTICS),
+            (getattr(self, "page_solar_radiation", None),
+             getattr(self, "weather_file_input_sr", None),
+             AnalysisType.SOLAR_RADIATION),
+        ]
+        for page, combo, at in specs:
+            if page is None or combo is None:
+                continue
+            try:
+                self._wire_epw_upload(page, combo, at)
+            except Exception as e:
+                logger.warning("Could not add EPW upload for %s: %s", at, e)
+
+    def _wire_epw_upload(self, page, combo, analysis_type):
+        """Build + wire one page's EPW upload toggle (button + status label)."""
+        from qgis.PyQt.QtWidgets import (
+            QFileDialog,
+            QHBoxLayout,
+            QLabel,
+            QPushButton,
+            QWidget,
+        )
+
+        row = QWidget(page)
+        h = QHBoxLayout(row)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(6)
+        btn = QPushButton("Upload EPW…", row)
+        btn.setCheckable(True)
+        status = QLabel("", row)
+        status.setStyleSheet("color: #555;")
+        h.addWidget(btn)
+        h.addWidget(status)
+        h.addStretch()
+
+        page_layout = page.layout()
+        if page_layout is not None:
+            page_layout.addWidget(row)
+
+        def on_toggled(checked):
+            if checked:
+                path, _ = QFileDialog.getOpenFileName(
+                    self, "Select EPW weather file", "",
+                    "EnergyPlus Weather (*.epw);;All files (*)",
+                )
+                if not path:
+                    btn.setChecked(False)
+                    return
+                try:
+                    from .services.epw_parser import validate_file
+                    validate_file(path)
+                except Exception as e:
+                    QMessageBox.warning(
+                        self, "Invalid EPW", f"Not a usable EPW file:\n\n{e}",
+                    )
+                    btn.setChecked(False)
+                    return
+                self._epw_paths[analysis_type] = path
+                combo.setEnabled(False)
+                status.setText(f"Using uploaded: {os.path.basename(path)}")
+                btn.setText("Remove uploaded file")
+                # Log only the basename — the full path leaks the user's home
+                # dir / username (PII) into the plugin log.
+                logger.info("EPW uploaded for %s: %s", analysis_type, os.path.basename(path))
+            else:
+                self._epw_paths.pop(analysis_type, None)
+                combo.setEnabled(True)
+                status.setText("")
+                btn.setText("Upload EPW…")
+
+        btn.toggled.connect(on_toggled)
+
     def accept(self):
         try:
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
@@ -360,7 +485,13 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             # then close the dialog immediately. The poller is parented to
             # iface.mainWindow() so it survives this dialog being destroyed
             # and renders the result on the canvas when polling completes.
-            poller = run_sdk_area_async(self, self.polygon, area)
+            #
+            # Single-tile mode submits ONE job via analyses.execute (≈10
+            # tokens); area mode fans the polygon out across the tiler.
+            if self.is_single_tile:
+                poller = run_sdk_single_tile_async(self, self.polygon, area)
+            else:
+                poller = run_sdk_area_async(self, self.polygon, area)
             if poller is None:
                 # Payload validation failed; build_sdk_payload already
                 # showed a QMessageBox. Keep the dialog open.

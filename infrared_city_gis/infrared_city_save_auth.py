@@ -65,6 +65,19 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         """Return the trimmed value from the input field."""
         return self.api_key_input.text().strip()
 
+    @staticmethod
+    def _mask_key(api_key: str) -> str:
+        """Return a shoulder-surf-safe preview: first & last 4 chars only.
+
+        Lets the user confirm *which* key is stored without revealing it.
+        Keys of 8 chars or fewer are fully masked, since first4+last4 would
+        otherwise expose the whole value.
+        """
+        api_key = api_key.strip()
+        if len(api_key) <= 8:
+            return "•" * len(api_key)
+        return f"{api_key[:4]}…{api_key[-4:]}"
+
     # -- status label --------------------------------------------------
 
     def update_status(self) -> None:
@@ -76,7 +89,7 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
             self.status_label.setText("API key seems too short")
             self.status_label.setStyleSheet("color: orange;")
         else:
-            self.status_label.setText("API key looks valid")
+            self.status_label.setText(f"API key looks valid ({self._mask_key(api_key)})")
             self.status_label.setStyleSheet("color: green;")
 
     # -- accept / reject ----------------------------------------------
@@ -113,7 +126,10 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         except Exception as e:
             logger.warning("Registry refresh after save failed: %s", e)
 
-        QMessageBox.information(self, "Success", "API key saved successfully!")
+        QMessageBox.information(
+            self, "Success",
+            f"API key saved successfully!\nStored key: {self._mask_key(api_key)}",
+        )
         super().accept()
 
     def reject(self) -> None:

@@ -188,6 +188,18 @@ def collect_qgis_area_vegetation(
 
     model, size = _resolve_current_species()
 
+    # No species model — the vegetation_registry.json is missing/empty (e.g.
+    # the API key was never saved, or the registry fetch failed). Degrade
+    # cleanly: run the simulation without vegetation instead of crashing on
+    # model.get(...) below. The caller treats an empty dict as "no trees".
+    if model is None:
+        logger.warning(
+            "collect_qgis_area_vegetation: no vegetation model resolved "
+            "(registry missing/empty or no species configured) — skipping "
+            "vegetation; the simulation will run without trees."
+        )
+        return {}
+
     # Calculate height and crown diameter based on size
     if size == "small":
         height = model.get("heightRange", [0, 0])[0] if model.get("heightRange") else model.get("height", 0)
