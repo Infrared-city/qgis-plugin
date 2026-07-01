@@ -147,14 +147,18 @@ def fetch_geometry_from_infrared(lon: float, lat: float, size_m: float, api_key:
 
     Replaces the old OSM/Overpass fetch. Calls ``POST /v2/buildings``
     (core-geometries-service, Mapbox-backed) with ``outputFormat=GeoJson`` over a
-    ``size_m`` x ``size_m`` area centred on the point, writes the resulting
-    FeatureCollection to the plugin data dir, and returns ``(geojson_path, bbox)``.
+    ``size_m`` x ``size_m`` area centred on the point and writes the resulting
+    FeatureCollection to the plugin data dir.
 
-    Strategy: try ONE request for the whole area first; if that fails (the server
-    can cap the request size, or a dense area can exceed the gateway response
-    limit) fall back to fetching ``_TILE_SIZE_M`` tiles and merging them. If both
-    fail, log the failure and return ``(None, None)`` so the caller can surface a
-    message.
+    Returns ``(geojson_path, bbox, error)``:
+      * success       -> ``(path, bbox, None)``
+      * empty area    -> ``(None, None, None)``    request(s) OK, just no buildings
+      * hard failure  -> ``(None, None, reason)``  transport/API/all-tiles-failed
+
+    Strategy: try ONE request for the whole area first. The tiled fallback runs
+    ONLY on an actual request failure (the server can reject on size, or a dense
+    area can exceed the gateway response limit) — a successful-but-empty response
+    means the area genuinely has no buildings and is NOT an error.
 
     Requires a subscription API key. ``bbox`` is ``[west, south, east, north]``
     in WGS84, matching ``get_bbox``.
@@ -165,30 +169,37 @@ def fetch_geometry_from_infrared(lon: float, lat: float, size_m: float, api_key:
 
     if not api_key:
         logger.error("No API key configured — cannot fetch geometry from infrared.city")
-        return None, None
+        return None, None, "no API key configured"
 
     bbox = get_bbox(lon, lat, size_m)
 
     # 1. Single request for the whole area (happy path).
+    #    None = request FAILED; [] = succeeded but no buildings; [...] = buildings.
     features = _fetch_buildings_request(lat, lon, size_m, size_m, api_key)
 
-    # 2. Fallback: tile the area into _TILE_SIZE_M cells and merge.
-    if not features:
+    # 2. Fallback ONLY on an actual failure (size limit / transport / API error),
+    #    never on a successful-but-empty response.
+    if features is None:
         logger.warning(
-            "Single-request buildings fetch returned nothing; falling back to "
-            "%dm tiling for the %dx%d m area.",
-            int(_TILE_SIZE_M), int(size_m), int(size_m),
+            "Single-request buildings fetch FAILED; falling back to %dm tiling "
+            "for the %dx%d m area.", int(_TILE_SIZE_M), int(size_m), int(size_m),
         )
-        features = _fetch_buildings_tiled(bbox, size_m, api_key)
+        tiled, failed, total = _fetch_buildings_tiled(bbox, size_m, api_key)
+        if not tiled and failed == total:
+            logger.error(
+                "Buildings fetch FAILED for lon=%s lat=%s: single request and all "
+                "%d fallback tiles failed.", lon, lat, total,
+            )
+            return None, None, "the buildings request failed (all fallback tiles failed)"
+        features = tiled
 
-    # 3. Hard failure — neither path produced buildings.
+    # 3. Request(s) succeeded but the area has no buildings — not an error.
     if not features:
-        logger.error(
-            "Buildings fetch FAILED for lon=%s lat=%s size_m=%s — both the single "
-            "request and the tiled fallback returned no features.",
-            lon, lat, size_m,
+        logger.info(
+            "No buildings in the %dx%d m area at lon=%s lat=%s.",
+            int(size_m), int(size_m), lon, lat,
         )
-        return None, None
+        return None, None, None
 
     plugin_data_dir = os.path.join(
         QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data"
@@ -204,7 +215,7 @@ def fetch_geometry_from_infrared(lon: float, lat: float, size_m: float, api_key:
         json.dump(geojson, f, ensure_ascii=False, indent=2)
     logger.info("Saved %d building features to %s", len(features), geojson_path)
 
-    return geojson_path, bbox
+    return geojson_path, bbox, None
 
 
 def _fetch_buildings_request(lat, lon, size_x, size_y, api_key):
@@ -248,13 +259,16 @@ def _fetch_buildings_request(lat, lon, size_x, size_y, api_key):
     return _buildings_to_features(body)
 
 
-def _fetch_buildings_tiled(bbox, size_m, api_key) -> list:
+def _fetch_buildings_tiled(bbox, size_m, api_key):
     """Fallback: split the area into ``_TILE_SIZE_M`` tiles, fetch each, merge.
 
     Splits the ``bbox`` into an ``n x n`` grid (``n = ceil(size_m/_TILE_SIZE_M)``)
     and requests one ``_TILE_SIZE_M`` tile per cell centre. Per-tile failures are
     logged but don't abort the others — partial coverage beats nothing. Buildings
     that straddle a tile boundary are de-duplicated.
+
+    Returns ``(features, failed, total)`` so the caller can tell "every tile
+    request failed" (hard failure) from "tiles succeeded but the area is empty".
     """
     west, south, east, north = bbox[0], bbox[1], bbox[2], bbox[3]
     n_side = max(1, math.ceil(size_m / _TILE_SIZE_M))
@@ -285,7 +299,7 @@ def _fetch_buildings_tiled(bbox, size_m, api_key) -> list:
     else:
         logger.info("Tiled fallback: all %d tiles fetched", total)
 
-    return _dedup_features(all_features)
+    return _dedup_features(all_features), failed, total
 
 
 def _dedup_features(features: list) -> list:

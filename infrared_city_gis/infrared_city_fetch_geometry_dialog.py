@@ -82,19 +82,25 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # --- Fetch a 1 km × 1 km area of building footprints as GeoJSON ---
         try:
-            geojson_path, bbox = fetch_geometry_from_infrared(lon, lat, size_m, api_key)
+            geojson_path, bbox, error = fetch_geometry_from_infrared(lon, lat, size_m, api_key)
 
-            if not geojson_path or not bbox:
-                logger.error(
-                    "Geometry fetch FAILED for lon=%s lat=%s (single request + "
-                    "tiled fallback both returned nothing)", lon, lat,
-                )
+            if error:
+                logger.error("Geometry fetch failed for lon=%s lat=%s: %s", lon, lat, error)
                 QMessageBox.critical(
                     self, "Fetch Failed",
-                    "Failed to fetch building geometry for this location.\n\n"
-                    "Both the single request and the tiled fallback returned no "
-                    "buildings. Check your API key/subscription and network, or "
-                    "try different coordinates.\n\nSee the plugin log for details.",
+                    f"Failed to fetch building geometry.\n\n{error}.\n\n"
+                    "Check your API key/subscription and network, then try again.\n\n"
+                    "See the plugin log for details.",
+                )
+                return
+
+            if not geojson_path or not bbox:
+                # Request succeeded but there are no buildings here — not an error.
+                logger.info("No buildings found for lon=%s lat=%s", lon, lat)
+                QMessageBox.information(
+                    self, "No Buildings",
+                    "No buildings were found in the 1 km × 1 km area at these "
+                    "coordinates. Try a different location.",
                 )
                 return
 
