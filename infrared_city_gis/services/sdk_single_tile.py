@@ -284,8 +284,25 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
         return None
 
     geometries = _single_tile_geometries(area)
-    if geometries:
-        payload = payload.model_copy(update={"geometries": geometries}, deep=True)
+    if not geometries:
+        # No building geometry — don't submit. An empty single-tile run either
+        # fails server-side or returns a meaningless result after consuming
+        # time/tokens. (A 0-building tile should already be rejected at pick
+        # time in the Select-tile dialog, but guard here too — it's the
+        # authoritative check right before submission.)
+        logger.warning("Single-tile: no building geometry — aborting before submission")
+        _status(
+            "InfraredCity: no buildings in the selected tile — nothing to simulate",
+            level=Qgis.Warning, duration=10,
+        )
+        QMessageBox.warning(
+            dlg, "No Buildings",
+            "The selected tile contains no buildings, so there is nothing to "
+            "simulate. Pick a tile with buildings (and make sure the buildings "
+            "layer is active) before running.",
+        )
+        return None
+    payload = payload.model_copy(update={"geometries": geometries}, deep=True)
     logger.info("Single-tile: attached %d building meshes", len(geometries))
 
     # Vegetation — only when a tree layer is picked and the analysis supports

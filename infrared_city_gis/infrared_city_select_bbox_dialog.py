@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 
 from qgis.core import (
+    Qgis,
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
     QgsProject,
@@ -173,6 +174,25 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 logger.info("Selected %d features in '%s'.", count, ref_layer.name())
             except Exception as e:
                 logger.warning("selectByRect failed on '%s': %s", ref_layer.name(), e)
+
+            # Reject empty tiles: storing a selection with no buildings would let
+            # "Run simulation" submit a single-tile job with no geometry, burning
+            # a request for a meaningless/failed result. Clear any pending
+            # selection and keep the dialog open so the user can pick again.
+            if count == 0:
+                single_tile_selection.clear()
+                logger.warning(
+                    "Selected tile has 0 features in '%s' — not storing selection",
+                    ref_layer.name(),
+                )
+                iface.messageBar().pushMessage(
+                    "InfraredCity",
+                    "The selected tile contains no buildings. Pick a tile with "
+                    "buildings, and make sure the buildings layer is active.",
+                    level=Qgis.Warning,
+                    duration=8,
+                )
+                return
 
             # --- Store the 512×512 m tile as a one-shot single-tile selection
             # (ArcGIS-style). No dotbim/geojson export here — the Run
