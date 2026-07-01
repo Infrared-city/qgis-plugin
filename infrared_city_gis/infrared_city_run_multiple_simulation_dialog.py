@@ -443,7 +443,9 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 combo.setEnabled(False)
                 status.setText(f"Using uploaded: {os.path.basename(path)}")
                 btn.setText("Remove uploaded file")
-                logger.info("EPW uploaded for %s: %s", analysis_type, path)
+                # Log only the basename — the full path leaks the user's home
+                # dir / username (PII) into the plugin log.
+                logger.info("EPW uploaded for %s: %s", analysis_type, os.path.basename(path))
             else:
                 self._epw_paths.pop(analysis_type, None)
                 combo.setEnabled(True)

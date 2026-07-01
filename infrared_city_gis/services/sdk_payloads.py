@@ -8,6 +8,7 @@ QMessageBox describing the missing input.
 
 from __future__ import annotations
 
+import os
 from typing import Optional, Tuple
 
 from infrared_sdk.analyses.types import (
@@ -165,7 +166,9 @@ def _weather_data(dlg, analysis_type, weather_file: str, query_type, tf) -> dict
     epw_path = getattr(dlg, "_epw_paths", {}).get(analysis_type)
     if epw_path:
         from .epw_parser import parse as parse_epw
-        logger.info("Using uploaded EPW for %s: %s", analysis_type, epw_path)
+        # Log only the basename — the full path leaks the user's home dir /
+        # username (PII) into the plugin log.
+        logger.info("Using uploaded EPW for %s: %s", analysis_type, os.path.basename(epw_path))
         return parse_epw(epw_path, tf)
     return query_infrared_epw(
         file_name=weather_file, type=query_type, time_frame=tf, api_key=dlg.api_key,
