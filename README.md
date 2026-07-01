@@ -10,6 +10,7 @@ Fetch building geometry with the help of Infrared City platform, run microclimat
 
 - Fetch building geometry for a 1 km × 1 km area with the help of Infrared City platform
 - Run climate simulations: wind speed, pedestrian wind comfort (PWC), thermal comfort (UTCI/TCS), solar radiation, daylight availability, direct sun hours, sky view factors, shadow mask
+- Upload a local EPW weather file for weather-based analyses (PWC / UTCI / TCS / solar radiation), or use the built-in weather lookup
 - Tree catalog integration for vegetation analysis
 - Results visualized as raster layers in QGIS
 
@@ -32,7 +33,7 @@ Fetch building geometry with the help of Infrared City platform, run microclimat
 2. Enter your Infrared City API key (stored locally)
 3. Select an area of interest on the map
 4. Fetch building geometry (a 1 km × 1 km area around the entered coordinates)
-5. Choose a simulation type and configure parameters
+5. Choose a simulation type and configure parameters — for weather-based analyses you can **Upload EPW…** to use a local weather file instead of the built-in lookup
 6. Run — results appear as a raster layer
 
 See [`infrared_city_gis/README.md`](infrared_city_gis/README.md) for the in-plugin documentation.

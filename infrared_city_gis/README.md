@@ -15,6 +15,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
   - Direct Sun Hours
   - Sky View Factors
   - Shadow Mask
+- Upload a local EPW weather file for weather-based analyses (PWC / UTCI / TCS / Solar Radiation), or use the built-in weather lookup
 - Visualize results as raster layers in QGIS
 - Tree catalog integration for vegetation analysis
 
@@ -36,7 +37,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
 2. Enter your Infrared City API key (saved locally for future sessions)
 3. Select an area of interest on the map
 4. Fetch building geometry (a 1 km × 1 km area around the entered coordinates)
-5. Choose a simulation type and configure the parameters
+5. Choose a simulation type and configure the parameters — for weather-based analyses you can **Upload EPW…** to use a local weather file instead of the built-in lookup
 6. Run the simulation — results appear as a raster layer in QGIS
 
 ## Contact

@@ -63,11 +63,14 @@ CI builds the ZIP and creates a GitHub Release. Upload to `plugins.qgis.org` is 
 
 See [`docs/deployment.md`](docs/deployment.md) for full deploy details.
 
-## Architecture & Decisions
+## Doc Map
 
+- [`README.md`](README.md) — user-facing overview, install, and usage.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contributing guide (canonical filename; there is no `CONTRIBUTION.md`).
 - [`docs/architecture.md`](docs/architecture.md) — component overview, dialog flow, API contract.
 - [`docs/battle-scars.md`](docs/battle-scars.md) — non-obvious gotchas and workarounds (PyQGIS, pb_tool, plugin distribution).
 - [`docs/deployment.md`](docs/deployment.md) — how to cut a release, plugins.qgis.org review process.
+- [`docs/release-process.md`](docs/release-process.md) — Release Please flow (staging → main → tag).
 
 ## License & Distribution
 

@@ -100,6 +100,19 @@ def _month_in_window(month: int, start_m: int, end_m: int) -> bool:
     return month >= start_m or month < end_m
 
 
+def _hour_in_window(hour: int, start_h: int, end_h: int) -> bool:
+    """Half-open [start_h, end_h) with midnight-wrap support.
+
+    Mirrors :func:`_month_in_window`. A wrapped window such as 18->6 (start_h
+    >= end_h) means "18:00 through 05:59", so no single ``start_h <= hour <
+    end_h`` test can match it — the wrapped branch keeps ``hour >= start_h`` OR
+    ``hour < end_h`` instead.
+    """
+    if end_h > start_h:
+        return start_h <= hour < end_h
+    return hour >= start_h or hour < end_h
+
+
 def parse(path: str, time_frame: dict) -> Dict[str, List[float]]:
     """Parse ``path``, filtered by the same ``TimeFrame`` ``query_infrared_epw`` uses.
 
@@ -141,7 +154,7 @@ def parse(path: str, time_frame: dict) -> Dict[str, List[float]]:
             continue
         if not _month_in_window(month, start_m, end_m):
             continue
-        if not (start_h <= hour < end_h):
+        if not _hour_in_window(hour, start_h, end_h):
             continue
         # Parse all needed values first so a malformed row is skipped whole.
         try:
