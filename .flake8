@@ -4,5 +4,11 @@ exclude =
     infrared_city_gis/.venv,
     infrared_city_gis/venv,
     infrared_city_gis/test,
-    infrared_city_gis/tests
+    infrared_city_gis/tests,
+    infrared_city_gis/thirdparty
 extend-ignore = E501
+# Mirror the plugins.qgis.org pycodestyle checker: re-enable the codes flake8
+# ignores by default but plugins.qgis.org enforces, so CI catches them before an
+# upload does. W503+W504 both on ⇒ don't break a line around a binary operator
+# (keep the expression on one line).
+extend-select = E121,E123,E126,E127,E131,E241,E242,E704,W503,W504

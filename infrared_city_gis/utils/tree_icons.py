@@ -18,14 +18,14 @@ from ..models.vegetation_types import TreeType
 _TRUNK = QColor("#5C3317")
 
 _CROWN = {
-    TreeType.STONE_PINE:             QColor("#1a4a22"),  # evergreen needle – deep fir
-    TreeType.PENCIL_TREE:            QColor("#8B7355"),  # leafless – tan/bark
-    TreeType.MEDITERRANEAN_CYPRESS:  QColor("#1e4d1a"),  # evergreen needle – dark
-    TreeType.HOLM_OAK:               QColor("#1d5c28"),  # evergreen broad – rich green
-    TreeType.EUROPEAN_LARCH:         QColor("#4a8c3f"),  # deciduous needle – lighter
-    TreeType.ENGLISH_OAK:            QColor("#3d7a35"),  # deciduous broad
-    TreeType.BUSHWILLOW:             QColor("#5a8c40"),  # semi-deciduous broad
-    TreeType.BALD_CYPRESS:           QColor("#4d7a32"),  # semi-deciduous needle
+    TreeType.STONE_PINE: QColor("#1a4a22"),  # evergreen needle – deep fir
+    TreeType.PENCIL_TREE: QColor("#8B7355"),  # leafless – tan/bark
+    TreeType.MEDITERRANEAN_CYPRESS: QColor("#1e4d1a"),  # evergreen needle – dark
+    TreeType.HOLM_OAK: QColor("#1d5c28"),  # evergreen broad – rich green
+    TreeType.EUROPEAN_LARCH: QColor("#4a8c3f"),  # deciduous needle – lighter
+    TreeType.ENGLISH_OAK: QColor("#3d7a35"),  # deciduous broad
+    TreeType.BUSHWILLOW: QColor("#5a8c40"),  # semi-deciduous broad
+    TreeType.BALD_CYPRESS: QColor("#4d7a32"),  # semi-deciduous needle
 }
 
 
@@ -150,14 +150,14 @@ def _draw_bald_cypress(p: QPainter, s: float):
 
 
 _DRAW_FUNCS = {
-    TreeType.STONE_PINE:            _draw_stone_pine,
-    TreeType.PENCIL_TREE:           _draw_pencil_tree,
+    TreeType.STONE_PINE: _draw_stone_pine,
+    TreeType.PENCIL_TREE: _draw_pencil_tree,
     TreeType.MEDITERRANEAN_CYPRESS: _draw_mediterranean_cypress,
-    TreeType.HOLM_OAK:              _draw_holm_oak,
-    TreeType.EUROPEAN_LARCH:        _draw_european_larch,
-    TreeType.ENGLISH_OAK:           _draw_english_oak,
-    TreeType.BUSHWILLOW:            _draw_bushwillow,
-    TreeType.BALD_CYPRESS:          _draw_bald_cypress,
+    TreeType.HOLM_OAK: _draw_holm_oak,
+    TreeType.EUROPEAN_LARCH: _draw_european_larch,
+    TreeType.ENGLISH_OAK: _draw_english_oak,
+    TreeType.BUSHWILLOW: _draw_bushwillow,
+    TreeType.BALD_CYPRESS: _draw_bald_cypress,
 }
 
 

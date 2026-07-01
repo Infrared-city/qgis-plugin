@@ -114,12 +114,12 @@ def display_geojson(geojson_path):
 def display_ground_materials(ground_materials):
     logger.info("Displaying ground materials layers")
     material_defs = [
-        ("Ground Asphalt",  ground_materials.get("asphalt"),    QColor(77, 77, 77)),
-        ("Ground Building", ground_materials.get("building"),   QColor(128, 128, 128)),
-        ("Ground Concrete", ground_materials.get("concrete"),   QColor(191, 191, 191)),
-        ("Ground Grass",    ground_materials.get("grass"),      QColor(76, 175, 80)),
-        ("Ground Soil",     ground_materials.get("soil"),       QColor(139, 69, 19)),
-        ("Ground Water",    ground_materials.get("water"),      QColor(33, 150, 243)),
+        ("Ground Asphalt", ground_materials.get("asphalt"), QColor(77, 77, 77)),
+        ("Ground Building", ground_materials.get("building"), QColor(128, 128, 128)),
+        ("Ground Concrete", ground_materials.get("concrete"), QColor(191, 191, 191)),
+        ("Ground Grass", ground_materials.get("grass"), QColor(76, 175, 80)),
+        ("Ground Soil", ground_materials.get("soil"), QColor(139, 69, 19)),
+        ("Ground Water", ground_materials.get("water"), QColor(33, 150, 243)),
     ]
     created_any = False
     for name, collection, color in material_defs:

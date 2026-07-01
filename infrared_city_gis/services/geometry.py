@@ -219,10 +219,7 @@ def collect_buildings(center_x, center_y, idx, permissive: bool = True):
 
     # Push a single concise summary to the QGIS bar so the user sees it without
     # having to open the log. Only mention "estimated" tiers if any were used.
-    estimated = (
-        source_counts.get(SOURCE_BUILDING_TYPE, 0)
-        + source_counts.get(SOURCE_GENERIC_DEFAULT, 0)
-    )
+    estimated = source_counts.get(SOURCE_BUILDING_TYPE, 0) + source_counts.get(SOURCE_GENERIC_DEFAULT, 0)
     skipped = source_counts.get(SOURCE_MISSING, 0)
     if estimated > 0 or skipped > 0:
         msg = f"Tile {idx}: {total_features} buildings included"

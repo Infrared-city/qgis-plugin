@@ -118,10 +118,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
             # (2) if the project has multiple polygon vector layers, we ask the
             # user to make their choice explicit instead of guessing.
             def _is_polygon_vector(lyr):
-                return (
-                    isinstance(lyr, QgsVectorLayer)
-                    and lyr.geometryType() == QgsWkbTypes.PolygonGeometry
-                )
+                return isinstance(lyr, QgsVectorLayer) and lyr.geometryType() == QgsWkbTypes.PolygonGeometry
 
             ref_layer = iface.activeLayer()
             if not _is_polygon_vector(ref_layer):

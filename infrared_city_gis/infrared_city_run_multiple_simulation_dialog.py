@@ -115,11 +115,11 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 self.crs = get_selected_crs()
 
                 iface.messageBar().pushMessage(
-                                "InfraredCity",
-                                f"Layer CRS is the following: {self.crs}",
-                                level=Qgis.Info,
-                                duration=7
-                            )
+                    "InfraredCity",
+                    f"Layer CRS is the following: {self.crs}",
+                    level=Qgis.Info,
+                    duration=7
+                )
 
             except Exception as e:
                 logger.error(f"Failed to get selected bbox: {e}")

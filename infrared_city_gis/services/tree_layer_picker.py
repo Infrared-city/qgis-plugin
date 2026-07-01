@@ -108,10 +108,7 @@ def update_tree_layer_enabled(combo, analysis_type: Optional[AnalysisType]) -> N
       * enabled — at least one real layer AND analysis supports trees.
     """
     has_real_layer = combo.count() > 1  # > 1 because "(none)" is always there
-    analysis_supports = (
-        analysis_type is None
-        or analysis_type not in _ANALYSES_WITHOUT_TREE_SUPPORT
-    )
+    analysis_supports = analysis_type is None or analysis_type not in _ANALYSES_WITHOUT_TREE_SUPPORT
 
     enabled = has_real_layer and analysis_supports
     combo.setEnabled(enabled)
