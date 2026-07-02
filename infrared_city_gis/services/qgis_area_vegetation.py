@@ -287,6 +287,8 @@ def collect_qgis_area_vegetation(
     skipped_geom = 0
     skipped_outside = 0
     skipped_non_point = 0
+    skipped_duplicate = 0
+    id_collisions = 0
     resolved_count = 0
 
     for feat in layer.getFeatures():
@@ -362,11 +364,34 @@ def collect_qgis_area_vegetation(
                     props["crownDiameter"] = crown
                     props["diameter_crown"] = crown
 
-        # Key by OSM id so the SDK's dedup (osmid/@id) works across tiles.
+        # Key by OSM id when the layer has one (stable across runs), else a
+        # per-feature UUID. The mapping key IS the tree's identity end-to-end:
+        # the SDK's assign_vegetation_to_tiles distributes this dict per tile
+        # as-is (its osmid-based dedup only runs on server-FETCHED tiles), so
+        # a key collision here would silently drop a tree from the payload.
         feat_id = props.get("osm_id") or props.get("osmid") or props.get("@id")
         if feat_id in (None, ""):
             feat_id = str(uuid.uuid4())
         feat_id = str(feat_id)
+
+        coords = [round(float(lon), 7), round(float(lat), 7)]
+        if feat_id in out:
+            prev = out[feat_id]["geometry"]["coordinates"]
+            if [round(c, 7) for c in prev] == coords:
+                # Same id at the same position: a true duplicate of the same
+                # tree (e.g. copied features) — keep one.
+                skipped_duplicate += 1
+                continue
+            # Same id at a DIFFERENT position: the id column isn't unique
+            # (common with imported GeoJSON / generic id fields). Keep the
+            # tree under a disambiguated key; the original id stays in
+            # properties.
+            id_collisions += 1
+            suffix = 2
+            base_id = feat_id
+            while feat_id in out:
+                feat_id = f"{base_id}#{suffix}"
+                suffix += 1
 
         out[feat_id] = {
             "type": "Feature",
@@ -374,12 +399,21 @@ def collect_qgis_area_vegetation(
             "properties": props,
         }
 
+    if id_collisions:
+        logger.warning(
+            "collect_qgis_area_vegetation: %d id collision(s) in layer %r — "
+            "id column is not unique; colliding trees kept under "
+            "disambiguated keys",
+            id_collisions, layer.name(),
+        )
+
     elapsed = time.monotonic() - t0
     logger.info(
         "collect_qgis_area_vegetation: kept=%d (type-resolved=%d); skipped "
-        "(geom=%d outside=%d non_point=%d) in %.2fs",
+        "(geom=%d outside=%d non_point=%d duplicate=%d) in %.2fs",
         len(out), resolved_count,
-        skipped_geom, skipped_outside, skipped_non_point, elapsed,
+        skipped_geom, skipped_outside, skipped_non_point, skipped_duplicate,
+        elapsed,
     )
 
     return out
