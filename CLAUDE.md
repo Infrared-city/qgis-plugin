@@ -16,7 +16,7 @@ qgis-plugin/
 ├── infrared_city_gis/         # The QGIS plugin (this is what gets shipped)
 │   ├── __init__.py            # Plugin entry point — classFactory()
 │   ├── infrared_city_gis.py   # Main plugin class
-│   ├── infrared_city_*.{py,ui}# Dialogs (auth, fetch geometry, simulation, bbox, trees)
+│   ├── infrared_city_*.{py,ui}# Dialogs (auth, fetch geometry, ground materials, simulation, bbox, trees)
 │   ├── client.py              # HTTP client wrapper around infrared-sdk
 │   ├── services/              # Domain helpers (fetch, area_poller, geometry, buildings)
 │   ├── models/                # Analysis, vegetation, time-frame parsers
@@ -69,6 +69,7 @@ See [`docs/deployment.md`](docs/deployment.md) for full deploy details.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contributing guide (canonical filename; there is no `CONTRIBUTION.md`).
 - [`docs/architecture.md`](docs/architecture.md) — component overview, dialog flow, API contract.
 - [`docs/vegetation-input.md`](docs/vegetation-input.md) — tree-layer input contract (`genusCode` + optional size attributes, supported types, validation, catalog fallback).
+- [`docs/ground-materials.md`](docs/ground-materials.md) — ground-material (surface) layers: fetch dialog, `ground-*` layer convention, simulation usage.
 - [`docs/battle-scars.md`](docs/battle-scars.md) — non-obvious gotchas and workarounds (PyQGIS, pb_tool, plugin distribution).
 - [`docs/deployment.md`](docs/deployment.md) — how to cut a release, plugins.qgis.org review process.
 - [`docs/release-process.md`](docs/release-process.md) — Release Please flow (staging → main → tag).

@@ -51,6 +51,11 @@ from .services.geometry import (
     get_selected_bbox,
     get_selected_crs,
 )
+from .services.ground_materials import (
+    ground_material_layers,
+    has_ground_material_support,
+    validate_ground_material_layers,
+)
 from .services.qgis_area_buildings import collect_qgis_area_buildings
 from .services.sdk_runner import run_sdk_area_async
 from .services.sdk_single_tile import run_sdk_single_tile_async
@@ -155,6 +160,25 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         except AttributeError:
             pass  # older .ui without the new tree-validation widgets
 
+        # Ground materials: one checkable row per ground-* layer in the
+        # project (created by the Fetch Ground Materials dialog or drawn by
+        # hand), plus an auto-fetch option that pulls Infrared's own ground
+        # materials at submit time and ignores the layers. The whole section
+        # hides for analyses that don't use surface materials (wind, PWC,
+        # SVF).
+        self._ground_layers = {}
+        self.use_infrared_ground_materials = False
+        try:
+            self._populate_ground_materials()
+            self.ground_materials_list.itemChanged.connect(
+                self._on_ground_item_changed
+            )
+            self.use_infrared_ground_checkbox.toggled.connect(
+                self._on_use_infrared_ground_toggled
+            )
+        except AttributeError:
+            pass  # older .ui without the ground-material widgets
+
         # Add the "Upload EPW…" controls to the weather-based analysis pages.
         self._setup_epw_uploads()
 
@@ -218,6 +242,14 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
             self.setWindowTitle(f"Run Simulation — {self.tile_count} tile{'s' if self.tile_count != 1 else ''} selected")
             logger.info("Dialog loaded, tile count: %d", self.tile_count)
+
+        # The polygon is only known now — refresh the area-dependent status
+        # labels that were initialised empty during widget setup.
+        self._revalidate_trees()
+        try:
+            self._revalidate_ground_materials()
+        except AttributeError:
+            pass  # older .ui without the ground-material widgets
 
         self._init_ok = True
 
@@ -310,6 +342,167 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 f"or tick 'Use tree catalog tree type'."
             )
 
+    # -- ground materials ---------------------------------------------------
+
+    def _populate_ground_materials(self):
+        """Fill the list with the project's ground-* layers (nothing ticked).
+
+        One row PER LAYER — repeated fetches produce numbered layers
+        (``ground-asphalt``, ``ground-asphalt-2``) that the user can tick
+        individually. Each row shows ``material — layer name``; the
+        (material, layer) pair travels in the item's UserRole data so
+        display text can change freely.
+        """
+        from qgis.PyQt.QtCore import Qt
+        from qgis.PyQt.QtWidgets import QListWidgetItem
+
+        self._ground_layers = ground_material_layers()
+        lst = self.ground_materials_list
+        lst.blockSignals(True)
+        lst.clear()
+        for material in sorted(self._ground_layers):
+            for layer in self._ground_layers[material]:
+                item = QListWidgetItem(f"{material} — {layer.name()}")
+                item.setData(Qt.UserRole, (material, layer))
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                # Opt-in: ground materials are extra payload + server work,
+                # so the dialog opens with nothing ticked.
+                item.setCheckState(Qt.Unchecked)
+                lst.addItem(item)
+        lst.blockSignals(False)
+        self._revalidate_ground_materials()
+
+    def _on_use_infrared_ground_toggled(self, checked):
+        self.use_infrared_ground_materials = bool(checked)
+        self._revalidate_ground_materials()
+
+    def _on_ground_item_changed(self, changed_item):
+        """Enforce one ticked layer per material, then revalidate.
+
+        The simulation takes ONE FeatureCollection per material, so ticking
+        e.g. a second asphalt layer silently unticks the first (radio-like,
+        signal-free to avoid recursion).
+        """
+        from qgis.PyQt.QtCore import Qt
+
+        if changed_item.checkState() == Qt.Checked:
+            data = changed_item.data(Qt.UserRole)
+            if data:
+                material = data[0]
+                lst = self.ground_materials_list
+                lst.blockSignals(True)
+                for i in range(lst.count()):
+                    item = lst.item(i)
+                    if item is changed_item:
+                        continue
+                    other = item.data(Qt.UserRole)
+                    if other and other[0] == material:
+                        item.setCheckState(Qt.Unchecked)
+                lst.blockSignals(False)
+        self._revalidate_ground_materials()
+
+    def selected_ground_material_layers(self):
+        """Return ``{material: [layers]}`` for the ticked list rows."""
+        from qgis.PyQt.QtCore import Qt
+
+        try:
+            lst = self.ground_materials_list
+        except AttributeError:
+            return {}
+        selected = {}
+        for i in range(lst.count()):
+            item = lst.item(i)
+            if item.checkState() == Qt.Checked:
+                data = item.data(Qt.UserRole)
+                if not data:
+                    continue
+                material, layer = data
+                selected.setdefault(material, []).append(layer)
+        return selected
+
+    def _revalidate_ground_materials(self, *args):
+        """Refresh ground-material widgets for the current analysis + area.
+
+        Visibility: the whole section hides for analyses that ignore surface
+        materials (wind, PWC, SVF). The auto-fetch checkbox is always shown
+        for supported analyses (it needs no layers); the layer list only
+        when ground-* layers exist, and disabled while auto-fetch is ticked.
+        """
+        try:
+            label = self.ground_validation_label
+            lst = self.ground_materials_list
+            checkbox = self.use_infrared_ground_checkbox
+        except AttributeError:
+            return
+
+        supported = has_ground_material_support(
+            self.analysis_type_dropdown.currentData()
+        )
+        self.label_ground_materials.setVisible(supported)
+        checkbox.setVisible(supported)
+        lst.setVisible(supported and bool(self._ground_layers))
+        label.setVisible(supported)
+        if not supported:
+            label.setText("")
+            return
+
+        lst.setEnabled(not self.use_infrared_ground_materials)
+        if self.use_infrared_ground_materials:
+            label.setText(
+                "Infrared ground materials will be fetched automatically for "
+                "the selected area at submit; ground-* layers are ignored."
+            )
+            return
+
+        if not self._ground_layers:
+            label.setText(
+                "No ground-* layers in the project — fetch them with "
+                "'Fetch ground materials', or tick the auto-fetch option."
+            )
+            return
+        if self.polygon is None:
+            label.setText("")
+            return
+        selected = self.selected_ground_material_layers()
+        if not selected:
+            # Nothing ticked (the default): silence — validation only ever
+            # talks about layers the user opted into.
+            label.setText("")
+            return
+
+        # Per-LAYER validation, tree-style but terser: only rows whose layer
+        # has nothing inside the selected polygon are called out — layers
+        # that do cover the area need no confirmation.
+        missing = []
+        total_rows = 0
+        try:
+            for material, material_layers in selected.items():
+                for layer in material_layers:
+                    total_rows += 1
+                    found = validate_ground_material_layers(
+                        self.polygon, {material: [layer]},
+                    )
+                    if not found:
+                        missing.append(f"{material} — {layer.name()}")
+        except Exception as e:
+            logger.warning("Ground material validation failed: %s", e, exc_info=True)
+            label.setText("")
+            return
+        if not missing:
+            label.setText("")
+        elif len(missing) == total_rows:
+            subject = (
+                "the ticked layer has" if total_rows == 1
+                else "the ticked layers have"
+            )
+            label.setText(
+                f"No ground material data found on the selected area — "
+                f"{subject} no features inside your selection."
+            )
+        else:
+            missing_txt = ", ".join(sorted(missing))
+            label.setText(f"Not found on the selected area: {missing_txt}.")
+
     def on_analysis_changed(self, text):
         current = self.analysis_type_dropdown.currentData()
 
@@ -321,9 +514,13 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         except AttributeError:
             pass  # older .ui without the field
 
-        # Re-run the tree validation for the newly-selected analysis (tree
-        # support may have changed) and refresh the status label.
+        # Re-run the tree + ground-material validation for the newly-selected
+        # analysis (support may have changed) and refresh the status labels.
         self._revalidate_trees()
+        try:
+            self._revalidate_ground_materials()
+        except AttributeError:
+            pass  # older .ui without the ground-material widgets
 
         if self.bbox is not None and self.api_key and not self.weather_file_names:
             lon, lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)

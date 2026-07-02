@@ -4,6 +4,10 @@ How to prepare a **tree layer** for an Infrared City simulation: which
 attributes each tree point must carry, the supported tree types, and what the
 plugin validates before a run.
 
+> Trees are 3D point objects. Green *surfaces* (grass, lawns, parks) are a
+> **ground material** (`ground-vegetation` polygon layer) — see
+> [`ground-materials.md`](ground-materials.md).
+
 ## What the plugin expects
 
 - A **point** vector layer whose name contains `tree-` (so it appears in the

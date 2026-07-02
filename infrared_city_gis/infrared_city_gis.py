@@ -30,6 +30,9 @@ from qgis.PyQt.QtWidgets import QAction
 
 # Import the code for the dialog
 from .infrared_city_fetch_geometry_dialog import InfraredCityFetchGeometryDialog
+from .infrared_city_fetch_ground_materials_dialog import (
+    InfraredCityFetchGroundMaterialsDialog,
+)
 from .infrared_city_run_multiple_simulation_dialog import (
     InfraredCityRunMultipleSimulationDialog,
 )
@@ -192,6 +195,12 @@ class InfraredCityGIS:
         select_bbox_icon_path = ':/plugins/infrared_city_gis/icons/select_area.png'
         tree_icon_path = ':/plugins/infrared_city_gis/icons/tree.svg'
         run_multiple_icon_path = ':/plugins/infrared_city_gis/icons/run_multiple.svg'
+        # Loaded from disk, not the compiled resource file — adding a file to
+        # resources.qrc requires a pyrcc5 recompile, which QIcon(file path)
+        # sidesteps entirely.
+        ground_materials_icon_path = os.path.join(
+            os.path.dirname(__file__), 'icons', 'ground_materials.png'
+        )
 
         self.add_action(
             save_auth_icon_path,
@@ -205,6 +214,13 @@ class InfraredCityGIS:
             text=self.tr(u'Fetch building geometry'),
             callback=self.fetch_geometry,
             parent=self.iface.mainWindow())
+
+        self.add_action(
+            ground_materials_icon_path,
+            text=self.tr(u'Fetch ground materials'),
+            callback=self.fetch_ground_materials,
+            parent=self.iface.mainWindow()
+        )
 
         self.add_action(
             select_bbox_icon_path,
@@ -307,6 +323,25 @@ class InfraredCityGIS:
             logger.info("API key save dialog closed successfully")
         else:
             logger.info("API key save dialog cancelled")
+
+    def fetch_ground_materials(self):
+        """Open the selection-based ground-materials fetch dialog."""
+        self.dlg = InfraredCityFetchGroundMaterialsDialog(self.iface.mainWindow())
+
+        if not getattr(self.dlg, "_init_ok", False):
+            # Preconditions failed (no API key / no selection / preview
+            # error) — the dialog already showed the specific message.
+            logger.info("Ground materials dialog: preconditions not met")
+            return
+
+        result = self.dlg.exec_()
+        if result:
+            logger.info(
+                "Ground materials fetched: %s",
+                getattr(self.dlg, "created_layers", {}),
+            )
+        else:
+            logger.info("Ground materials fetch cancelled")
 
     def fetch_geometry(self):
         """Run method that performs all the real work"""

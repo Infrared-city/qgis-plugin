@@ -493,6 +493,43 @@
     </widget>
    </item>
    <item>
+    <widget class="QLabel" name="label_ground_materials">
+     <property name="text">
+      <string>Ground materials:</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="use_infrared_ground_checkbox">
+     <property name="text">
+      <string>Use Infrared ground materials (auto-fetch for the area, ignores ground-* layers)</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QListWidget" name="ground_materials_list">
+     <property name="toolTip">
+      <string>Tick the ground-* layers to include as surface materials. Unticked surfaces run with the server default.</string>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>110</height>
+      </size>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="ground_validation_label">
+     <property name="text">
+      <string/>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QDialogButtonBox" name="button_box">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>

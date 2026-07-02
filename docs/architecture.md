@@ -1,9 +1,9 @@
 # Architecture
-_Last updated: 2026-06-30_
+_Last updated: 2026-07-02_
 
 ## Overview
 
-QGIS plugin that exposes the Infrared City simulation platform inside QGIS. Users authenticate, define an area of interest, fetch building geometry from the Infrared City buildings API, run a microclimate simulation, and visualize the result raster — all from QGIS dialogs.
+QGIS plugin that exposes the Infrared City simulation platform inside QGIS. Users authenticate, define an area of interest, fetch building geometry (and optionally ground-material surface layers) from the Infrared City platform, run a microclimate simulation — with trees from a `tree-*` point layer and surface materials from `ground-*` polygon layers — and visualize the result raster, all from QGIS dialogs.
 
 ## Structure
 
@@ -12,6 +12,7 @@ infrared_city_gis/
 ├── infrared_city_gis.py     # Main plugin class (QGIS lifecycle, menu, toolbar)
 ├── infrared_city_save_auth.{py,ui}
 ├── infrared_city_fetch_geometry_dialog.{py,ui}
+├── infrared_city_fetch_ground_materials_dialog.py  # Fetch ground-* surface layers
 ├── infrared_city_select_bbox_dialog.{py,ui}
 ├── infrared_city_run_multiple_simulation_dialog.{py,ui}  # "Run simulation" (single-tile + area)
 ├── infrared_city_tree_catalog_dialog.{py,ui}
@@ -22,17 +23,25 @@ infrared_city_gis/
 ├── infrared_logger.py       # structlog setup
 ├── services/                # API + I/O helpers
 │   ├── fetch.py             # Building fetch (Infrared City /v2/buildings)
+│   ├── fetch_from_registry.py # Registry fetch on API-key save (models, vegetation, materials)
+│   ├── sdk_runner.py        # Area simulation via SDK run_area_and_wait
+│   ├── sdk_single_tile.py   # Single-tile simulation via SDK analyses.execute
+│   ├── single_tile_selection.py # One-shot "Select tile" pick shared across dialogs
 │   ├── area_poller.py       # Long-poll job status
+│   ├── qgis_area_buildings.py   # Collect buildings from a QGIS layer selection
+│   ├── qgis_area_vegetation.py  # Collect trees (genusCode → registry modelId)
+│   ├── tree_validation.py   # Tree-layer validation against the registry
+│   ├── ground_materials.py  # Ground-material catalog, ground-* discovery/collect/validate
 │   ├── converter.py         # Geometry conversion
 │   ├── feature_height.py    # Building height heuristics
-│   ├── epw_query.py         # Weather data lookup
+│   ├── epw_query.py         # Weather data lookup (+ epw_parser.py for local EPW upload)
 │   ├── buildings_compare.py # Diff buildings across versions
 │   └── _geometry_io.py      # Geometry serialization helpers
 ├── models/                  # Domain models
 │   ├── analysis.py          # Simulation request/response shapes
 │   ├── timeframes_parser.py # Time-period inputs
 │   └── vegetation_types.py  # Tree catalog
-├── visualization/           # Raster rendering / styles
+├── visualization/           # Raster rendering / styles + ground-* layer display
 ├── utils/                   # Shared utilities
 └── i18n/                    # Translations (Qt .ts files)
 ```
@@ -44,9 +53,12 @@ infrared_city_gis/
 | `infrared_city_gis.py` | QGIS plugin lifecycle — registers menu/toolbar entries, opens dialogs |
 | `client.py` | Thin HTTP wrapper. Reads API key from auth-dialog-saved credentials |
 | `services/fetch.py` | Pulls building footprints from the Infrared City buildings API (`POST /v2/buildings`, GeoJson), single request with a 512 m-tile fallback |
+| `services/sdk_runner.py` | Submits area simulations through the SDK (`client.run_area_and_wait`), passing buildings + trees + ground materials |
+| `services/sdk_single_tile.py` | Single-tile simulation (`analyses.execute`) with the same inputs embedded in the payload |
+| `services/ground_materials.py` | Material catalog (registry-driven, hardcoded fallback), `ground-*` layer discovery, collect + validate for simulation |
 | `services/area_poller.py` | Polls long-running simulation job status until done |
 | `models/analysis.py` | Request/response shapes for each simulation type |
-| `visualization/` | Converts raw simulation arrays → QGIS-styled raster layers |
+| `visualization/` | Converts raw simulation arrays → QGIS-styled raster layers; renders fetched `ground-*` layers with registry colors |
 
 ## External Dependencies
 
@@ -59,12 +71,21 @@ infrared_city_gis/
 
 ```
 User → Auth Dialog → API key stored in QGIS settings
-     → Select bbox → Fetch buildings (POST /v2/buildings, GeoJson)
-     → Configure simulation → POST /api/run-analysis → poll job status
-     → Download result → render as raster layer
-
-(Endpoints defined in `infrared_city_gis/constants.py`; `RUN_ANALYSIS_ENDPOINT` is the entry point.)
+                     (+ registries fetched: models, vegetation, materials)
+     → Select bbox / Select tile → Fetch buildings (POST /v2/buildings, GeoJson)
+       (optional) Fetch ground materials → editable ground-* layers
+     → Configure simulation (analysis, time frame, EPW, tree-* layer,
+       ground-* layers or auto-fetch)
+     → SDK run_area_and_wait (area) / analyses.execute (single tile)
+       → poll job status → download result → render as raster layer
 ```
+
+The area path goes through `services/sdk_runner.py`, the single-tile path
+through `services/sdk_single_tile.py`. The legacy raw-REST
+`RUN_ANALYSIS_ENDPOINT` in `constants.py`/`client.py` has no callers anymore.
+Trees and ground materials are documented in
+[`vegetation-input.md`](vegetation-input.md) and
+[`ground-materials.md`](ground-materials.md).
 
 ## Building Height Resolution
 
