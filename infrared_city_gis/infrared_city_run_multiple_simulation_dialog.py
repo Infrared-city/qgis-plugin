@@ -56,9 +56,12 @@ from .services.sdk_runner import run_sdk_area_async
 from .services.sdk_single_tile import run_sdk_single_tile_async
 from .services.secret_manager import get_api_key
 from .services.tree_layer_picker import (
+    has_tree_support,
     populate_tree_layer_dropdown,
+    selected_tree_layer,
     update_tree_layer_enabled,
 )
+from .services.tree_validation import validate_tree_layer
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -141,6 +144,17 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             # silently rather than failing the whole dialog.
             logger.warning("tree_layer_dropdown not present in dialog — skipping")
 
+        # Tree-type mode: by default each tree's own genusCode attribute is
+        # resolved to a registry modelId. The user can opt into the
+        # tree-catalog fallback when the layer carries no usable type.
+        self.use_tree_catalog_type = False
+        self._tree_has_type = None  # set by _revalidate_trees: True/False/None
+        try:
+            self.tree_layer_dropdown.currentIndexChanged.connect(self._revalidate_trees)
+            self.use_catalog_checkbox.toggled.connect(self._on_use_catalog_toggled)
+        except AttributeError:
+            pass  # older .ui without the new tree-validation widgets
+
         # Add the "Upload EPW…" controls to the weather-based analysis pages.
         self._setup_epw_uploads()
 
@@ -207,6 +221,95 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
         self._init_ok = True
 
+    def _on_use_catalog_toggled(self, checked):
+        self.use_tree_catalog_type = bool(checked)
+        self._revalidate_trees()
+
+    def _revalidate_trees(self, *args):
+        """Validate the selected tree layer over the area; update the status label.
+
+        Counts tree points in the area and how many carry the OSM tree
+        properties the backend uses. Sets ``self._tree_has_type`` (True/False/
+        None) so ``accept()`` can block a run that has trees-without-type and no
+        catalog fallback. No-ops on an older .ui without the widgets.
+        """
+        try:
+            label = self.tree_validation_label
+            checkbox = self.use_catalog_checkbox
+        except AttributeError:
+            return
+        current = self.analysis_type_dropdown.currentData()
+        try:
+            layer = selected_tree_layer(self.tree_layer_dropdown)
+        except AttributeError:
+            layer = None
+
+        # The catalog fallback only makes sense when a tree layer is selected on
+        # a vegetation-supporting analysis: show it only then, and never let it
+        # be ticked without a layer. Reset it (signal-free) when hidden.
+        supports = has_tree_support(current)
+        show_catalog = supports and layer is not None
+        checkbox.setVisible(show_catalog)
+        checkbox.setEnabled(layer is not None)
+        if not show_catalog and checkbox.isChecked():
+            checkbox.blockSignals(True)
+            checkbox.setChecked(False)
+            checkbox.blockSignals(False)
+            self.use_tree_catalog_type = False
+
+        if layer is None or self.polygon is None or not supports:
+            label.setText("")
+            self._tree_has_type = None
+            return
+        try:
+            result = validate_tree_layer(self.polygon, layer)
+        except Exception as e:
+            logger.warning("Tree validation failed: %s", e, exc_info=True)
+            label.setText("")
+            self._tree_has_type = None
+            return
+
+        # No tree points inside the selected area at all: the catalog fallback
+        # has nothing to apply to, so disable it (unchecking signal-free), and
+        # don't gate accept() — there is nothing to type.
+        if result.detected == 0:
+            checkbox.setEnabled(False)
+            if checkbox.isChecked():
+                checkbox.blockSignals(True)
+                checkbox.setChecked(False)
+                checkbox.blockSignals(False)
+                self.use_tree_catalog_type = False
+            label.setText(
+                "No tree points detected in the selected area (nearby trees "
+                "may still be included as shading/wind context)."
+            )
+            self._tree_has_type = None
+            return
+
+        self._tree_has_type = result.has_any_type
+        if self.use_tree_catalog_type:
+            label.setText(
+                f"{result.detected} tree point(s) detected — using the tree catalog "
+                f"tree type (fallback) for all of them."
+            )
+        elif result.has_any_type:
+            types_txt = ", ".join(
+                f"{count}× {name}"
+                for name, count in sorted(
+                    result.type_counts.items(), key=lambda kv: (-kv[1], kv[0])
+                )
+            )
+            label.setText(
+                f"{result.detected} tree point(s) detected — {result.with_type_props} "
+                f"with a supported tree type: {types_txt}."
+            )
+        else:
+            label.setText(
+                f"{result.detected} tree point(s) detected, but none carry a "
+                f"supported tree type. Set a 'genusCode' attribute per the docs, "
+                f"or tick 'Use tree catalog tree type'."
+            )
+
     def on_analysis_changed(self, text):
         current = self.analysis_type_dropdown.currentData()
 
@@ -217,6 +320,10 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             update_tree_layer_enabled(self.tree_layer_dropdown, current)
         except AttributeError:
             pass  # older .ui without the field
+
+        # Re-run the tree validation for the newly-selected analysis (tree
+        # support may have changed) and refresh the status label.
+        self._revalidate_trees()
 
         if self.bbox is not None and self.api_key and not self.weather_file_names:
             lon, lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
@@ -473,6 +580,21 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 )
                 return
             logger.info("Polygon (WGS84) ring length: %d", len(self.polygon["coordinates"][0]))
+
+            # Tree validation gate: with the polygon now confirmed, re-run the
+            # check. If the picked tree layer has trees but none carry OSM tree
+            # properties and the user hasn't opted into the catalog fallback,
+            # block with a clear message rather than submitting un-typeable trees.
+            self._revalidate_trees()
+            if self._tree_has_type is False and not self.use_tree_catalog_type:
+                QMessageBox.warning(
+                    self, "No tree type detected",
+                    "No tree type was detected on this area. Please add a "
+                    "'genusCode' attribute to the tree layer per the documentation "
+                    "(see the Tree Catalog for supported values), or tick "
+                    "'Use tree catalog tree type' to apply the catalog species.",
+                )
+                return
 
             # Collect buildings from the active QGIS layer instead of the
             # SDK's Mapbox fetch — same return type (AreaBuildings, in

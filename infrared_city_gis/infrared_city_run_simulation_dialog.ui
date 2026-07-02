@@ -476,6 +476,23 @@
     </layout>
    </item>
    <item>
+    <widget class="QLabel" name="tree_validation_label">
+     <property name="text">
+      <string/>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="use_catalog_checkbox">
+     <property name="text">
+      <string>Use tree catalog tree type (fallback when the layer has no genusCode)</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QDialogButtonBox" name="button_box">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>

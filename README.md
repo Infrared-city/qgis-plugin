@@ -11,7 +11,7 @@ Fetch building geometry with the help of Infrared City platform, run microclimat
 - Fetch building geometry for a 1 km × 1 km area with the help of Infrared City platform
 - Run climate simulations: wind speed, pedestrian wind comfort (PWC), thermal comfort (UTCI/TCS), solar radiation, daylight availability, direct sun hours, sky view factors, shadow mask
 - Upload a local EPW weather file for weather-based analyses (PWC / UTCI / TCS / solar radiation), or use the built-in weather lookup
-- Tree catalog integration for vegetation analysis
+- Vegetation from a tree point layer — each tree point carries a `genusCode` attribute (plus optional `height` / `crownDiameter`); the tree catalog lists supported types and provides a fallback. See [`docs/vegetation-input.md`](docs/vegetation-input.md)
 - Results visualized as raster layers in QGIS
 
 ## Requirements

@@ -391,7 +391,10 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
         pass
     if tree_layer is not None and has_tree_support(dlg.analysis_type):
         try:
-            vegetation = collect_qgis_area_vegetation(polygon, tree_layer)
+            vegetation = collect_qgis_area_vegetation(
+                polygon, tree_layer,
+                use_catalog_type=getattr(dlg, "use_tree_catalog_type", False),
+            )
             if not vegetation:
                 vegetation = None  # empty dict → no vegetation
         except Exception as e:
