@@ -5,10 +5,13 @@ The SDK's vegetation contract is much lighter than the buildings one:
 ``client.run_area_and_wait(..., vegetation=...)`` accepts a
 ``Mapping[str, dict]`` keyed by feature ID, where each value is a
 GeoJSON-like ``Feature`` dict with at least ``geometry.coordinates =
-[lon, lat]`` (WGS84). The SDK handles the per-tile distribution and
-the inference engine resolves the actual mesh + size from the
-``vegetation_registry`` (species / size attached on the feature
-properties or via QSettings).
+[lon, lat]`` (WGS84). The SDK handles the per-tile distribution; the
+backend's geojson-to-mesh conversion picks the tree mesh by
+``properties.modelId`` (a vegetation-registry key) and scales it by
+``properties.height`` / ``crownDiameter``. This collector resolves each
+feature's user-facing type attribute (``genusCode`` & aliases — see
+docs/vegetation-input.md) to that ``modelId``, or stamps a single
+catalog-selected type in the legacy fallback mode.
 
 This collector pulls the user's selected QGIS tree layer (returned by
 ``tree_layer_picker.selected_tree_layer``), filters point features whose
@@ -44,8 +47,84 @@ from .geotiff import _to_json_primitive
 # shadows / disturb airflow into it.
 _DEFAULT_CONTEXT_MARGIN_M = 100.0
 
+# Layer attribute names (lower-cased) whose VALUE identifies the tree type.
+# The user-facing contract (docs/vegetation-input.md) is ``genusCode``; the
+# other aliases are accepted as a courtesy for existing layers. Checked in
+# order — first attribute whose value resolves against the registry wins.
+TREE_TYPE_ATTRIBUTE_KEYS: Tuple[str, ...] = (
+    "genuscode", "genus", "species", "latinname", "modelid",
+)
 
-def _resolve_current_species() -> Tuple[Optional[dict], Optional[str]]:
+
+def _load_client_models() -> Dict[str, dict]:
+    """Return ``vegetation_registry.json``'s ``clientModels`` (id → entry).
+
+    The dict key is the registry model id — the value the backend's
+    geojson-to-mesh conversion expects as ``properties.modelId``. Empty dict
+    when the registry is missing (API key never saved / fetch failed).
+    """
+    veg_path = os.path.join(
+        QgsApplication.qgisSettingsDirPath(),
+        "infrared_city_gis", "settings", "vegetation_registry.json",
+    )
+    try:
+        with open(veg_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        models = data.get("clientModels") or {}
+        return models if isinstance(models, dict) else {}
+    except Exception as e:
+        logger.warning(
+            "Vegetation: could not read vegetation_registry.json (%s)", e,
+        )
+        return {}
+
+
+def load_tree_type_resolver() -> Dict[str, Tuple[str, dict]]:
+    """Build ``lower-cased alias -> (model_id, registry entry)``.
+
+    Aliases per model: its ``genusCode`` (the documented value), plus
+    ``latinName``, ``displayName`` and the raw registry id, so layers tagged
+    with any of those still resolve. Used to translate the user's tree-type
+    attribute into the ``modelId`` the backend conversion requires — an
+    UNKNOWN ``modelId`` there is a hard 404, so we only ever send resolved ids.
+    """
+    resolver: Dict[str, Tuple[str, dict]] = {}
+    for model_id, entry in _load_client_models().items():
+        if not isinstance(entry, dict):
+            continue
+        aliases = (
+            model_id,
+            entry.get("genusCode"),
+            entry.get("latinName"),
+            entry.get("displayName"),
+        )
+        for alias in aliases:
+            if isinstance(alias, str) and alias.strip():
+                resolver[alias.strip().lower()] = (model_id, entry)
+    return resolver
+
+
+def resolve_tree_model(
+    props: Dict[str, Any],
+    resolver: Dict[str, Tuple[str, dict]],
+) -> Optional[Tuple[str, dict]]:
+    """Resolve a feature's tree type to ``(model_id, registry entry)``.
+
+    Scans ``props`` (any key casing) for the first
+    :data:`TREE_TYPE_ATTRIBUTE_KEYS` attribute whose value matches a registry
+    alias (case-insensitive). ``None`` when nothing resolves.
+    """
+    lower = {str(k).lower(): v for k, v in props.items()}
+    for key in TREE_TYPE_ATTRIBUTE_KEYS:
+        value = lower.get(key)
+        if isinstance(value, str) and value.strip():
+            hit = resolver.get(value.strip().lower())
+            if hit is not None:
+                return hit
+    return None
+
+
+def _resolve_current_species() -> Tuple[Optional[str], Optional[dict], Optional[str]]:
     """Read the user's tree species + size from QSettings.
 
     The Tree Catalog dialog persists the user's choice under keys
@@ -58,65 +137,35 @@ def _resolve_current_species() -> Tuple[Optional[dict], Optional[str]]:
     behaviour as the legacy ``convert_tree_to_dotbim`` resolver, so
     runs are never silently empty when the species hasn't been configured.
 
-    Returns ``(client_model_dict, size_label)``.
+    Returns ``(model_id, client_model_dict, size_label)`` — ``model_id`` is
+    the registry key, i.e. the backend conversion's ``modelId``.
     """
     settings = QSettings()
     tree_type = settings.value("infrared_city/tree_type", None)
     tree_size = settings.value("infrared_city/tree_size", None)
 
+    client_models = _load_client_models()
+
     if tree_type:
-        # Find the client model by displayName
-        plugin_data_dir = os.path.join(
-            QgsApplication.qgisSettingsDirPath(),
-            "infrared_city_gis", "settings",
-        )
-        veg_path = os.path.join(plugin_data_dir, "vegetation_registry.json")
-        try:
-            with open(veg_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            client_models = data.get("clientModels") or {}
-            if isinstance(client_models, dict):
-                for model in client_models.values():
-                    if model.get("displayName") == tree_type:
-                        logger.info(
-                            "Vegetation: found configured tree_type %r in registry",
-                            tree_type,
-                        )
-                        return model, tree_size
-        except Exception as e:
-            logger.warning(
-                "Vegetation: could not read vegetation_registry.json (%s)",
-                e,
-            )
+        for model_id, model in client_models.items():
+            if isinstance(model, dict) and model.get("displayName") == tree_type:
+                logger.info(
+                    "Vegetation: found configured tree_type %r in registry",
+                    tree_type,
+                )
+                return model_id, model, tree_size
 
     # Fallback: first entry in registry. Mirrors legacy fallback.
-    plugin_data_dir = os.path.join(
-        QgsApplication.qgisSettingsDirPath(),
-        "infrared_city_gis", "settings",
-    )
-    veg_path = os.path.join(plugin_data_dir, "vegetation_registry.json")
-    try:
-        with open(veg_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        client_models = data.get("clientModels") or {}
-        if isinstance(client_models, dict):
-            for model in client_models.values():
-                fallback = model.get("displayName")
-                if fallback:
-                    logger.info(
-                        "Vegetation: no QSettings tree_type configured; "
-                        "falling back to first registry model %r",
-                        fallback,
-                    )
-                    return model, tree_size
-    except Exception as e:
-        logger.warning(
-            "Vegetation: could not read vegetation_registry.json (%s); "
-            "feature properties will not carry species info",
-            e,
-        )
+    for model_id, model in client_models.items():
+        if isinstance(model, dict) and model.get("displayName"):
+            logger.info(
+                "Vegetation: no QSettings tree_type configured; "
+                "falling back to first registry model %r",
+                model.get("displayName"),
+            )
+            return model_id, model, tree_size
 
-    return None, tree_size
+    return None, None, tree_size
 
 
 def _polygon_wgs84_bbox_with_margin(
@@ -143,6 +192,7 @@ def collect_qgis_area_vegetation(
     layer: QgsVectorLayer,
     *,
     context_margin_m: float = _DEFAULT_CONTEXT_MARGIN_M,
+    use_catalog_type: bool = False,
 ) -> Dict[str, dict]:
     """Build the SDK ``vegetation`` mapping from a QGIS point layer.
 
@@ -186,40 +236,50 @@ def collect_qgis_area_vegetation(
         polygon, context_margin_m,
     )
 
-    model, size = _resolve_current_species()
-
-    # No species model — the vegetation_registry.json is missing/empty (e.g.
-    # the API key was never saved, or the registry fetch failed). Degrade
-    # cleanly: run the simulation without vegetation instead of crashing on
-    # model.get(...) below. The caller treats an empty dict as "no trees".
-    if model is None:
-        logger.warning(
-            "collect_qgis_area_vegetation: no vegetation model resolved "
-            "(registry missing/empty or no species configured) — skipping "
-            "vegetation; the simulation will run without trees."
-        )
-        return {}
-
-    # Calculate height and crown diameter based on size
-    if size == "small":
-        height = model.get("heightRange", [0, 0])[0] if model.get("heightRange") else model.get("height", 0)
-        crownDiameter = model.get("crownDiameterRange", [0, 0])[0] if model.get("crownDiameterRange") else model.get("crownDiameter", 0)
-    elif size == "medium":
-        height = model.get("height", 0)
-        crownDiameter = model.get("crownDiameter", 0)
-    elif size == "large":
-        height = model.get("heightRange", [0, 0])[-1] if model.get("heightRange") else model.get("height", 0)
-        crownDiameter = model.get("crownDiameterRange", [0, 0])[-1] if model.get("crownDiameterRange") else model.get("crownDiameter", 0)
+    # Catalog-fallback mode resolves a single registry species (from the tree
+    # catalog / QSettings) and stamps it onto every tree — the legacy behaviour,
+    # for layers whose points carry no usable tree-type attribute. Layer mode
+    # (default) resolves each feature's OWN type attribute (genusCode & co.)
+    # against the registry and stamps the matching ``modelId`` — the only
+    # property the backend's geojson-to-mesh conversion uses to pick the tree
+    # mesh (unknown ids 404 there, so unresolved features are sent without one
+    # and get the backend's default model).
+    model_id = None
+    model = None
+    size = None
+    height = 0
+    crownDiameter = 0
+    resolver: Dict[str, Tuple[str, dict]] = {}
+    if use_catalog_type:
+        model_id, model, size = _resolve_current_species()
+        # No species model — vegetation_registry.json missing/empty (e.g. API
+        # key never saved, or registry fetch failed). Degrade cleanly: run
+        # without vegetation instead of crashing on model.get(...) below.
+        if model is None:
+            logger.warning(
+                "collect_qgis_area_vegetation: tree-catalog mode but no vegetation "
+                "model resolved (registry missing/empty) — running without trees."
+            )
+            return {}
+        if size == "small":
+            height = model.get("heightRange", [0, 0])[0] if model.get("heightRange") else model.get("height", 0)
+            crownDiameter = model.get("crownDiameterRange", [0, 0])[0] if model.get("crownDiameterRange") else model.get("crownDiameter", 0)
+        elif size == "large":
+            height = model.get("heightRange", [0, 0])[-1] if model.get("heightRange") else model.get("height", 0)
+            crownDiameter = model.get("crownDiameterRange", [0, 0])[-1] if model.get("crownDiameterRange") else model.get("crownDiameter", 0)
+        else:  # medium / unset
+            height = model.get("height", 0)
+            crownDiameter = model.get("crownDiameter", 0)
     else:
-        # Default fallback
-        height = model.get("height", 0)
-        crownDiameter = model.get("crownDiameter", 0)
+        resolver = load_tree_type_resolver()
 
     logger.info(
-        "collect_qgis_area_vegetation: layer=%r CRS=%s bbox+margin "
-        "(W=%.6f S=%.6f E=%.6f N=%.6f) margin=%.0fm species=%r size=%r height=%.2f crownDiameter=%.2f",
-        layer.name(), layer_crs.authid(), west, south, east, north,
-        context_margin_m, model.get("displayName") if model else "None", size, height, crownDiameter,
+        "collect_qgis_area_vegetation: layer=%r CRS=%s mode=%s bbox+margin "
+        "(W=%.6f S=%.6f E=%.6f N=%.6f) margin=%.0fm species=%r size=%r "
+        "height=%.2f crownDiameter=%.2f",
+        layer.name(), layer_crs.authid(), "catalog" if use_catalog_type else "osm",
+        west, south, east, north, context_margin_m,
+        model.get("displayName") if model else None, size, height, crownDiameter,
     )
 
     field_names = [f.name() for f in layer.fields()]
@@ -227,6 +287,7 @@ def collect_qgis_area_vegetation(
     skipped_geom = 0
     skipped_outside = 0
     skipped_non_point = 0
+    resolved_count = 0
 
     for feat in layer.getFeatures():
         geom = feat.geometry()
@@ -248,12 +309,6 @@ def collect_qgis_area_vegetation(
             skipped_outside += 1
             continue
 
-        # Downstream consumers
-        # (registry resolver, debugger views) can use them. Stamp the
-        # globally-configured species + size from QSettings (or the
-        # registry fallback) so the inference engine can resolve the
-        # mesh per-feature without server-side guesswork.
-        #
         # NOTE: every per-feature attribute is fed through
         # _to_json_primitive — QGIS attribute reads can hand back
         # QVariant-wrapped values (NULL fields, dates, list-typed
@@ -267,9 +322,9 @@ def collect_qgis_area_vegetation(
             "geometry_type": "trees",
         }
 
-        # Pass per-feature attributes through too so any per-feature
-        # species/size columns (when the layer carries them) override the
-        # global QSettings defaults at the inference engine.
+        # Pass every layer attribute through untouched — the type/size
+        # resolution below only ADDS keys (modelId, defaults), never
+        # rewrites what the user tagged.
         for name in field_names:
             try:
                 props[name] = _to_json_primitive(feat[name])
@@ -277,6 +332,7 @@ def collect_qgis_area_vegetation(
                 continue
 
         if model is not None:
+            props["modelId"] = model_id
             props["species"] = _to_json_primitive(model.get("latinName", 0))
             props["genus"] = _to_json_primitive(model.get("genusCode", 0))  # Use genusCode instead of genus
             props["height"] = _to_json_primitive(height)
@@ -284,11 +340,33 @@ def collect_qgis_area_vegetation(
             props["diameter_crown"] = _to_json_primitive(crownDiameter)
             props["genusCode"] = _to_json_primitive(model.get("genusCode", 0))
             props["leaf_cycle"] = _to_json_primitive(model.get("leafCycles", 0))
+        elif resolver:
+            resolved = resolve_tree_model(props, resolver)
+            if resolved is not None:
+                r_model_id, entry = resolved
+                props["modelId"] = r_model_id
+                resolved_count += 1
+                # Size is optional in the layer: when absent, default to the
+                # catalog dimensions of the RESOLVED type (documented in
+                # docs/vegetation-input.md) instead of the backend's generic
+                # 6 m / 4 m fallback.
+                lower = {str(k).lower(): v for k, v in props.items()}
+                h = lower.get("height")
+                if h in (None, "") or (isinstance(h, str) and not h.strip()):
+                    props["height"] = _to_json_primitive(entry.get("height", 0))
+                c = lower.get("crowndiameter")
+                if c in (None, "") or (isinstance(c, str) and not c.strip()):
+                    c = lower.get("diameter_crown")
+                if c in (None, "") or (isinstance(c, str) and not c.strip()):
+                    crown = _to_json_primitive(entry.get("crownDiameter", 0))
+                    props["crownDiameter"] = crown
+                    props["diameter_crown"] = crown
 
-        feat_id = props.get("osm_id")
-
-        if feat_id is None:
+        # Key by OSM id so the SDK's dedup (osmid/@id) works across tiles.
+        feat_id = props.get("osm_id") or props.get("osmid") or props.get("@id")
+        if feat_id in (None, ""):
             feat_id = str(uuid.uuid4())
+        feat_id = str(feat_id)
 
         out[feat_id] = {
             "type": "Feature",
@@ -298,9 +376,10 @@ def collect_qgis_area_vegetation(
 
     elapsed = time.monotonic() - t0
     logger.info(
-        "collect_qgis_area_vegetation: kept=%d; skipped (geom=%d outside=%d "
-        "non_point=%d) in %.2fs",
-        len(out), skipped_geom, skipped_outside, skipped_non_point, elapsed,
+        "collect_qgis_area_vegetation: kept=%d (type-resolved=%d); skipped "
+        "(geom=%d outside=%d non_point=%d) in %.2fs",
+        len(out), resolved_count,
+        skipped_geom, skipped_outside, skipped_non_point, elapsed,
     )
 
     return out

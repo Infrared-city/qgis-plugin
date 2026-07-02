@@ -316,7 +316,10 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
         pass
     if tree_layer is not None and has_tree_support(dlg.analysis_type):
         try:
-            vegetation = collect_qgis_area_vegetation(polygon, tree_layer) or None
+            vegetation = collect_qgis_area_vegetation(
+                polygon, tree_layer,
+                use_catalog_type=getattr(dlg, "use_tree_catalog_type", False),
+            ) or None
         except Exception as e:
             logger.warning("Single-tile: vegetation collection failed: %s", e,
                            exc_info=True)

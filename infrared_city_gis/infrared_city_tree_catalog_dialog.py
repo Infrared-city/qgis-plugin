@@ -22,7 +22,7 @@ import os
 
 from qgis.core import QgsApplication
 from qgis.PyQt import QtWidgets, uic
-from qgis.PyQt.QtCore import QSettings
+from qgis.PyQt.QtCore import QSettings, Qt
 from qgis.PyQt.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -40,6 +40,10 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'infrared_city_tree_catalog_dialog.ui'))
 
 _SIZES = ("small", "medium", "large")
+
+_VEGETATION_DOC_URL = (
+    "https://github.com/Infrared-city/qgis-plugin/blob/main/docs/vegetation-input.md"
+)
 
 
 def _resolve_registry_path() -> str:
@@ -100,7 +104,10 @@ class InfraredCityTreeCatalogDialog(QtWidgets.QDialog, FORM_CLASS):
         super().__init__(parent)
         self.setupUi(self)
         self.setWindowTitle("Tree Catalog")
-        self.resize(420, 220)
+        # Sized so the full explanatory note fits without maximising; the
+        # note is word-wrapped so further growth stays visible too.
+        self.setMinimumSize(560, 340)
+        self.resize(560, 340)
 
         self._species = _load_species()  # [(display_name, entry)]
         self.selected_tree_type = None
@@ -125,6 +132,22 @@ class InfraredCityTreeCatalogDialog(QtWidgets.QDialog, FORM_CLASS):
         form = QFormLayout(container)
         form.setContentsMargins(12, 12, 12, 12)
         form.setSpacing(10)
+
+        note = QLabel(
+            "These are the supported tree types. To assign a type per tree, "
+            "add a <b>genusCode</b> attribute to your tree layer (the value is "
+            "shown below for each species) — see the "
+            f"<a href='{_VEGETATION_DOC_URL}'>vegetation input guide</a>.<br><br>"
+            "The selection below is a <b>fallback</b>: pick a species + size "
+            "here, then tick 'Use tree catalog tree type' in the Run Simulation "
+            "dialog to apply it to every tree when your layer carries no "
+            "genusCode. Layers that already have one are used as-is."
+        )
+        note.setTextFormat(Qt.RichText)
+        note.setOpenExternalLinks(True)
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #555;")
+        form.addRow(note)
 
         self.species_combo = QComboBox()
         for display_name, _entry in self._species:
@@ -167,10 +190,15 @@ class InfraredCityTreeCatalogDialog(QtWidgets.QDialog, FORM_CLASS):
         return {}
 
     def _update_info(self, *args):
-        h, c = _dims_for_size(self._current_entry(), self._current_size())
+        entry = self._current_entry()
+        h, c = _dims_for_size(entry, self._current_size())
         h_txt = f"{h} m" if h not in (None, 0) else "—"
         c_txt = f"{c} m" if c not in (None, 0) else "—"
-        self.info_label.setText(f"Height: {h_txt}    Crown diameter: {c_txt}")
+        genus_code = entry.get("genusCode") or "—"
+        self.info_label.setText(
+            f"genusCode: {genus_code}\n"
+            f"Height: {h_txt}    Crown diameter: {c_txt}"
+        )
 
     # ------------------------------------------------------------------
 

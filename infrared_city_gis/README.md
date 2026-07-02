@@ -17,7 +17,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
   - Shadow Mask
 - Upload a local EPW weather file for weather-based analyses (PWC / UTCI / TCS / Solar Radiation), or use the built-in weather lookup
 - Visualize results as raster layers in QGIS
-- Tree catalog integration for vegetation analysis
+- Vegetation from a tree point layer — each tree point carries a `genusCode` attribute (plus optional `height` / `crownDiameter`); the tree catalog lists supported types and provides a fallback
 
 ## Requirements
 
