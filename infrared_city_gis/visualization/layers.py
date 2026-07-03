@@ -127,7 +127,9 @@ def display_ground_materials(ground_materials):
     "grass" key the server never emits (the material is "vegetation"), which
     is why this helper previously produced no green layer.
 
-    Returns ``{material_name: feature_count}`` for the layers created.
+    Returns ``{layer_name: feature_count}`` for the layers created — keyed
+    by the actual (possibly numbered) layer name so repeated fetches report
+    ``ground-asphalt-2`` etc. in summaries.
     """
     from ..services.ground_materials import (
         GROUND_LAYER_PREFIX,
@@ -166,7 +168,7 @@ def display_ground_materials(ground_materials):
                 "Ground material layer created: %s (%d features)",
                 name, layer.featureCount(),
             )
-            created[material] = layer.featureCount()
+            created[name] = layer.featureCount()
     if not created:
         logger.warning("No ground material layers were created (no features in response)")
     return created
