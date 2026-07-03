@@ -14,7 +14,9 @@ Public API:
     and overwrites ``model_registry.json``.
   - ``fetch_registry_vegetation(api_key)`` GETs ``/v2/utils/registry/vegetation``
     and overwrites ``vegetation_registry.json``.
-  - ``fetch_from_registry(api_key)`` runs both fetches. Called on plugin init
+  - ``fetch_registry_materials(api_key)`` GETs ``/v2/utils/registry/materials``
+    and overwrites ``materials_registry.json`` (ground-material catalog).
+  - ``fetch_from_registry(api_key)`` runs all fetches. Called on plugin init
     (when an API key is already saved) and after the user saves a new API key.
 """
 
@@ -50,6 +52,10 @@ def _model_registry_path():
 
 def _vegetation_registry_path():
     return os.path.join(_settings_dir(), "vegetation_registry.json")
+
+
+def _materials_registry_path():
+    return os.path.join(_settings_dir(), "materials_registry.json")
 
 
 def _load_api_key():
@@ -188,20 +194,49 @@ def fetch_registry_vegetation(api_key=None):
     return doc
 
 
+def fetch_registry_materials(api_key=None):
+    """Fetch the ground-material registry from ``/v2/utils/registry/materials``.
+
+    Always hits the network. Persists the full JSON response to
+    ``settings/materials_registry.json``. If ``api_key`` is not provided,
+    falls back to the one stored via
+    :func:`services.secret_manager.get_api_key` (QSettings + env var).
+
+    Returns:
+        dict: the parsed JSON document on success.
+        None: on any failure (network, auth, missing key, parse).
+    """
+    if not api_key:
+        api_key = _load_api_key()
+    if not api_key:
+        logger.warning("fetch_registry_materials: no api-key available")
+        return None
+
+    doc = _get_json("utils/registry/materials", api_key)
+    if doc is None:
+        return None
+
+    _write_json(_materials_registry_path(), doc)
+
+    logger.info("Materials registry fetched (version=%s)", doc.get("version"))
+    return doc
+
+
 def fetch_from_registry(api_key=None):
-    """Refresh both model and vegetation registries from the API.
+    """Refresh the model, vegetation, and materials registries from the API.
 
     Convenience wrapper used on plugin init and after the user saves an API
-    key. Returns a dict with both results (either may be ``None`` if that
+    key. Returns a dict with all results (any may be ``None`` if that
     particular endpoint failed).
     """
     if not api_key:
         api_key = _load_api_key()
     if not api_key:
         logger.warning("fetch_from_registry: no api-key available")
-        return {"model": None, "vegetation": None}
+        return {"model": None, "vegetation": None, "materials": None}
 
     return {
         "model": fetch_registry_visual_configs(api_key=api_key),
         "vegetation": fetch_registry_vegetation(api_key=api_key),
+        "materials": fetch_registry_materials(api_key=api_key),
     }

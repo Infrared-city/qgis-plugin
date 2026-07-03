@@ -39,6 +39,11 @@ from ..infrared_logger import logger
 from ..visualization.display import add_geojson_then_raster
 from .area_poller import AreaRenderState
 from .geotiff import generate_geotiff
+from .ground_materials import (
+    collect_ground_materials,
+    has_ground_material_support,
+    stamp_material_properties,
+)
 from .qgis_area_vegetation import collect_qgis_area_vegetation
 from .sdk_runner import (
     _ACTIVE_POLLERS,
@@ -327,6 +332,54 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
     if vegetation:
         payload = payload.model_copy(update={"vegetation": vegetation}, deep=True)
         logger.info("Single-tile: attached %d vegetation features", len(vegetation))
+
+    # Ground materials — only for analyses that use surface materials,
+    # embedded directly in the payload ({material_name: FeatureCollection}).
+    # Every feature must carry a properties.material stamp: run_area's tile
+    # assignment would add it, but analyses.execute sends the payload as-is
+    # and the Lambda's emissivity lookup needs it. The collector stamps its
+    # own output; auto-fetched layers are stamped here.
+    ground_materials: Optional[dict] = None
+    if has_ground_material_support(dlg.analysis_type):
+        if getattr(dlg, "use_infrared_ground_materials", False):
+            _status("InfraredCity: fetching ground materials for the tile…")
+            try:
+                with InfraredClient(api_key=dlg.api_key) as gm_client:
+                    area_gm = gm_client.ground_materials.get_area(polygon)
+                if area_gm.layers:
+                    ground_materials = stamp_material_properties(area_gm.layers)
+            except Exception as e:
+                logger.warning(
+                    "Single-tile: ground materials auto-fetch failed — "
+                    "running without: %s", e, exc_info=True,
+                )
+        else:
+            try:
+                gm_layers = dlg.selected_ground_material_layers()
+            except AttributeError:
+                gm_layers = {}
+            if gm_layers:
+                try:
+                    ground_materials = (
+                        collect_ground_materials(polygon, gm_layers) or None
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Single-tile: ground material collection failed: %s",
+                        e, exc_info=True,
+                    )
+                    ground_materials = None
+    if ground_materials:
+        payload = payload.model_copy(
+            update={"ground_materials": ground_materials}, deep=True,
+        )
+        logger.info(
+            "Single-tile: attached ground materials (%s)",
+            ", ".join(
+                f"{k}={len(v.get('features', []))}"
+                for k, v in ground_materials.items()
+            ),
+        )
 
     render_state = AreaRenderState.from_dialog(dlg)
     parent = iface.mainWindow() if iface is not None else None
