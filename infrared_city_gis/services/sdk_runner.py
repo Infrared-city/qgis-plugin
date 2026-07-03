@@ -413,7 +413,10 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
     # time (ignoring ground-* layers); otherwise the ticked ground-* layers
     # are collected into the SDK's {material_name: FeatureCollection}
     # mapping. Empty/failed → None → the run carries no ground materials
-    # (server default emissivity).
+    # (server default emissivity). No properties.material stamping here:
+    # run_area stamps it per feature from the dict key while assigning
+    # tiles (SDK assign_ground_materials_to_tiles) — only the single-tile
+    # path, which bypasses that orchestration, stamps in the plugin.
     ground_materials: Optional[dict] = None
     if has_ground_material_support(dlg.analysis_type):
         if getattr(dlg, "use_infrared_ground_materials", False):
