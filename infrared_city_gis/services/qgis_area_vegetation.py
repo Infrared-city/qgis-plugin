@@ -9,9 +9,11 @@ GeoJSON-like ``Feature`` dict with at least ``geometry.coordinates =
 backend's geojson-to-mesh conversion picks the tree mesh by
 ``properties.modelId`` (a vegetation-registry key) and scales it by
 ``properties.height`` / ``crownDiameter``. This collector resolves each
-feature's user-facing type attribute (``genusCode`` & aliases — see
-docs/vegetation-input.md) to that ``modelId``, or stamps a single
-catalog-selected type in the legacy fallback mode.
+feature's OSM type tags (``species``/``genus`` — see docs/vegetation-input.md)
+to that ``modelId`` when they match a registry species; unmatched trees are
+sent WITHOUT a modelId and the backend resolves them to an archetype.
+Catalog-override mode stamps one selected type
+on every tree instead.
 
 This collector pulls the user's selected QGIS tree layer (returned by
 ``tree_layer_picker.selected_tree_layer``), filters point features whose
@@ -47,12 +49,13 @@ from .geotiff import _to_json_primitive
 # shadows / disturb airflow into it.
 _DEFAULT_CONTEXT_MARGIN_M = 100.0
 
-# Layer attribute names (lower-cased) whose VALUE identifies the tree type.
-# The user-facing contract (docs/vegetation-input.md) is ``genusCode``; the
-# other aliases are accepted as a courtesy for existing layers. Checked in
-# order — first attribute whose value resolves against the registry wins.
+# Layer attribute names (lower-cased) whose VALUE identifies a precise registry
+# species (docs/vegetation-input.md). OSM ``species``/``genus`` are the common
+# ones; ``latinName``/``modelId`` let a layer name a registry entry directly.
+# Checked in order — first attribute whose value resolves against the registry
+# wins; anything unmatched is archetyped by the backend.
 TREE_TYPE_ATTRIBUTE_KEYS: Tuple[str, ...] = (
-    "genuscode", "genus", "species", "latinname", "modelid",
+    "genus", "species", "latinname", "modelid",
 )
 
 
@@ -82,11 +85,12 @@ def _load_client_models() -> Dict[str, dict]:
 def load_tree_type_resolver() -> Dict[str, Tuple[str, dict]]:
     """Build ``lower-cased alias -> (model_id, registry entry)``.
 
-    Aliases per model: its ``genusCode`` (the documented value), plus
-    ``latinName``, ``displayName`` and the raw registry id, so layers tagged
-    with any of those still resolve. Used to translate the user's tree-type
-    attribute into the ``modelId`` the backend conversion requires — an
-    UNKNOWN ``modelId`` there is a hard 404, so we only ever send resolved ids.
+    Aliases per model: its ``latinName`` (matched against the OSM ``species``
+    tag), ``displayName`` and the raw registry id, so a layer can also name a
+    registry entry directly. Translates a tree's OSM type tag into the
+    ``modelId`` the backend conversion needs for a PRECISE mesh — an UNKNOWN
+    ``modelId`` there is a hard 404, so we only ever send resolved ids;
+    unmatched trees are sent modelId-less and archetyped by the backend.
     """
     resolver: Dict[str, Tuple[str, dict]] = {}
     for model_id, entry in _load_client_models().items():
@@ -94,7 +98,6 @@ def load_tree_type_resolver() -> Dict[str, Tuple[str, dict]]:
             continue
         aliases = (
             model_id,
-            entry.get("genusCode"),
             entry.get("latinName"),
             entry.get("displayName"),
         )
@@ -236,14 +239,12 @@ def collect_qgis_area_vegetation(
         polygon, context_margin_m,
     )
 
-    # Catalog-fallback mode resolves a single registry species (from the tree
-    # catalog / QSettings) and stamps it onto every tree — the legacy behaviour,
-    # for layers whose points carry no usable tree-type attribute. Layer mode
-    # (default) resolves each feature's OWN type attribute (genusCode & co.)
-    # against the registry and stamps the matching ``modelId`` — the only
-    # property the backend's geojson-to-mesh conversion uses to pick the tree
-    # mesh (unknown ids 404 there, so unresolved features are sent without one
-    # and get the backend's default model).
+    # Catalog-override mode resolves a single registry species (from the tree
+    # catalog / QSettings) and stamps it onto every tree. Layer mode (default)
+    # resolves each feature's OWN OSM type tags (species/genus & co.) against
+    # the registry and stamps the matching ``modelId`` for a precise mesh
+    # (unknown ids 404 there, so unresolved features are sent WITHOUT one and
+    # the backend resolves them to an archetype — untagged → broadleaf).
     model_id = None
     model = None
     size = None
@@ -334,13 +335,13 @@ def collect_qgis_area_vegetation(
                 continue
 
         if model is not None:
+            # Catalog-override: modelId is authoritative (the backend picks the
+            # mesh by it); the rest is metadata for traceability.
             props["modelId"] = model_id
             props["species"] = _to_json_primitive(model.get("latinName", 0))
-            props["genus"] = _to_json_primitive(model.get("genusCode", 0))  # Use genusCode instead of genus
             props["height"] = _to_json_primitive(height)
             props["crownDiameter"] = _to_json_primitive(crownDiameter)
             props["diameter_crown"] = _to_json_primitive(crownDiameter)
-            props["genusCode"] = _to_json_primitive(model.get("genusCode", 0))
             props["leaf_cycle"] = _to_json_primitive(model.get("leafCycles", 0))
         elif resolver:
             resolved = resolve_tree_model(props, resolver)
@@ -369,7 +370,14 @@ def collect_qgis_area_vegetation(
         # the SDK's assign_vegetation_to_tiles distributes this dict per tile
         # as-is (its osmid-based dedup only runs on server-FETCHED tiles), so
         # a key collision here would silently drop a tree from the payload.
+        # A GeoJSON feature-level `id` (common in raw OSM/Overpass exports, e.g.
+        # `"id": 2016564072`) is NOT a property — QGIS surfaces it as the
+        # feature id, so fall back to feat.id() before minting a random UUID.
         feat_id = props.get("osm_id") or props.get("osmid") or props.get("@id")
+        if feat_id in (None, ""):
+            qgis_fid = feat.id()
+            if qgis_fid not in (None, "", -1):
+                feat_id = qgis_fid
         if feat_id in (None, ""):
             feat_id = str(uuid.uuid4())
         feat_id = str(feat_id)

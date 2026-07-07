@@ -29,7 +29,7 @@ infrared_city_gis/
 │   ├── single_tile_selection.py # One-shot "Select tile" pick shared across dialogs
 │   ├── area_poller.py       # Long-poll job status
 │   ├── qgis_area_buildings.py   # Collect buildings from a QGIS layer selection
-│   ├── qgis_area_vegetation.py  # Collect trees (genusCode → registry modelId)
+│   ├── qgis_area_vegetation.py  # Collect trees (OSM species/genus → registry modelId or archetype)
 │   ├── tree_validation.py   # Tree-layer validation against the registry
 │   ├── ground_materials.py  # Ground-material catalog, ground-* discovery/collect/validate
 │   ├── converter.py         # Geometry conversion

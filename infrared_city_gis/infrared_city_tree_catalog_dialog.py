@@ -134,14 +134,17 @@ class InfraredCityTreeCatalogDialog(QtWidgets.QDialog, FORM_CLASS):
         form.setSpacing(10)
 
         note = QLabel(
-            "These are the supported tree types. To assign a type per tree, "
-            "add a <b>genusCode</b> attribute to your tree layer (the value is "
-            "shown below for each species) — see the "
+            "These are the <b>precise</b> tree meshes in the registry. Your "
+            "layer doesn't need them: any OSM tree layer works — trees are "
+            "typed from their own <b>species</b> / <b>genus</b> / "
+            "<b>leaf_type</b> tags and rendered as the matching shape "
+            "(broadleaf, conifer, columnar, palm); untagged trees default to "
+            "broadleaf. A tree whose OSM <b>species</b> matches one below gets "
+            "that exact mesh automatically. See the "
             f"<a href='{_VEGETATION_DOC_URL}'>vegetation input guide</a>.<br><br>"
-            "The selection below is a <b>fallback</b>: pick a species + size "
-            "here, then tick 'Use tree catalog tree type' in the Run Simulation "
-            "dialog to apply it to every tree when your layer carries no "
-            "genusCode. Layers that already have one are used as-is."
+            "Use the selection below as an <b>override</b>: pick a species + "
+            "size, then tick 'Use tree catalog tree type' in the Run Simulation "
+            "dialog to force it on every tree in the area."
         )
         note.setTextFormat(Qt.RichText)
         note.setOpenExternalLinks(True)
@@ -194,9 +197,9 @@ class InfraredCityTreeCatalogDialog(QtWidgets.QDialog, FORM_CLASS):
         h, c = _dims_for_size(entry, self._current_size())
         h_txt = f"{h} m" if h not in (None, 0) else "—"
         c_txt = f"{c} m" if c not in (None, 0) else "—"
-        genus_code = entry.get("genusCode") or "—"
+        latin = entry.get("latinName") or entry.get("displayName") or "—"
         self.info_label.setText(
-            f"genusCode: {genus_code}\n"
+            f"Species: {latin}\n"
             f"Height: {h_txt}    Crown diameter: {c_txt}"
         )
 

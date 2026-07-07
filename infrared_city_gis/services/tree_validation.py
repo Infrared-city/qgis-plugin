@@ -5,19 +5,22 @@ collector, which also ships nearby context trees within a ~100 m margin —
 those affect the result but would be misleading in the dialog's counts):
 
 * ``detected`` — tree point features inside the area
-* ``with_type_props`` — points whose tree-type attribute (``genusCode`` & co.)
-  resolves to a supported type in the vegetation registry
+* ``with_type_props`` — points resolving to a PRECISE registry species
+  (matched via their OSM ``species``/``genus`` tag against the registry)
+* ``with_archetype_signal`` — points that don't match a precise species but
+  carry an OSM tag (``species``/``genus``/``leaf_type``/``tree-type``) the
+  backend resolves to an archetype (broadleaf/conifer/columnar/palm)
+* ``default_count`` — points with no type signal at all → server default
+  (broadleaf)
 * ``with_osm_id`` — points carrying a dedup id (``osmid``/``@id``/…)
-* ``type_counts`` — per resolved type (display name), how many points
+* ``type_counts`` — per resolved precise species (display name), how many points
 
-The backend contract (utilities-service ``/convert/geojson-to-mesh``): the
-tree mesh is picked ONLY by ``properties.modelId`` — a vegetation-registry
-key. The user tags layers with the human-friendly ``genusCode`` (documented in
-docs/vegetation-input.md); ``qgis_area_vegetation`` translates it to
-``modelId`` at collection time using the same resolver used here. A point
-whose type attribute doesn't resolve gets the backend's default model, so the
-run dialog surfaces how many points resolved (and to what) before submitting.
-Matching is case-insensitive on both attribute name and value.
+No tree is ever "unsupported": a point that resolves to a precise registry
+species is submitted with that ``modelId`` (precise mesh); everything else is
+submitted WITHOUT a modelId and the backend resolves it to an archetype from
+its OSM tags, falling back to broadleaf. The dialog surfaces this breakdown so
+the user knows what will render before submitting. Matching is case-insensitive
+on both attribute name and value.
 """
 
 from __future__ import annotations
@@ -46,6 +49,14 @@ from .qgis_area_vegetation import (
 # for case-insensitive attribute matching.
 OSM_ID_KEYS: Tuple[str, ...] = ("osmid", "osm_id", "@id", "id")
 
+# OSM-native tags the backend's archetype resolver reads for a tree whose type
+# doesn't resolve to a precise registry species. Presence of ANY of these means
+# the tree gets a real archetype (broadleaf/conifer/columnar/palm) server-side
+# instead of the plain broadleaf default.
+ARCHETYPE_SIGNAL_KEYS: Tuple[str, ...] = (
+    "species", "genus", "leaf_type", "tree-type", "tree_type",
+)
+
 
 def _is_present(value) -> bool:
     """True if a QGIS attribute value is a real, non-empty value.
@@ -70,15 +81,16 @@ class TreeValidationResult:
     """Outcome of scanning a tree layer over the selected area."""
 
     detected: int = 0             # point features inside the area
-    with_type_props: int = 0      # points resolving to a supported tree type
+    with_type_props: int = 0      # points resolving to a precise registry species
+    with_archetype_signal: int = 0  # not-precise, but carry an OSM archetype signal
     with_osm_id: int = 0          # points with a dedup id
     non_point_skipped: int = 0    # non-point features skipped
     type_counts: Dict[str, int] = field(default_factory=dict)  # display name -> count
 
     @property
-    def has_any_type(self) -> bool:
-        """Whether any tree in the area resolves to a supported tree type."""
-        return self.with_type_props > 0
+    def default_count(self) -> int:
+        """Trees with no type signal at all → server default (broadleaf)."""
+        return max(0, self.detected - self.with_type_props - self.with_archetype_signal)
 
 
 def validate_tree_layer(
@@ -148,14 +160,20 @@ def validate_tree_layer(
         if resolved is not None:
             _model_id, entry = resolved
             result.with_type_props += 1
-            name = entry.get("displayName") or entry.get("genusCode") or "?"
+            name = entry.get("displayName") or entry.get("latinName") or "?"
             counts[name] = counts.get(name, 0) + 1
+        elif _present_keys(props_lower, ARCHETYPE_SIGNAL_KEYS):
+            # No precise registry match, but the tree carries an OSM tag the
+            # backend resolves to an archetype (broadleaf/conifer/…) — so it
+            # still renders as its shape class, not a bare default.
+            result.with_archetype_signal += 1
 
     result.type_counts = counts
     logger.info(
-        "Tree validation: detected=%d with_type_props=%d with_osm_id=%d "
-        "non_point_skipped=%d types=%s",
-        result.detected, result.with_type_props, result.with_osm_id,
-        result.non_point_skipped, result.type_counts,
+        "Tree validation: detected=%d precise=%d archetype_signal=%d default=%d "
+        "with_osm_id=%d non_point_skipped=%d types=%s",
+        result.detected, result.with_type_props, result.with_archetype_signal,
+        result.default_count, result.with_osm_id, result.non_point_skipped,
+        result.type_counts,
     )
     return result
