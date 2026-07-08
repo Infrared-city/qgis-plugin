@@ -9,7 +9,7 @@ Fetch building geometry with the help of Infrared City platform, run microclimat
 ## Features
 
 - Fetch building geometry for a 1 km × 1 km area with the help of Infrared City platform
-- Run climate simulations: wind speed, pedestrian wind comfort (PWC), thermal comfort (UTCI/TCS), solar radiation, daylight availability, direct sun hours, sky view factors, shadow mask
+- Run climate simulations: wind speed, pedestrian wind comfort (PWC), thermal comfort (UTCI/TCS), solar radiation, daylight availability, direct sun hours, sky view factors
 - Upload a local EPW weather file for weather-based analyses (PWC / UTCI / TCS / solar radiation), or use the built-in weather lookup
 - Vegetation from a tree point layer — any OpenStreetMap tree layer works as-is: trees are typed from their own `species` / `genus` / `leaf_type` tags (matching a registry species for an exact mesh, otherwise a broadleaf/conifer/columnar/palm archetype; untagged → broadleaf). Nothing is mandatory but the point geometry. See [`docs/vegetation-input.md`](docs/vegetation-input.md)
 - Ground materials — fetch editable surface layers (asphalt, concrete, vegetation, soil, water, building) for a selected area and include them in thermal/solar simulations. See [`docs/ground-materials.md`](docs/ground-materials.md)
