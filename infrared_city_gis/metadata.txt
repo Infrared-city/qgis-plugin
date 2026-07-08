@@ -6,7 +6,7 @@
 name=Infrared City GIS
 qgisMinimumVersion=3.44
 description=Run urban climate simulations (wind, thermal comfort, solar) directly from QGIS using the infrared.city platform.
-version=0.2.6
+version=1.0.0
 author=infrared.city
 email=connectors@infrared.city
 
@@ -19,7 +19,14 @@ repository=https://github.com/Infrared-city/qgis-plugin
 # Recommended items:
 
 hasProcessingProvider=no
-changelog=0.2.6
+changelog=1.0.0
+    - First stable release
+    - Ground materials: fetch editable surface layers (asphalt, concrete, vegetation, soil, water, building) and include them in thermal / solar simulations
+    - Trees: submit any OpenStreetMap tree layer — trees are typed from their own species / genus / leaf_type tags (no manual tagging needed)
+    - Single-tile simulation mode (~10 tokens) alongside full-area runs
+    - Upload a local EPW weather file for weather-based analyses (PWC / UTCI / TCS / solar radiation)
+    - Building geometry fetched from the infrared.city platform
+    0.2.6
     - Code quality improvements: flake8 linting added to CI
     0.2.5
     - Homepage link updated to GitHub repository with usage documentation
@@ -45,7 +52,7 @@ homepage=https://github.com/Infrared-city/qgis-plugin
 category=Raster
 icon=icons/icon.png
 # experimental flag
-experimental=True
+experimental=False
 
 # deprecated flag (applies to the whole plugin, not just a single version)
 deprecated=False

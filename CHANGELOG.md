@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/Infrared-city/qgis-plugin/compare/v0.2.6...v1.0.0) (2026-07-08)
+
+
+### Features
+
+* OSM trees, ground materials, single-tile & EPW ([#30](https://github.com/Infrared-city/qgis-plugin/issues/30)) ([d9a8037](https://github.com/Infrared-city/qgis-plugin/commit/d9a80370fabcbda3b45dd24aaf66bbd8efb07686))
+
 ## [0.2.6](https://github.com/Infrared-city/qgis-plugin/compare/v0.2.5...v0.2.6) (2026-06-02)
 
 
