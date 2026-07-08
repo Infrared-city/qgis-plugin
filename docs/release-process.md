@@ -21,10 +21,12 @@ This is a **two-PR process**:
 4. This triggers the full release pipeline automatically:
    - Release Please creates a `vX.Y.Z` git tag
    - The `release.yml` workflow triggers on the new tag and builds + attaches the plugin ZIP to a GitHub Release
-   - The `sync-staging.yml` workflow automatically opens a `chore/sync-main-to-staging-vX.Y.Z` PR to bring the version bump and changelog back into staging
 
-**Step 3 — Merge the auto-sync PR**
-5. Review and merge the automated `chore: sync main to staging after vX.Y.Z` PR into staging
+**Step 3 — Sync main back to staging manually**
+5. After the release, merge main back into staging:
+   ```bash
+   git checkout staging && git merge main && git push origin staging
+   ```
 
 ## Commit message conventions
 
@@ -67,4 +69,4 @@ Upload to plugins.qgis.org is still **manual** — download the ZIP from the Git
 
 | Secret | Scope | Purpose |
 |--------|-------|---------|
-| `RELEASE_PLEASE_TOKEN` | Contents R/W, Pull requests R/W | Allows Release Please to open PRs, create tags, and open the staging sync PR |
+| `RELEASE_PLEASE_TOKEN` | Contents R/W, Pull requests R/W | Allows Release Please to open PRs and create tags |

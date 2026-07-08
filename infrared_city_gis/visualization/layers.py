@@ -40,18 +40,23 @@ def _create_layer_from_feature_collection(name, collection, color):
             continue
         qfeat = QgsFeature()
         try:
+            # Index positions instead of tuple-unpacking: several endpoints
+            # (e.g. ground-material clean-v3) return 2.5D coordinates
+            # ([lon, lat, z]) and `for x, y in ...` raises on those — which
+            # silently dropped every feature here.
             if gtype == "Point":
-                x, y = coords
-                qgeom = QgsGeometry.fromPointXY(QgsPointXY(float(x), float(y)))
+                qgeom = QgsGeometry.fromPointXY(
+                    QgsPointXY(float(coords[0]), float(coords[1]))
+                )
             elif gtype == "Polygon":
-                pts = [QgsPointXY(float(x), float(y)) for x, y in coords[0]]
+                pts = [QgsPointXY(float(p[0]), float(p[1])) for p in coords[0]]
                 qgeom = QgsGeometry.fromPolygonXY([pts])
             elif gtype == "MultiPolygon":
                 polys = []
                 for poly in coords:
                     if not poly:
                         continue
-                    pts = [QgsPointXY(float(x), float(y)) for x, y in poly[0]]
+                    pts = [QgsPointXY(float(p[0]), float(p[1])) for p in poly[0]]
                     polys.append([pts])
                 if not polys:
                     continue
@@ -112,23 +117,61 @@ def display_geojson(geojson_path):
 
 
 def display_ground_materials(ground_materials):
-    logger.info("Displaying ground materials layers")
-    material_defs = [
-        ("Ground Asphalt",  ground_materials.get("asphalt"),    QColor(77, 77, 77)),
-        ("Ground Building", ground_materials.get("building"),   QColor(128, 128, 128)),
-        ("Ground Concrete", ground_materials.get("concrete"),   QColor(191, 191, 191)),
-        ("Ground Grass",    ground_materials.get("grass"),      QColor(76, 175, 80)),
-        ("Ground Soil",     ground_materials.get("soil"),       QColor(139, 69, 19)),
-        ("Ground Water",    ground_materials.get("water"),      QColor(33, 150, 243)),
-    ]
-    created_any = False
-    for name, collection, color in material_defs:
+    """Create one editable ``ground-<material>`` layer per material.
+
+    ``ground_materials`` is the SDK's ``AreaGroundMaterials.layers`` mapping
+    (``{material_name: FeatureCollection}``). Layer names follow the
+    ``ground-*`` convention the simulation dialog collects by, and colors come
+    from the materials registry (with hardcoded fallbacks). Materials are
+    keyed by whatever the server returned — the old hardcoded list looked up a
+    "grass" key the server never emits (the material is "vegetation"), which
+    is why this helper previously produced no green layer.
+
+    Returns ``{layer_name: feature_count}`` for the layers created — keyed
+    by the actual (possibly numbered) layer name so repeated fetches report
+    ``ground-asphalt-2`` etc. in summaries.
+    """
+    from ..services.ground_materials import (
+        GROUND_LAYER_PREFIX,
+        material_color,
+        material_opacity,
+    )
+
+    logger.info("Displaying ground material layers")
+    # Number repeated fetches (ground-asphalt, ground-asphalt-2, …) so the
+    # user can tell downloads over different areas apart. The simulation
+    # dialog strips the trailing -N when resolving the material.
+    existing = {
+        ly.name().strip().lower()
+        for ly in QgsProject.instance().mapLayers().values()
+    }
+    created: dict = {}
+    for material, collection in sorted((ground_materials or {}).items()):
+        base = f"{GROUND_LAYER_PREFIX}{material}"
+        name = base
+        n = 2
+        while name.lower() in existing:
+            name = f"{base}-{n}"
+            n += 1
+        existing.add(name.lower())
+        color = QColor(*material_color(material))
         layer = _create_layer_from_feature_collection(name, collection, color)
         if layer is not None:
-            logger.info("Ground material layer created: %s (%d features)", name, layer.featureCount())
-            created_any = True
-    if not created_any:
+            # Styling comes from the materials registry (diffuseColor +
+            # opacity), scaled by a 0.55 display factor: the asphalt layer
+            # carries a bbox-covering background polygon (the server's
+            # gap-fill default, near-black per its registry diffuseColor)
+            # that would otherwise paint a solid box over the whole map.
+            layer.setOpacity(0.55 * material_opacity(material))
+            layer.triggerRepaint()
+            logger.info(
+                "Ground material layer created: %s (%d features)",
+                name, layer.featureCount(),
+            )
+            created[name] = layer.featureCount()
+    if not created:
         logger.warning("No ground material layers were created (no features in response)")
+    return created
 
 
 def deselect_all():

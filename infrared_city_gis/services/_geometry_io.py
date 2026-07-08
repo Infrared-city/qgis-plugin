@@ -44,10 +44,7 @@ def pick_layers_by_keyword(keywords, prefer_active=False):
 
     if prefer_active:
         active = iface.activeLayer() if iface else None
-        if (
-            isinstance(active, QgsVectorLayer)
-            and any(k in active.name().lower() for k in keywords)
-        ):
+        if isinstance(active, QgsVectorLayer) and any(k in active.name().lower() for k in keywords):
             return [active]
 
     return [

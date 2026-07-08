@@ -30,10 +30,12 @@ from qgis.PyQt.QtWidgets import QAction
 
 # Import the code for the dialog
 from .infrared_city_fetch_geometry_dialog import InfraredCityFetchGeometryDialog
+from .infrared_city_fetch_ground_materials_dialog import (
+    InfraredCityFetchGroundMaterialsDialog,
+)
 from .infrared_city_run_multiple_simulation_dialog import (
     InfraredCityRunMultipleSimulationDialog,
 )
-from .infrared_city_run_simulation_dialog import InfraredCityRunSimulationDialog
 from .infrared_city_save_auth import InfraredCitySaveAuthDialog
 from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
 from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
@@ -60,7 +62,6 @@ class InfraredCityGIS:
         self.iface = iface
         self.last_geojson_path = None
         self.last_dotbim_path = None
-        self.last_geotiff_path = None
         self.bbox = None
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
@@ -193,8 +194,13 @@ class InfraredCityGIS:
         fetch_geometry_icon_path = ':/plugins/infrared_city_gis/icons/get_geometry.png'
         select_bbox_icon_path = ':/plugins/infrared_city_gis/icons/select_area.png'
         tree_icon_path = ':/plugins/infrared_city_gis/icons/tree.svg'
-        run_single_icon_path = ':/plugins/infrared_city_gis/icons/run_single.svg'
         run_multiple_icon_path = ':/plugins/infrared_city_gis/icons/run_multiple.svg'
+        # Loaded from disk, not the compiled resource file — adding a file to
+        # resources.qrc requires a pyrcc5 recompile, which QIcon(file path)
+        # sidesteps entirely.
+        ground_materials_icon_path = os.path.join(
+            os.path.dirname(__file__), 'icons', 'ground_materials.png'
+        )
 
         self.add_action(
             save_auth_icon_path,
@@ -205,13 +211,20 @@ class InfraredCityGIS:
 
         self.add_action(
             fetch_geometry_icon_path,
-            text=self.tr(u'Fetch geometry from OSM'),
+            text=self.tr(u'Fetch building geometry'),
             callback=self.fetch_geometry,
             parent=self.iface.mainWindow())
 
         self.add_action(
+            ground_materials_icon_path,
+            text=self.tr(u'Fetch ground materials'),
+            callback=self.fetch_ground_materials,
+            parent=self.iface.mainWindow()
+        )
+
+        self.add_action(
             select_bbox_icon_path,
-            text=self.tr(u'Select bbox by center'),
+            text=self.tr(u'Select tile'),
             callback=self.select_bbox,
             parent=self.iface.mainWindow()
         )
@@ -223,16 +236,15 @@ class InfraredCityGIS:
             parent=self.iface.mainWindow()
         )
 
-        self.add_action(
-            run_single_icon_path,
-            text=self.tr(u'Run simulation'),
-            callback=self.run_simulation,
-            parent=self.iface.mainWindow()
-        )
-
+        # NOTE: the legacy single-simulation action and its
+        # InfraredCityRunSimulationDialog have been removed — the "Run
+        # simulation" dialog below now handles both single-tile (via the
+        # "Select tile" tool + analyses.execute) and area runs, mirroring the
+        # ArcGIS plugin. The "Fetch geometry from OSM" action above is kept as
+        # a standalone geometry-export utility.
         self.add_action(
             run_multiple_icon_path,
-            text=self.tr(u'Run multiple simulations'),
+            text=self.tr(u'Run simulation'),
             callback=self.run_multiple_simulations,
             parent=self.iface.mainWindow()
         )
@@ -312,6 +324,25 @@ class InfraredCityGIS:
         else:
             logger.info("API key save dialog cancelled")
 
+    def fetch_ground_materials(self):
+        """Open the selection-based ground-materials fetch dialog."""
+        self.dlg = InfraredCityFetchGroundMaterialsDialog(self.iface.mainWindow())
+
+        if not getattr(self.dlg, "_init_ok", False):
+            # Preconditions failed (no API key / no selection / preview
+            # error) — the dialog already showed the specific message.
+            logger.info("Ground materials dialog: preconditions not met")
+            return
+
+        result = self.dlg.exec_()
+        if result:
+            logger.info(
+                "Ground materials fetched: %s",
+                getattr(self.dlg, "created_layers", {}),
+            )
+        else:
+            logger.info("Ground materials fetch cancelled")
+
     def fetch_geometry(self):
         """Run method that performs all the real work"""
         self.dlg = InfraredCityFetchGeometryDialog()
@@ -323,15 +354,13 @@ class InfraredCityGIS:
         # See if OK was pressed
         if result:  # OK was pressed
             self.last_geojson_path = getattr(self.dlg, "geojson_path", None)
-            self.last_dotbim_path = getattr(self.dlg, "dotbim_path", None)
             self.bbox = getattr(self.dlg, "bbox", None)
             self.crs = "EPSG:4326"
 
-            if self.last_geojson_path and self.bbox and self.last_dotbim_path:
+            if self.last_geojson_path and self.bbox:
                 self.iface.messageBar().pushMessage(
                     "InfraredCity",
-                    f"Fetched geometry saved to: {self.last_geojson_path} \n "
-                    f"and .bim to {self.last_dotbim_path} \n"
+                    f"Fetched geometry saved to: {self.last_geojson_path} \n"
                     f"with bbox: {self.bbox}",
                     level=Qgis.Info,
                     duration=5
@@ -341,41 +370,3 @@ class InfraredCityGIS:
                     "InfraredCity",
                     "No file path returned from fetch dialog."
                 )
-
-    def run_simulation(self):
-        """Run method that performs all the real work"""
-        if not self.last_geojson_path or not self.last_dotbim_path or not self.bbox or not self.crs:
-            self.iface.messageBar().pushWarning("InfraredCity", "Please select geometry first.")
-            return
-
-        logger.info("Simulation dialog creation started")
-        self.dlg = InfraredCityRunSimulationDialog(
-            dotbim_path=self.last_dotbim_path,
-            geojson_path=self.last_geojson_path,
-            bbox=self.bbox,
-            crs=self.crs,
-        )
-        logger.info("Simulation dialog created")
-
-        if not self.dlg._init_ok:
-            return
-
-        # show the dialog
-        self.dlg.show()
-        # Run the dialog event loop
-        result = self.dlg.exec_()
-        # See if OK was pressed
-        if result:
-            logger.info("Simulation dialog closed")
-
-            self.last_geotiff_path = getattr(self.dlg, "geotiff_path", None)
-
-            if self.last_geotiff_path:
-                self.iface.messageBar().pushMessage(
-                        "InfraredCity",
-                        f"Simulation result saved to geotiff: {self.last_geotiff_path}",
-                        level=Qgis.Info,
-                        duration=5
-                    )
-
-            pass

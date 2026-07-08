@@ -214,3 +214,6 @@ __marimo__/
 
 # Claude Code config inside plugin folder — must not ship in the ZIP
 infrared_city_gis/.claude/
+
+# Local test fixtures — tree layer for manual QGIS testing, not shipped
+/tree-test-vienna.geojson

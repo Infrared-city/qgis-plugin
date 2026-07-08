@@ -142,6 +142,7 @@ class AreaPoller(QObject):
         render_state: AreaRenderState,
         on_render: Callable[[AreaRenderState, dict, Any, Any], None],
         vegetation: Optional[dict] = None,
+        ground_materials: Optional[dict] = None,
         poll_interval_ms: int = _DEFAULT_POLL_INTERVAL_MS,
         area_timeout_s: int = _DEFAULT_AREA_TIMEOUT_S,
         parent: Optional[QObject] = None,
@@ -160,6 +161,10 @@ class AreaPoller(QObject):
         # ({"geometry": {"coordinates": [lon, lat]}, ...}) — the SDK does
         # the per-tile distribution. None means no vegetation.
         self._vegetation = vegetation
+        # Optional ``{material_name: FeatureCollection}`` — the SDK assigns
+        # features to tiles and stamps the material name. None means no
+        # ground materials (server default emissivity everywhere).
+        self._ground_materials = ground_materials
         self._area_timeout_s = area_timeout_s
 
         self._schedule = None
@@ -188,12 +193,24 @@ class AreaPoller(QObject):
                 self._polygon,
                 buildings=self._area.buildings,
                 vegetation=self._vegetation,
+                ground_materials=self._ground_materials,
             )
         except Exception as e:
             self._fail(f"submit failed: {e}", exc=e)
             return
 
         n_jobs = len(self._schedule.jobs) if self._schedule is not None else 0
+        if n_jobs == 0:
+            # Submission scheduled 0 jobs — e.g. the selected area contained
+            # no buildings / no valid tiles. There is nothing to poll for, so
+            # fail fast with a clear message instead of spinning the timer
+            # until area_timeout_s elapses.
+            self._fail(
+                "submission scheduled 0 jobs — nothing to run "
+                "(check that the selected area contains buildings)",
+                exc=None,
+            )
+            return
         logger.info(
             "AreaPoller: submitted, %d jobs scheduled, polling every %d ms "
             "(timeout=%ds)",

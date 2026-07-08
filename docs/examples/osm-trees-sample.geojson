@@ -1,0 +1,73 @@
+{
+  "type": "FeatureCollection",
+  "_comment": "Sample tree layer for the Infrared City QGIS plugin. Load it, rename the layer to contain 'tree-', and it works as-is. Each feature demonstrates one resolution tier (see docs/vegetation-input.md). Only the point geometry is mandatory; all properties are optional.",
+  "features": [
+    {
+      "type": "Feature",
+      "id": 1001,
+      "geometry": { "type": "Point", "coordinates": [16.3785, 48.2050] },
+      "properties": {
+        "natural": "tree",
+        "species": "Quercus robur",
+        "leaf_type": "broadleaved",
+        "height": "18",
+        "diameter_crown": "12",
+        "_note": "species matches a registry species -> precise English Oak mesh"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 1002,
+      "geometry": { "type": "Point", "coordinates": [16.3788, 48.2051] },
+      "properties": {
+        "natural": "tree",
+        "species": "Pinus pinea",
+        "leaf_type": "needleleaved",
+        "_note": "species matches a registry species -> precise Stone Pine mesh, catalog default size"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 1003,
+      "geometry": { "type": "Point", "coordinates": [16.3791, 48.2049] },
+      "properties": {
+        "natural": "tree",
+        "species": "Acer platanoides",
+        "leaf_type": "broadleaved",
+        "height": "17",
+        "diameter_crown": "6",
+        "_note": "no registry match -> broadleaf archetype (from genus 'Acer'), at tagged size"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 1004,
+      "geometry": { "type": "Point", "coordinates": [16.3782, 48.2048] },
+      "properties": {
+        "natural": "tree",
+        "genus": "Picea",
+        "leaf_type": "needleleaved",
+        "_note": "genus 'Picea' -> conifer archetype, representative default size"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 1005,
+      "geometry": { "type": "Point", "coordinates": [16.3795, 48.2052] },
+      "properties": {
+        "natural": "tree",
+        "leaf_type": "needleleaved",
+        "_note": "no genus/species, only leaf_type -> conifer archetype"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 1006,
+      "geometry": { "type": "Point", "coordinates": [16.3779, 48.2053] },
+      "properties": {
+        "natural": "tree",
+        "_note": "bare tree, no type tag -> broadleaf default"
+      }
+    }
+  ]
+}

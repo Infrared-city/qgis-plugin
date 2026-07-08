@@ -40,7 +40,7 @@ git push --tags
 ```
 
 This triggers `.github/workflows/release.yml` which:
-- Zips `infrared_city_gis/` (excluding `__pycache__`, `*.pyc`)
+- Zips `infrared_city_gis/`, excluding caches (`*__pycache__*`, `*.pyc`, `*.pyo`, `*.DS_Store`), all hidden files (`*/.*`), the dev-only test dirs (`infrared_city_gis/tests/*`, `infrared_city_gis/test/*`), and packaging helpers (`plugin_upload.py`, `pb_tool.cfg`, `pylintrc`, `Makefile`) — keeps the uploaded package free of hidden-file warnings on plugins.qgis.org
 - Creates a GitHub Release with the ZIP attached and auto-generated release notes
 
 ### 3. Upload to plugins.qgis.org (manual, ~2 minutes)
@@ -61,7 +61,7 @@ Cut a new patch release. plugins.qgis.org users will start seeing it in default 
 
 ## Environments
 
-There's no staging deployment for the plugin itself — it's a client. Test against Infrared API environments by changing the base URL in the auth dialog (or by editing `constants.py` for development builds):
+There's no staging deployment for the plugin itself — it's a client. The auth dialog only takes an API key; the backend base URL is fixed in code. Test against a different Infrared API environment by editing `INFRARED_API_BASE_URL` in `infrared_city_gis/constants.py` for a development build:
 
 | Environment | Base URL | Notes |
 |---|---|---|

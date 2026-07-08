@@ -43,6 +43,7 @@ from .models.timeframes_parser import (
     MonthConfig,
     SeasonalTimeFrameConfig,
 )
+from .services import single_tile_selection
 from .services.fetch import fetch_weather_file_names
 from .services.geometry import (
     create_wgs84_geojson_polygon_from_selection,
@@ -50,13 +51,22 @@ from .services.geometry import (
     get_selected_bbox,
     get_selected_crs,
 )
+from .services.ground_materials import (
+    ground_material_layers,
+    has_ground_material_support,
+    validate_ground_material_layers,
+)
 from .services.qgis_area_buildings import collect_qgis_area_buildings
 from .services.sdk_runner import run_sdk_area_async
+from .services.sdk_single_tile import run_sdk_single_tile_async
 from .services.secret_manager import get_api_key
 from .services.tree_layer_picker import (
+    has_tree_support,
     populate_tree_layer_dropdown,
+    selected_tree_layer,
     update_tree_layer_enabled,
 )
+from .services.tree_validation import validate_tree_layer
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -85,23 +95,45 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self.polygon = None
         self.tile_count = None
         self.weather_file_names = []
-        try:
-            w, s, e, n = get_selected_bbox()
-            self.bbox = [w, s, e, n]
-            self.crs = get_selected_crs()
+        # Per-analysis uploaded EPW paths ({AnalysisType: path}); set by the
+        # "Upload EPW…" controls and read by build_sdk_payload.
+        self._epw_paths = {}
 
-            iface.messageBar().pushMessage(
-                            "InfraredCity",
-                            f"Layer CRS is the following: {self.crs}",
-                            level=Qgis.Info,
-                            duration=7
-                        )
+        # ArcGIS-style mode detection: if the "Select tile" tool stored a
+        # one-shot single-tile selection, consume it and run that single
+        # 512×512 m tile via analyses.execute (1 tile ≈ 10 tokens). Otherwise
+        # fall back to area mode driven by the current QGIS feature selection.
+        self.is_single_tile = False
+        _sel = single_tile_selection.consume()
+        if _sel is not None:
+            self.is_single_tile = True
+            self.polygon = _sel.polygon
+            self.bbox = list(_sel.bbox)
+            self.crs = _sel.crs
+            self.tile_count = 1
+            logger.info(
+                "Single-tile mode: 1 tile (512×512 m), center=(%.6f, %.6f), "
+                "%d buildings highlighted at pick time",
+                _sel.center_lon, _sel.center_lat, _sel.building_count,
+            )
+        else:
+            try:
+                w, s, e, n = get_selected_bbox()
+                self.bbox = [w, s, e, n]
+                self.crs = get_selected_crs()
 
-        except Exception as e:
-            logger.error(f"Failed to get selected bbox: {e}")
-            QMessageBox.warning(self, "Invalid selection", "Invalid selection please select geometry.")
-            self.reject()
-            return
+                iface.messageBar().pushMessage(
+                    "InfraredCity",
+                    f"Layer CRS is the following: {self.crs}",
+                    level=Qgis.Info,
+                    duration=7
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to get selected bbox: {e}")
+                QMessageBox.warning(self, "Invalid selection", "Invalid selection please select geometry.")
+                self.reject()
+                return
 
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
@@ -116,6 +148,39 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             # Older .ui without the tree_layer_dropdown widget — fall back
             # silently rather than failing the whole dialog.
             logger.warning("tree_layer_dropdown not present in dialog — skipping")
+
+        # Tree-type mode: by default each tree is typed from its own OSM tags
+        # (species/genus/leaf_type) — matching a registry species for a precise
+        # mesh, else an archetype server-side. The user can opt into the
+        # tree-catalog override to force one type on every tree instead.
+        self.use_tree_catalog_type = False
+        try:
+            self.tree_layer_dropdown.currentIndexChanged.connect(self._revalidate_trees)
+            self.use_catalog_checkbox.toggled.connect(self._on_use_catalog_toggled)
+        except AttributeError:
+            pass  # older .ui without the new tree-validation widgets
+
+        # Ground materials: one checkable row per ground-* layer in the
+        # project (created by the Fetch Ground Materials dialog or drawn by
+        # hand), plus an auto-fetch option that pulls Infrared's own ground
+        # materials at submit time and ignores the layers. The whole section
+        # hides for analyses that don't use surface materials (wind, PWC,
+        # SVF).
+        self._ground_layers = {}
+        self.use_infrared_ground_materials = False
+        try:
+            self._populate_ground_materials()
+            self.ground_materials_list.itemChanged.connect(
+                self._on_ground_item_changed
+            )
+            self.use_infrared_ground_checkbox.toggled.connect(
+                self._on_use_infrared_ground_toggled
+            )
+        except AttributeError:
+            pass  # older .ui without the ground-material widgets
+
+        # Add the "Upload EPW…" controls to the weather-based analysis pages.
+        self._setup_epw_uploads()
 
         if self.analysis_type_dropdown.count() > 0:
             self.analysis_type_dropdown.setCurrentIndex(0)
@@ -140,36 +205,309 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.reject()
             return
 
-        try:
+        if self.is_single_tile:
+            # Polygon already set from the tile selection; skip preview_area /
+            # tiling entirely — the single tile is submitted via
+            # analyses.execute so the 512 m box is never split into overlapping
+            # 256 m-step tiles (which would multiply the token cost).
+            self.setWindowTitle("Run Simulation — single tile (512×512 m) · 1 tile · ~10 tokens")
+            logger.info("Dialog loaded in single-tile mode")
+        else:
+            try:
 
-            client = InfraredClient(api_key=self.api_key)
-            self.polygon = create_wgs84_geojson_polygon_from_selection()
-            preview = client.preview_area(self.polygon)
-            logger.info("Preview area: %s", preview.tile_count)
-            self.tile_count = preview.tile_count
+                client = InfraredClient(api_key=self.api_key)
+                self.polygon = create_wgs84_geojson_polygon_from_selection()
+                preview = client.preview_area(self.polygon)
+                logger.info("Preview area: %s", preview.tile_count)
+                self.tile_count = preview.tile_count
 
-            if preview.tile_count > 100:
+                if preview.tile_count > 100:
+                    QMessageBox.warning(
+                        self,
+                        "Wrong selection",
+                        "The tile size can be between 0 and 100. Larger areas are not allowed. 2"
+                    )
+                    self.reject()
+                    return
+
+            except Exception as e:
+                logger.exception("Error computing/plotting selection polygon: %s", e)
                 QMessageBox.warning(
                     self,
-                    "Wrong selection",
-                    "The tile size can be between 0 and 100. Larger areas are not allowed. 2"
+                    "Error",
+                    f"An error occurred while computing the selection polygon. Please try again. Message: {e}"
                 )
                 self.reject()
                 return
 
+            self.setWindowTitle(f"Run Simulation — {self.tile_count} tile{'s' if self.tile_count != 1 else ''} selected")
+            logger.info("Dialog loaded, tile count: %d", self.tile_count)
+
+        # The polygon is only known now — refresh the area-dependent status
+        # labels that were initialised empty during widget setup.
+        self._revalidate_trees()
+        try:
+            self._revalidate_ground_materials()
+        except AttributeError:
+            pass  # older .ui without the ground-material widgets
+
+        self._init_ok = True
+
+    def _on_use_catalog_toggled(self, checked):
+        self.use_tree_catalog_type = bool(checked)
+        self._revalidate_trees()
+
+    def _revalidate_trees(self, *args):
+        """Validate the selected tree layer over the area; update the status label.
+
+        Counts tree points in the area and reports the breakdown: precise
+        registry species, OSM-typed trees (rendered as archetypes by the
+        backend), and untagged trees (broadleaf default). Never blocks a run —
+        every tree renders. No-ops on an older .ui without the widgets.
+        """
+        try:
+            label = self.tree_validation_label
+            checkbox = self.use_catalog_checkbox
+        except AttributeError:
+            return
+        current = self.analysis_type_dropdown.currentData()
+        try:
+            layer = selected_tree_layer(self.tree_layer_dropdown)
+        except AttributeError:
+            layer = None
+
+        # The catalog fallback only makes sense when a tree layer is selected on
+        # a vegetation-supporting analysis: show it only then, and never let it
+        # be ticked without a layer. Reset it (signal-free) when hidden.
+        supports = has_tree_support(current)
+        show_catalog = supports and layer is not None
+        checkbox.setVisible(show_catalog)
+        checkbox.setEnabled(layer is not None)
+        if not show_catalog and checkbox.isChecked():
+            checkbox.blockSignals(True)
+            checkbox.setChecked(False)
+            checkbox.blockSignals(False)
+            self.use_tree_catalog_type = False
+
+        if layer is None or self.polygon is None or not supports:
+            label.setText("")
+            return
+        try:
+            result = validate_tree_layer(self.polygon, layer)
         except Exception as e:
-            logger.exception("Error computing/plotting selection polygon: %s", e)
-            QMessageBox.warning(
-                self,
-                "Error",
-                f"An error occurred while computing the selection polygon. Please try again. Message: {e}"
-            )
-            self.reject()
+            logger.warning("Tree validation failed: %s", e, exc_info=True)
+            label.setText("")
             return
 
-        self.setWindowTitle(f"Run Multiple Simulations — {self.tile_count} tile{'s' if self.tile_count != 1 else ''} selected")
-        logger.info("Dialog loaded, tile count: %d", self.tile_count)
-        self._init_ok = True
+        # No tree points inside the selected area at all: the catalog fallback
+        # has nothing to apply to, so disable it (unchecking signal-free), and
+        # don't gate accept() — there is nothing to type.
+        if result.detected == 0:
+            checkbox.setEnabled(False)
+            if checkbox.isChecked():
+                checkbox.blockSignals(True)
+                checkbox.setChecked(False)
+                checkbox.blockSignals(False)
+                self.use_tree_catalog_type = False
+            label.setText(
+                "No tree points detected in the selected area (nearby trees "
+                "may still be included as shading/wind context)."
+            )
+            return
+
+        if self.use_tree_catalog_type:
+            label.setText(
+                f"{result.detected} tree point(s) detected — using the tree catalog "
+                f"tree type for all of them (overrides per-tree OSM types)."
+            )
+        else:
+            # No blocking: every tree renders. Report the breakdown so the
+            # user sees what will happen — precise registry species, OSM
+            # archetypes, and the broadleaf default for untagged trees.
+            parts = []
+            if result.with_type_props:
+                types_txt = ", ".join(
+                    f"{count}× {name}"
+                    for name, count in sorted(
+                        result.type_counts.items(), key=lambda kv: (-kv[1], kv[0])
+                    )
+                )
+                parts.append(f"{result.with_type_props} as a catalog species ({types_txt})")
+            if result.with_archetype_signal:
+                parts.append(
+                    f"{result.with_archetype_signal} by their OSM type "
+                    f"(genus/species/leaf_type) as an archetype"
+                )
+            if result.default_count:
+                parts.append(f"{result.default_count} as the default broadleaf")
+            if parts:
+                detail = "; ".join(parts)
+                label.setText(
+                    f"{result.detected} tree point(s) detected — {detail}."
+                )
+            else:
+                label.setText(f"{result.detected} tree point(s) detected.")
+
+    # -- ground materials ---------------------------------------------------
+
+    def _populate_ground_materials(self):
+        """Fill the list with the project's ground-* layers (nothing ticked).
+
+        One row PER LAYER — repeated fetches produce numbered layers
+        (``ground-asphalt``, ``ground-asphalt-2``) that the user can tick
+        individually. Each row shows ``material — layer name``; the
+        (material, layer) pair travels in the item's UserRole data so
+        display text can change freely.
+        """
+        from qgis.PyQt.QtCore import Qt
+        from qgis.PyQt.QtWidgets import QListWidgetItem
+
+        self._ground_layers = ground_material_layers()
+        lst = self.ground_materials_list
+        lst.blockSignals(True)
+        lst.clear()
+        for material in sorted(self._ground_layers):
+            for layer in self._ground_layers[material]:
+                item = QListWidgetItem(f"{material} — {layer.name()}")
+                item.setData(Qt.UserRole, (material, layer))
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                # Opt-in: ground materials are extra payload + server work,
+                # so the dialog opens with nothing ticked.
+                item.setCheckState(Qt.Unchecked)
+                lst.addItem(item)
+        lst.blockSignals(False)
+        self._revalidate_ground_materials()
+
+    def _on_use_infrared_ground_toggled(self, checked):
+        self.use_infrared_ground_materials = bool(checked)
+        self._revalidate_ground_materials()
+
+    def _on_ground_item_changed(self, changed_item):
+        """Enforce one ticked layer per material, then revalidate.
+
+        The simulation takes ONE FeatureCollection per material, so ticking
+        e.g. a second asphalt layer silently unticks the first (radio-like,
+        signal-free to avoid recursion).
+        """
+        from qgis.PyQt.QtCore import Qt
+
+        if changed_item.checkState() == Qt.Checked:
+            data = changed_item.data(Qt.UserRole)
+            if data:
+                material = data[0]
+                lst = self.ground_materials_list
+                lst.blockSignals(True)
+                for i in range(lst.count()):
+                    item = lst.item(i)
+                    if item is changed_item:
+                        continue
+                    other = item.data(Qt.UserRole)
+                    if other and other[0] == material:
+                        item.setCheckState(Qt.Unchecked)
+                lst.blockSignals(False)
+        self._revalidate_ground_materials()
+
+    def selected_ground_material_layers(self):
+        """Return ``{material: [layers]}`` for the ticked list rows."""
+        from qgis.PyQt.QtCore import Qt
+
+        try:
+            lst = self.ground_materials_list
+        except AttributeError:
+            return {}
+        selected = {}
+        for i in range(lst.count()):
+            item = lst.item(i)
+            if item.checkState() == Qt.Checked:
+                data = item.data(Qt.UserRole)
+                if not data:
+                    continue
+                material, layer = data
+                selected.setdefault(material, []).append(layer)
+        return selected
+
+    def _revalidate_ground_materials(self, *args):
+        """Refresh ground-material widgets for the current analysis + area.
+
+        Visibility: the whole section hides for analyses that ignore surface
+        materials (wind, PWC, SVF). The auto-fetch checkbox is always shown
+        for supported analyses (it needs no layers); the layer list only
+        when ground-* layers exist, and disabled while auto-fetch is ticked.
+        """
+        try:
+            label = self.ground_validation_label
+            lst = self.ground_materials_list
+            checkbox = self.use_infrared_ground_checkbox
+        except AttributeError:
+            return
+
+        supported = has_ground_material_support(
+            self.analysis_type_dropdown.currentData()
+        )
+        self.label_ground_materials.setVisible(supported)
+        checkbox.setVisible(supported)
+        lst.setVisible(supported and bool(self._ground_layers))
+        label.setVisible(supported)
+        if not supported:
+            label.setText("")
+            return
+
+        lst.setEnabled(not self.use_infrared_ground_materials)
+        if self.use_infrared_ground_materials:
+            label.setText(
+                "Infrared ground materials will be fetched automatically for "
+                "the selected area at submit; ground-* layers are ignored."
+            )
+            return
+
+        if not self._ground_layers:
+            label.setText(
+                "No ground-* layers in the project — fetch them with "
+                "'Fetch ground materials', or tick the auto-fetch option."
+            )
+            return
+        if self.polygon is None:
+            label.setText("")
+            return
+        selected = self.selected_ground_material_layers()
+        if not selected:
+            # Nothing ticked (the default): silence — validation only ever
+            # talks about layers the user opted into.
+            label.setText("")
+            return
+
+        # Per-LAYER validation, tree-style but terser: only rows whose layer
+        # has nothing inside the selected polygon are called out — layers
+        # that do cover the area need no confirmation.
+        missing = []
+        total_rows = 0
+        try:
+            for material, material_layers in selected.items():
+                for layer in material_layers:
+                    total_rows += 1
+                    found = validate_ground_material_layers(
+                        self.polygon, {material: [layer]},
+                    )
+                    if not found:
+                        missing.append(f"{material} — {layer.name()}")
+        except Exception as e:
+            logger.warning("Ground material validation failed: %s", e, exc_info=True)
+            label.setText("")
+            return
+        if not missing:
+            label.setText("")
+        elif len(missing) == total_rows:
+            subject = (
+                "the ticked layer has" if total_rows == 1
+                else "the ticked layers have"
+            )
+            label.setText(
+                f"No ground material data found on the selected area — "
+                f"{subject} no features inside your selection."
+            )
+        else:
+            missing_txt = ", ".join(sorted(missing))
+            label.setText(f"Not found on the selected area: {missing_txt}.")
 
     def on_analysis_changed(self, text):
         current = self.analysis_type_dropdown.currentData()
@@ -181,6 +519,14 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             update_tree_layer_enabled(self.tree_layer_dropdown, current)
         except AttributeError:
             pass  # older .ui without the field
+
+        # Re-run the tree + ground-material validation for the newly-selected
+        # analysis (support may have changed) and refresh the status labels.
+        self._revalidate_trees()
+        try:
+            self._revalidate_ground_materials()
+        except AttributeError:
+            pass  # older .ui without the ground-material widgets
 
         if self.bbox is not None and self.api_key and not self.weather_file_names:
             lon, lat = get_center_lon_lat_from_bbox(self.bbox, self.crs)
@@ -329,6 +675,95 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             except Exception as e:
                 logger.error("Failed to populate direct sun hours dialog elements: %s", str(e), exc_info=True)
 
+    def _setup_epw_uploads(self):
+        """Add an 'Upload EPW…' control to each weather-based analysis page.
+
+        Lets the user run PWC / TCI / TCS / Solar Radiation against a local
+        ``.epw`` file instead of an infrared.city weather station — mirrors the
+        ArcGIS plugin's upload toggle. Picking a file disables the station
+        combo and flips the button to 'Remove uploaded file'.
+        """
+        specs = [
+            (getattr(self, "page_pedestrian_wind_comfort", None),
+             getattr(self, "weather_file_input_pwc", None),
+             AnalysisType.PEDESTRIAN_WIND_COMFORT),
+            (getattr(self, "page_thermal_comfort_index", None),
+             getattr(self, "weather_file_input_tci", None),
+             AnalysisType.THERMAL_COMFORT_INDEX),
+            (getattr(self, "page_thermal_comfort_statistics", None),
+             getattr(self, "weather_file_input_tcs", None),
+             AnalysisType.THERMAL_COMFORT_STATISTICS),
+            (getattr(self, "page_solar_radiation", None),
+             getattr(self, "weather_file_input_sr", None),
+             AnalysisType.SOLAR_RADIATION),
+        ]
+        for page, combo, at in specs:
+            if page is None or combo is None:
+                continue
+            try:
+                self._wire_epw_upload(page, combo, at)
+            except Exception as e:
+                logger.warning("Could not add EPW upload for %s: %s", at, e)
+
+    def _wire_epw_upload(self, page, combo, analysis_type):
+        """Build + wire one page's EPW upload toggle (button + status label)."""
+        from qgis.PyQt.QtWidgets import (
+            QFileDialog,
+            QHBoxLayout,
+            QLabel,
+            QPushButton,
+            QWidget,
+        )
+
+        row = QWidget(page)
+        h = QHBoxLayout(row)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(6)
+        btn = QPushButton("Upload EPW…", row)
+        btn.setCheckable(True)
+        status = QLabel("", row)
+        status.setStyleSheet("color: #555;")
+        h.addWidget(btn)
+        h.addWidget(status)
+        h.addStretch()
+
+        page_layout = page.layout()
+        if page_layout is not None:
+            page_layout.addWidget(row)
+
+        def on_toggled(checked):
+            if checked:
+                path, _ = QFileDialog.getOpenFileName(
+                    self, "Select EPW weather file", "",
+                    "EnergyPlus Weather (*.epw);;All files (*)",
+                )
+                if not path:
+                    btn.setChecked(False)
+                    return
+                try:
+                    from .services.epw_parser import validate_file
+                    validate_file(path)
+                except Exception as e:
+                    QMessageBox.warning(
+                        self, "Invalid EPW", f"Not a usable EPW file:\n\n{e}",
+                    )
+                    btn.setChecked(False)
+                    return
+                self._epw_paths[analysis_type] = path
+                combo.setEnabled(False)
+                status.setText(f"Using uploaded: {os.path.basename(path)}")
+                btn.setText("Remove uploaded file")
+                # Log only the basename — the full path leaks the user's home
+                # dir / username (PII) into the plugin log.
+                logger.info("EPW uploaded for %s: %s", analysis_type, os.path.basename(path))
+            else:
+                self._epw_paths.pop(analysis_type, None)
+                combo.setEnabled(True)
+                status.setText("")
+                btn.setText("Upload EPW…")
+
+        btn.toggled.connect(on_toggled)
+
     def accept(self):
         try:
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
@@ -349,6 +784,12 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 return
             logger.info("Polygon (WGS84) ring length: %d", len(self.polygon["coordinates"][0]))
 
+            # Refresh the tree breakdown label for the confirmed polygon. No
+            # gate: any OSM tree layer is submittable — trees that don't match
+            # a precise registry species are resolved to an archetype by the
+            # backend (untagged → broadleaf), so nothing is ever un-typeable.
+            self._revalidate_trees()
+
             # Collect buildings from the active QGIS layer instead of the
             # SDK's Mapbox fetch — same return type (AreaBuildings, in
             # polygon-bbox-SW frame), so it plugs straight into
@@ -360,7 +801,13 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             # then close the dialog immediately. The poller is parented to
             # iface.mainWindow() so it survives this dialog being destroyed
             # and renders the result on the canvas when polling completes.
-            poller = run_sdk_area_async(self, self.polygon, area)
+            #
+            # Single-tile mode submits ONE job via analyses.execute (≈10
+            # tokens); area mode fans the polygon out across the tiler.
+            if self.is_single_tile:
+                poller = run_sdk_single_tile_async(self, self.polygon, area)
+            else:
+                poller = run_sdk_area_async(self, self.polygon, area)
             if poller is None:
                 # Payload validation failed; build_sdk_payload already
                 # showed a QMessageBox. Keep the dialog open.

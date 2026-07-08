@@ -31,6 +31,10 @@ from qgis.utils import iface
 from ..infrared_logger import logger
 from ..services.area_poller import AreaPoller, AreaRenderState
 from ..services.geotiff import generate_geotiff
+from ..services.ground_materials import (
+    collect_ground_materials,
+    has_ground_material_support,
+)
 from ..services.qgis_area_vegetation import collect_qgis_area_vegetation
 from ..services.sdk_payloads import build_sdk_payload
 from ..services.tree_layer_picker import has_tree_support, selected_tree_layer
@@ -168,6 +172,27 @@ def _prepare_run(dlg) -> "Optional[Any]":
     return payload
 
 
+def clear_layer_selections() -> None:
+    """Remove feature-selection highlights from all vector layers.
+
+    Called after a result renders so the picked single tile / selected area
+    buildings stop being highlighted on the canvas — the result raster is the
+    thing to look at now.
+    """
+    try:
+        from qgis.core import QgsProject, QgsVectorLayer
+        cleared = 0
+        for lyr in QgsProject.instance().mapLayers().values():
+            if isinstance(lyr, QgsVectorLayer) and lyr.selectedFeatureCount() > 0:
+                lyr.removeSelection()
+                cleared += 1
+        if cleared and iface is not None:
+            iface.mapCanvas().refresh()
+        logger.info("Cleared feature selection on %d layer(s) after render", cleared)
+    except Exception as e:
+        logger.debug("clear_layer_selections failed: %s", e)
+
+
 def render_area_result(
     render_state: AreaRenderState, polygon: dict, area, result,
 ) -> None:
@@ -258,6 +283,8 @@ def render_area_result(
         max_legend_value=leg_max,
         tile_id=None,
     )
+    # Drop the selection highlight now the result raster is on the canvas.
+    clear_layer_selections()
     if iface is not None:
         iface.mapCanvas().refresh()
     QApplication.processEvents()
@@ -368,7 +395,10 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
         pass
     if tree_layer is not None and has_tree_support(dlg.analysis_type):
         try:
-            vegetation = collect_qgis_area_vegetation(polygon, tree_layer)
+            vegetation = collect_qgis_area_vegetation(
+                polygon, tree_layer,
+                use_catalog_type=getattr(dlg, "use_tree_catalog_type", False),
+            )
             if not vegetation:
                 vegetation = None  # empty dict → no vegetation
         except Exception as e:
@@ -378,6 +408,53 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
             )
             vegetation = None
 
+    # Ground materials — only for analyses that use surface materials.
+    # Auto-fetch mode pulls Infrared's own layers for the polygon at submit
+    # time (ignoring ground-* layers); otherwise the ticked ground-* layers
+    # are collected into the SDK's {material_name: FeatureCollection}
+    # mapping. Empty/failed → None → the run carries no ground materials
+    # (server default emissivity). No properties.material stamping here:
+    # run_area stamps it per feature from the dict key while assigning
+    # tiles (SDK assign_ground_materials_to_tiles) — only the single-tile
+    # path, which bypasses that orchestration, stamps in the plugin.
+    ground_materials: Optional[dict] = None
+    if has_ground_material_support(dlg.analysis_type):
+        if getattr(dlg, "use_infrared_ground_materials", False):
+            _status("InfraredCity: fetching ground materials for the area…")
+            try:
+                with InfraredClient(api_key=dlg.api_key) as gm_client:
+                    area_gm = gm_client.ground_materials.get_area(polygon)
+                ground_materials = area_gm.layers or None
+                logger.info(
+                    "Auto-fetched ground materials: %d features, %d layer(s)",
+                    area_gm.total_features, len(area_gm.layers),
+                )
+            except Exception as e:
+                logger.warning(
+                    "Ground materials auto-fetch failed — running without: %s",
+                    e, exc_info=True,
+                )
+                _status(
+                    "InfraredCity: ground materials fetch failed — running "
+                    "without them", level=Qgis.Warning, duration=10,
+                )
+        else:
+            try:
+                gm_layers = dlg.selected_ground_material_layers()
+            except AttributeError:
+                gm_layers = {}
+            if gm_layers:
+                try:
+                    ground_materials = (
+                        collect_ground_materials(polygon, gm_layers) or None
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to collect ground materials: %s", e,
+                        exc_info=True,
+                    )
+                    ground_materials = None
+
     poller = AreaPoller(
         client=InfraredClient(api_key=dlg.api_key),
         polygon=polygon,
@@ -386,6 +463,7 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
         render_state=render_state,
         on_render=render_area_result,
         vegetation=vegetation,
+        ground_materials=ground_materials,
         parent=parent,
     )
     _ACTIVE_POLLERS.append(poller)

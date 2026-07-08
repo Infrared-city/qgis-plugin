@@ -28,6 +28,9 @@ jobs:
         run: |
           zip -r "infrared-city-qgis-${GITHUB_REF_NAME}.zip" infrared_city_gis/ \
             -x "*__pycache__*" "*.pyc" "*.pyo" "*.DS_Store" \
+               "*/.*" \
+               "infrared_city_gis/tests/*" \
+               "infrared_city_gis/test/*" \
                "infrared_city_gis/plugin_upload.py" \
                "infrared_city_gis/pb_tool.cfg" \
                "infrared_city_gis/pylintrc" \

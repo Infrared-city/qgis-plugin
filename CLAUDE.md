@@ -16,7 +16,7 @@ qgis-plugin/
 ├── infrared_city_gis/         # The QGIS plugin (this is what gets shipped)
 │   ├── __init__.py            # Plugin entry point — classFactory()
 │   ├── infrared_city_gis.py   # Main plugin class
-│   ├── infrared_city_*.{py,ui}# Dialogs (auth, fetch geometry, simulation, bbox, trees)
+│   ├── infrared_city_*.{py,ui}# Dialogs (auth, fetch geometry, ground materials, simulation, bbox, trees)
 │   ├── client.py              # HTTP client wrapper around infrared-sdk
 │   ├── services/              # Domain helpers (fetch, area_poller, geometry, buildings)
 │   ├── models/                # Analysis, vegetation, time-frame parsers
@@ -36,7 +36,11 @@ The plugin **must** ship as a single folder (`infrared_city_gis/`) zipped at the
 
 ```bash
 # Build a plugin ZIP locally (mirrors what CI does on tag push)
-zip -r infrared-city-qgis.zip infrared_city_gis/ -x "*__pycache__*" "*.pyc"
+# Excludes caches, hidden files, and the dev-only tests/ dir so the package
+# stays clean for plugins.qgis.org (no hidden-file warnings).
+zip -r infrared-city-qgis.zip infrared_city_gis/ \
+  -x "*__pycache__*" "*.pyc" "*.pyo" "*.DS_Store" "*/.*" \
+     "infrared_city_gis/tests/*" "infrared_city_gis/test/*"
 
 # Lint
 pylint --rcfile=infrared_city_gis/pylintrc infrared_city_gis/
@@ -59,11 +63,17 @@ CI builds the ZIP and creates a GitHub Release. Upload to `plugins.qgis.org` is 
 
 See [`docs/deployment.md`](docs/deployment.md) for full deploy details.
 
-## Architecture & Decisions
+## Doc Map
 
+- [`README.md`](README.md) — user-facing overview, install, and usage.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contributing guide (canonical filename; there is no `CONTRIBUTION.md`).
 - [`docs/architecture.md`](docs/architecture.md) — component overview, dialog flow, API contract.
+- [`docs/vegetation-input.md`](docs/vegetation-input.md) — tree-layer input contract (OSM-native: `species`/`genus`/`leaf_type`, optional size; two-tier resolution — precise registry species or archetype; catalog override). Only the point geometry is mandatory.
+- [`docs/ground-materials.md`](docs/ground-materials.md) — ground-material (surface) layers: fetch dialog, `ground-*` layer convention, simulation usage.
+- [`docs/manual-testing.md`](docs/manual-testing.md) — manual/exploratory test checklist for every dialog function (API key, fetch, ground materials, simulation matrix, trees).
 - [`docs/battle-scars.md`](docs/battle-scars.md) — non-obvious gotchas and workarounds (PyQGIS, pb_tool, plugin distribution).
 - [`docs/deployment.md`](docs/deployment.md) — how to cut a release, plugins.qgis.org review process.
+- [`docs/release-process.md`](docs/release-process.md) — Release Please flow (staging → main → tag).
 
 ## License & Distribution
 

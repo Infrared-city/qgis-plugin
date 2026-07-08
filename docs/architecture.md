@@ -1,9 +1,9 @@
 # Architecture
-_Last updated: 2026-05-07_
+_Last updated: 2026-07-02_
 
 ## Overview
 
-QGIS plugin that exposes the Infrared City simulation platform inside QGIS. Users authenticate, define an area of interest, fetch building geometry from OpenStreetMap, run a microclimate simulation, and visualize the result raster — all from QGIS dialogs.
+QGIS plugin that exposes the Infrared City simulation platform inside QGIS. Users authenticate, define an area of interest, fetch building geometry (and optionally ground-material surface layers) from the Infrared City platform, run a microclimate simulation — with trees from a `tree-*` point layer and surface materials from `ground-*` polygon layers — and visualize the result raster, all from QGIS dialogs.
 
 ## Structure
 
@@ -12,9 +12,9 @@ infrared_city_gis/
 ├── infrared_city_gis.py     # Main plugin class (QGIS lifecycle, menu, toolbar)
 ├── infrared_city_save_auth.{py,ui}
 ├── infrared_city_fetch_geometry_dialog.{py,ui}
+├── infrared_city_fetch_ground_materials_dialog.py  # Fetch ground-* surface layers
 ├── infrared_city_select_bbox_dialog.{py,ui}
-├── infrared_city_run_simulation_dialog.{py,ui}
-├── infrared_city_run_multiple_simulation_dialog.{py,ui}
+├── infrared_city_run_multiple_simulation_dialog.{py,ui}  # "Run simulation" (single-tile + area)
 ├── infrared_city_tree_catalog_dialog.{py,ui}
 ├── infrared_city_dialog_base.ui  # Shared dialog base
 ├── client.py                # HTTP wrapper around infrared-sdk
@@ -22,18 +22,26 @@ infrared_city_gis/
 ├── exceptions.py            # Domain exceptions
 ├── infrared_logger.py       # structlog setup
 ├── services/                # API + I/O helpers
-│   ├── fetch.py             # OSM building fetch
+│   ├── fetch.py             # Building fetch (Infrared City /v2/buildings)
+│   ├── fetch_from_registry.py # Registry fetch on API-key save (models, vegetation, materials)
+│   ├── sdk_runner.py        # Area simulation via SDK run_area_and_wait
+│   ├── sdk_single_tile.py   # Single-tile simulation via SDK analyses.execute
+│   ├── single_tile_selection.py # One-shot "Select tile" pick shared across dialogs
 │   ├── area_poller.py       # Long-poll job status
+│   ├── qgis_area_buildings.py   # Collect buildings from a QGIS layer selection
+│   ├── qgis_area_vegetation.py  # Collect trees (OSM species/genus → registry modelId or archetype)
+│   ├── tree_validation.py   # Tree-layer validation against the registry
+│   ├── ground_materials.py  # Ground-material catalog, ground-* discovery/collect/validate
 │   ├── converter.py         # Geometry conversion
 │   ├── feature_height.py    # Building height heuristics
-│   ├── epw_query.py         # Weather data lookup
+│   ├── epw_query.py         # Weather data lookup (+ epw_parser.py for local EPW upload)
 │   ├── buildings_compare.py # Diff buildings across versions
 │   └── _geometry_io.py      # Geometry serialization helpers
 ├── models/                  # Domain models
 │   ├── analysis.py          # Simulation request/response shapes
 │   ├── timeframes_parser.py # Time-period inputs
 │   └── vegetation_types.py  # Tree catalog
-├── visualization/           # Raster rendering / styles
+├── visualization/           # Raster rendering / styles + ground-* layer display
 ├── utils/                   # Shared utilities
 └── i18n/                    # Translations (Qt .ts files)
 ```
@@ -44,29 +52,40 @@ infrared_city_gis/
 |---|---|
 | `infrared_city_gis.py` | QGIS plugin lifecycle — registers menu/toolbar entries, opens dialogs |
 | `client.py` | Thin HTTP wrapper. Reads API key from auth-dialog-saved credentials |
-| `services/fetch.py` | Pulls building footprints from OSM (Overpass / Infrared OSM proxy) |
+| `services/fetch.py` | Pulls building footprints from the Infrared City buildings API (`POST /v2/buildings`, GeoJson), single request with a 512 m-tile fallback |
+| `services/sdk_runner.py` | Submits area simulations through the SDK (`client.run_area_and_wait`), passing buildings + trees + ground materials |
+| `services/sdk_single_tile.py` | Single-tile simulation (`analyses.execute`) with the same inputs embedded in the payload |
+| `services/ground_materials.py` | Material catalog (registry-driven, hardcoded fallback), `ground-*` layer discovery, collect + validate for simulation |
 | `services/area_poller.py` | Polls long-running simulation job status until done |
 | `models/analysis.py` | Request/response shapes for each simulation type |
-| `visualization/` | Converts raw simulation arrays → QGIS-styled raster layers |
+| `visualization/` | Converts raw simulation arrays → QGIS-styled raster layers; renders fetched `ground-*` layers with registry colors |
 
 ## External Dependencies
 
-- **Infrared City API** (`api.infrared.city/v2`) — simulation backend (subscription required)
-- **OpenStreetMap** — building geometry source (via Overpass or proxy)
+- **Infrared City API** (`api.infrared.city/v2`) — simulation backend and building geometry source (`/v2/buildings`, Mapbox-backed core-geometries-service; subscription required)
 - **QGIS / PyQGIS** — host application
-- **`infrared-sdk`** (≥0.4.2) — Python SDK; pinned in `requirements.txt`
+- **`infrared-sdk`** (≥0.4.10) — Python SDK; pinned in `requirements.txt`
 - **shapely**, **pyproj**, **mapbox_earcut**, **numpy**, **structlog**, **requests**
 
 ## Data Flow
 
 ```
 User → Auth Dialog → API key stored in QGIS settings
-     → Select bbox → Fetch buildings (OSM)
-     → Configure simulation → POST /api/run-analysis → poll job status
-     → Download result → render as raster layer
-
-(Endpoints defined in `infrared_city_gis/constants.py`; `RUN_ANALYSIS_ENDPOINT` is the entry point.)
+                     (+ registries fetched: models, vegetation, materials)
+     → Select bbox / Select tile → Fetch buildings (POST /v2/buildings, GeoJson)
+       (optional) Fetch ground materials → editable ground-* layers
+     → Configure simulation (analysis, time frame, EPW, tree-* layer,
+       ground-* layers or auto-fetch)
+     → SDK run_area_and_wait (area) / analyses.execute (single tile)
+       → poll job status → download result → render as raster layer
 ```
+
+The area path goes through `services/sdk_runner.py`, the single-tile path
+through `services/sdk_single_tile.py`. The legacy raw-REST
+`RUN_ANALYSIS_ENDPOINT` in `constants.py`/`client.py` has no callers anymore.
+Trees and ground materials are documented in
+[`vegetation-input.md`](vegetation-input.md) and
+[`ground-materials.md`](ground-materials.md).
 
 ## Building Height Resolution
 
@@ -99,9 +118,9 @@ Name your height attribute using any of the recognized field names above and the
 
 If your attribute has a non-standard name, the code supports an `override_field` parameter internally — a future UI release will expose this as a dropdown in the simulation dialog.
 
-### OSM Overpass path
+### Fetch Geometry dialog path
 
-When buildings are fetched directly from OpenStreetMap (via the Fetch Geometry dialog), height is extracted from OSM tags using the same tier priority and the same type-hint table. Unit strings like `"10 m"` and `"33 ft"` are parsed and converted automatically.
+The **Fetch building geometry** dialog (`services/fetch.py:fetch_geometry_from_infrared`) pulls footprints from the Infrared City buildings API (`POST /v2/buildings`, `outputFormat=GeoJson`) over a fixed **1 km × 1 km** area (1024 m) centred on the entered coordinates, writes a `FeatureCollection`, and loads it as a layer. Heights come from the API response, not from local tag parsing. It tries one request for the whole area first; if that returns nothing it falls back to fetching 512 m tiles (a 2×2 grid for 1024 m) and merging + de-duplicating them, and surfaces a clear error if both paths fail. The tier table above applies to the **separate** path where you run a simulation from your own QGIS buildings layer (`collect_qgis_area_buildings` + `feature_height.py`).
 
 ## Why This Shape
 
