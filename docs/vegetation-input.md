@@ -1,8 +1,10 @@
 # Vegetation (Tree) Input Requirements
 
-How to prepare a **tree layer** for an Infrared City simulation: which
-attributes each tree point must carry, the supported tree types, and what the
-plugin validates before a run.
+How to prepare a **tree layer** for an Infrared City simulation. The short
+version: **any OSM tree layer works as-is.** Trees are typed from their own
+OpenStreetMap tags — you don't need to prepare or match anything. Only the
+point geometry is mandatory; every other attribute is optional and only makes
+the result more precise.
 
 > Trees are 3D point objects. Green *surfaces* (grass, lawns, parks) are a
 > **ground material** (`ground-vegetation` polygon layer) — see
@@ -16,66 +18,100 @@ plugin validates before a run.
 - Any CRS — the plugin reprojects to WGS84 (`EPSG:4326`) before submission.
 - Trees are filtered to the **selected simulation area**. Trees up to ~100 m
   outside it are also sent as context (they cast shadows / disturb airflow
-  into the area), but the validation counts in the Run Simulation dialog
-  include **only trees inside the selected area** itself.
+  into the area), but the counts in the Run Simulation dialog include **only
+  trees inside the selected area** itself.
+
+A layer fetched straight from OpenStreetMap (e.g. an Overpass export of
+`natural=tree`) satisfies all of this — load it, name it `tree-*`, done.
 
 ## Per-tree attributes
 
-| Attribute (case-insensitive) | Purpose | Required? |
+Attribute names are matched **case-insensitively**. The only mandatory field
+is the point geometry; everything else is optional.
+
+| Attribute | Purpose | Required? |
 |---|---|---|
 | *point geometry* (lon/lat) | Tree position | **Mandatory** |
-| `genusCode` | Tree type — one of the [supported values](#supported-tree-types) below | **Mandatory** for typed trees |
-| `height` | Tree height in metres | Optional — defaults to the type's catalog height |
-| `crownDiameter` (or `diameter_crown`) | Crown diameter in metres | Optional — defaults to the type's catalog crown diameter |
+| `species` | OSM species binomial, e.g. `Quercus robur` | Optional — best type signal |
+| `genus` | OSM genus, e.g. `Quercus` | Optional — type signal |
+| `leaf_type` | OSM `broadleaved` / `needleleaved` | Optional — coarse type signal |
+| `height` | Tree height in metres (`15` or `"15 m"`) | Optional — defaults to a representative size |
+| `crownDiameter` / `diameter_crown` | Crown diameter in metres | Optional — defaults to a representative size |
 
-Other attributes (ids, notes, anything else) are passed through untouched and
-don't affect the simulation.
+These are the standard OpenStreetMap tree tags — see the OSM wiki
+[`natural=tree`](https://wiki.openstreetmap.org/wiki/Tag:natural%3Dtree) for
+the full scheme. Any other attributes (ids, notes, `taxon`, `leaf_cycle`,
+`circumference`, …) are passed through untouched and don't affect the
+simulation.
 
-The `genusCode` value is matched **case-insensitively** against the supported
-types; the Latin name (e.g. `Quercus Robur`) or display name (e.g.
-`English Oak`) are also accepted in the same attribute. A tree whose type
-doesn't match any supported value is simulated with a generic default tree
-(≈ 6 m tall, 4 m crown), so always check the validation count in the Run
-Simulation dialog.
+> There is no Infrared-specific attribute to add — the plugin reads the trees'
+> own OSM tags.
 
-## Supported tree types
+## How a tree's type is resolved
 
-Current catalog (also listed live in the plugin's **Tree Catalog** dialog,
-which is fetched from the vegetation registry when you save your API key):
+Every tree renders — there is no "unsupported" type. Resolution happens in two
+tiers:
 
-| `genusCode` | Species | Default height | Default crown diameter |
-|---|---|---|---|
-| `pinus-pinea` | Stone Pine | 30 m | 33.2 m |
-| `euphorbia-tirucallidis` | Pencil Tree | 9 m | 11 m |
-| `cupressus-sempervirens` | Mediterranean Cypress | 30 m | 7.5 m |
-| `quercus-ilex` | Holm Oak | 15 m | 20 m |
-| `larix-decidua` | European Larch | 40 m | 30 m |
-| `quercus-robur` | English Oak | 30 m | 27 m |
-| `combretum-collinum` | Bushwillow | 12 m | 9.7 m |
-| `taxodium-distichum` | Bald Cypress | 40 m | 22.2 m |
+1. **Precise species (exact mesh).** If a tree's `species` or `genus` matches a
+   species in the vegetation registry (the [catalog](#precise-species-catalog)),
+   it renders with that species' exact high-detail mesh. Example:
+   `species = "Quercus robur"` → the English Oak mesh.
+2. **Archetype (shape class).** Otherwise the tree is resolved to one of four
+   low-poly shape classes from whichever tag it carries, in order:
 
-The *default* height / crown diameter apply when your layer doesn't provide
-`height` / `crownDiameter` for a tree. Provide them per tree to override.
+   ```
+   tree-type → genus → species (first word) → leaf_type → broadleaf (default)
+   ```
+
+   So `genus = "Acer"` → **broadleaf**, `leaf_type = "needleleaved"` →
+   **conifer**, and a bare `natural=tree` point with no type tag → **broadleaf**.
+   The four archetypes are **broadleaf, conifer, columnar, palm**.
+
+You don't choose between the tiers — the plugin sends precise-species trees
+with their registry id and everything else without one, and the backend
+resolves the archetype. `leaf_cycle`, `taxon` and `circumference` are currently
+**not** used.
+
+## Sizes and defaults
+
+- If a tree carries `height` / `crownDiameter` (or `diameter_crown`), those are
+  used as-is (`"15 m"` with a unit is fine).
+- A **precise species** with no size tag uses that species' catalog default
+  (see the table below).
+- An **archetype** tree with no size tag uses a representative default size for
+  its shape class.
+
+Provide `height` / `crownDiameter` per tree to override any default.
+
+## Precise species catalog
+
+The registry species — each is an **exact mesh**, not required for a run but
+available when you want a specific tree. Also listed live in the plugin's
+**Tree Catalog** dialog (fetched when you save your API key):
+
+| Species (Latin name) | Default height | Default crown diameter |
+|---|---|---|
+| Pinus pinea (Stone Pine) | 30 m | 33.2 m |
+| Euphorbia tirucallidis (Pencil Tree) | 9 m | 11 m |
+| Cupressus sempervirens (Mediterranean Cypress) | 30 m | 7.5 m |
+| Quercus ilex (Holm Oak) | 15 m | 20 m |
+| Larix decidua (European Larch) | 40 m | 30 m |
+| Quercus robur (English Oak) | 30 m | 27 m |
+| Combretum collinum (Bushwillow) | 12 m | 9.7 m |
+| Taxodium distichum (Bald Cypress) | 40 m | 22.2 m |
+
+A tree matches one of these by its OSM `species` or `genus` tag (e.g.
+`species = "Quercus robur"` → English Oak).
 
 ## Examples
 
-### QGIS attribute table
+A ready-to-load sample covering every resolution tier is in
+[`examples/osm-trees-sample.geojson`](examples/osm-trees-sample.geojson) — open
+it in QGIS, rename the layer to contain `tree-`, and it runs as-is.
 
-A minimal typed tree layer looks like this (one row per tree point):
+### OSM-native layer (the common case)
 
-| `genusCode` | `height` | `crownDiameter` |
-|---|---|---|
-| `quercus-robur` | 18 | 12 |
-| `quercus-robur` | | |
-| `pinus-pinea` | 25 | 20 |
-
-Row 2 omits the size — that tree gets English Oak's catalog defaults
-(30 m × 27 m). Only `genusCode` (plus the point geometry) is needed to type a
-tree.
-
-### GeoJSON
-
-The same data as GeoJSON (e.g. when importing a layer from file):
+A layer straight from OpenStreetMap — just the native tags:
 
 ```json
 {
@@ -83,58 +119,69 @@ The same data as GeoJSON (e.g. when importing a layer from file):
   "features": [
     {
       "type": "Feature",
-      "geometry": { "type": "Point", "coordinates": [9.1815, 45.4685] },
+      "id": 2044194845,
+      "geometry": { "type": "Point", "coordinates": [16.3785, 48.2050] },
       "properties": {
-        "genusCode": "quercus-robur",
-        "height": 18,
-        "crownDiameter": 12
+        "natural": "tree",
+        "species": "Acer platanoides",
+        "leaf_type": "broadleaved",
+        "height": "17",
+        "diameter_crown": "6"
       }
     },
     {
       "type": "Feature",
-      "geometry": { "type": "Point", "coordinates": [9.1821, 45.4689] },
-      "properties": {
-        "genusCode": "pinus-pinea"
-      }
+      "id": 2044194872,
+      "geometry": { "type": "Point", "coordinates": [16.3688, 48.2050] },
+      "properties": { "natural": "tree" }
     }
   ]
 }
 ```
 
+Tree 1 (`Acer platanoides`) has no matching registry species, so it renders as
+a **broadleaf** archetype at its tagged 17 m × 6 m. Tree 2 carries no type or
+size — it renders as the **broadleaf** default at a representative size.
+
+### Getting exact meshes
+
+You get a precise mesh automatically when a tree's OSM `species` matches a
+registry species — no extra attribute needed:
+
+| `species` | `height` | `crownDiameter` |
+|---|---|---|
+| `Quercus robur` | 18 | 12 |
+| `Quercus robur` | | |
+| `Pinus pinea` | 25 | 20 |
+
+Row 2 omits the size — that tree gets English Oak's catalog defaults
+(30 m × 27 m). Species that aren't in the registry (e.g. `Acer platanoides`)
+render as their archetype instead — still automatic, no attribute to add.
+
 ## Validation in the Run Simulation dialog
 
 When you pick a tree layer, the dialog validates it over the selected area
-(only trees **inside** the drawn polygon are counted) and shows how many tree
-points were detected and how many resolved to a supported type, with a
-per-type count, e.g.:
+(only trees **inside** the drawn polygon are counted) and reports the
+breakdown, e.g.:
 
-> 42 tree point(s) detected — 40 with a supported tree type: 25× English Oak,
-> 15× Stone Pine.
+> 42 tree point(s) detected — 8 as a catalog species (5× English Oak, 3× Stone
+> Pine); 30 by their OSM type (genus/species/leaf_type) as an archetype; 4 as
+> the default broadleaf.
 
-Outcomes:
+The run is **never blocked** — every tree renders. The breakdown just tells you
+what to expect before submitting.
 
-- **Some trees resolve** — they are simulated with their own type and size;
-  unresolved ones fall back to the generic default tree.
-- **Trees found, but none resolve** — *"No tree type was detected on this
-  area"* — either
-  1. add a `genusCode` attribute per this document, or
-  2. tick **"Use tree catalog tree type"** to fall back to a single catalog
-     species + size applied to every tree in the area.
-
-  If neither is satisfied, the run is blocked with a clear message.
-- **No tree points in the selected area** — the catalog fallback is disabled
-  (there is nothing to apply it to) and the run is not blocked.
-
-## Tree catalog (fallback + reference)
+## Tree catalog (reference + override)
 
 The **Tree Catalog** dialog:
 
-- **lists the supported tree types** with their `genusCode` and default
-  dimensions (fetched from the vegetation registry when you save your API
-  key), and
-- provides the **fallback** type: when a layer has no usable `genusCode` and
-  you tick *"Use tree catalog tree type"*, the selected catalog species + size
-  are applied to every tree in the area (the legacy behaviour).
+- **lists the precise registry species** with their names and default
+  dimensions (a reference — your layer doesn't need to use any of them; a
+  matching OSM `species` picks the mesh automatically), and
+- provides an **override**: pick a species + size, then tick *"Use tree catalog
+  tree type"* in the Run Simulation dialog to force that one species onto
+  **every** tree in the area (ignoring their per-tree OSM types). Useful when a
+  layer has no type tags and you want a single deliberate species rather than
+  the automatic archetype resolution.
 
-It never overrides layers that already carry a usable `genusCode` — those are
-used as-is, per tree.
+Left un-ticked, per-tree OSM types are used as described above.

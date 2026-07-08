@@ -488,7 +488,7 @@
    <item>
     <widget class="QCheckBox" name="use_catalog_checkbox">
      <property name="text">
-      <string>Use tree catalog tree type (fallback when the layer has no genusCode)</string>
+      <string>Use tree catalog tree type (override — force one type on every tree)</string>
      </property>
     </widget>
    </item>

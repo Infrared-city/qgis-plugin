@@ -68,8 +68,9 @@ See [`docs/deployment.md`](docs/deployment.md) for full deploy details.
 - [`README.md`](README.md) — user-facing overview, install, and usage.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contributing guide (canonical filename; there is no `CONTRIBUTION.md`).
 - [`docs/architecture.md`](docs/architecture.md) — component overview, dialog flow, API contract.
-- [`docs/vegetation-input.md`](docs/vegetation-input.md) — tree-layer input contract (`genusCode` + optional size attributes, supported types, validation, catalog fallback).
+- [`docs/vegetation-input.md`](docs/vegetation-input.md) — tree-layer input contract (OSM-native: `species`/`genus`/`leaf_type`, optional size; two-tier resolution — precise registry species or archetype; catalog override). Only the point geometry is mandatory.
 - [`docs/ground-materials.md`](docs/ground-materials.md) — ground-material (surface) layers: fetch dialog, `ground-*` layer convention, simulation usage.
+- [`docs/manual-testing.md`](docs/manual-testing.md) — manual/exploratory test checklist for every dialog function (API key, fetch, ground materials, simulation matrix, trees).
 - [`docs/battle-scars.md`](docs/battle-scars.md) — non-obvious gotchas and workarounds (PyQGIS, pb_tool, plugin distribution).
 - [`docs/deployment.md`](docs/deployment.md) — how to cut a release, plugins.qgis.org review process.
 - [`docs/release-process.md`](docs/release-process.md) — Release Please flow (staging → main → tag).

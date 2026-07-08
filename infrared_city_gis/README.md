@@ -14,10 +14,9 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
   - Daylight Availability
   - Direct Sun Hours
   - Sky View Factors
-  - Shadow Mask
 - Upload a local EPW weather file for weather-based analyses (PWC / UTCI / TCS / Solar Radiation), or use the built-in weather lookup
 - Visualize results as raster layers in QGIS
-- Vegetation from a tree point layer — each tree point carries a `genusCode` attribute (plus optional `height` / `crownDiameter`); the tree catalog lists supported types and provides a fallback
+- Vegetation from a tree point layer — any OpenStreetMap tree layer works as-is: trees are typed from their own `species` / `genus` / `leaf_type` tags (registry species → exact mesh, otherwise a broadleaf/conifer/columnar/palm archetype; untagged → broadleaf). Only the point geometry is mandatory
 - Ground materials — fetch editable surface layers (asphalt, concrete, vegetation, soil, water, building) for a selected area and include them in thermal/solar simulations
 
 ## Requirements

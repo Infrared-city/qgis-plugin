@@ -149,11 +149,11 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             # silently rather than failing the whole dialog.
             logger.warning("tree_layer_dropdown not present in dialog — skipping")
 
-        # Tree-type mode: by default each tree's own genusCode attribute is
-        # resolved to a registry modelId. The user can opt into the
-        # tree-catalog fallback when the layer carries no usable type.
+        # Tree-type mode: by default each tree is typed from its own OSM tags
+        # (species/genus/leaf_type) — matching a registry species for a precise
+        # mesh, else an archetype server-side. The user can opt into the
+        # tree-catalog override to force one type on every tree instead.
         self.use_tree_catalog_type = False
-        self._tree_has_type = None  # set by _revalidate_trees: True/False/None
         try:
             self.tree_layer_dropdown.currentIndexChanged.connect(self._revalidate_trees)
             self.use_catalog_checkbox.toggled.connect(self._on_use_catalog_toggled)
@@ -260,10 +260,10 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
     def _revalidate_trees(self, *args):
         """Validate the selected tree layer over the area; update the status label.
 
-        Counts tree points in the area and how many carry the OSM tree
-        properties the backend uses. Sets ``self._tree_has_type`` (True/False/
-        None) so ``accept()`` can block a run that has trees-without-type and no
-        catalog fallback. No-ops on an older .ui without the widgets.
+        Counts tree points in the area and reports the breakdown: precise
+        registry species, OSM-typed trees (rendered as archetypes by the
+        backend), and untagged trees (broadleaf default). Never blocks a run —
+        every tree renders. No-ops on an older .ui without the widgets.
         """
         try:
             label = self.tree_validation_label
@@ -291,14 +291,12 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
         if layer is None or self.polygon is None or not supports:
             label.setText("")
-            self._tree_has_type = None
             return
         try:
             result = validate_tree_layer(self.polygon, layer)
         except Exception as e:
             logger.warning("Tree validation failed: %s", e, exc_info=True)
             label.setText("")
-            self._tree_has_type = None
             return
 
         # No tree points inside the selected area at all: the catalog fallback
@@ -315,32 +313,40 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 "No tree points detected in the selected area (nearby trees "
                 "may still be included as shading/wind context)."
             )
-            self._tree_has_type = None
             return
 
-        self._tree_has_type = result.has_any_type
         if self.use_tree_catalog_type:
             label.setText(
                 f"{result.detected} tree point(s) detected — using the tree catalog "
-                f"tree type (fallback) for all of them."
-            )
-        elif result.has_any_type:
-            types_txt = ", ".join(
-                f"{count}× {name}"
-                for name, count in sorted(
-                    result.type_counts.items(), key=lambda kv: (-kv[1], kv[0])
-                )
-            )
-            label.setText(
-                f"{result.detected} tree point(s) detected — {result.with_type_props} "
-                f"with a supported tree type: {types_txt}."
+                f"tree type for all of them (overrides per-tree OSM types)."
             )
         else:
-            label.setText(
-                f"{result.detected} tree point(s) detected, but none carry a "
-                f"supported tree type. Set a 'genusCode' attribute per the docs, "
-                f"or tick 'Use tree catalog tree type'."
-            )
+            # No blocking: every tree renders. Report the breakdown so the
+            # user sees what will happen — precise registry species, OSM
+            # archetypes, and the broadleaf default for untagged trees.
+            parts = []
+            if result.with_type_props:
+                types_txt = ", ".join(
+                    f"{count}× {name}"
+                    for name, count in sorted(
+                        result.type_counts.items(), key=lambda kv: (-kv[1], kv[0])
+                    )
+                )
+                parts.append(f"{result.with_type_props} as a catalog species ({types_txt})")
+            if result.with_archetype_signal:
+                parts.append(
+                    f"{result.with_archetype_signal} by their OSM type "
+                    f"(genus/species/leaf_type) as an archetype"
+                )
+            if result.default_count:
+                parts.append(f"{result.default_count} as the default broadleaf")
+            if parts:
+                detail = "; ".join(parts)
+                label.setText(
+                    f"{result.detected} tree point(s) detected — {detail}."
+                )
+            else:
+                label.setText(f"{result.detected} tree point(s) detected.")
 
     # -- ground materials ---------------------------------------------------
 
@@ -778,20 +784,11 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 return
             logger.info("Polygon (WGS84) ring length: %d", len(self.polygon["coordinates"][0]))
 
-            # Tree validation gate: with the polygon now confirmed, re-run the
-            # check. If the picked tree layer has trees but none carry OSM tree
-            # properties and the user hasn't opted into the catalog fallback,
-            # block with a clear message rather than submitting un-typeable trees.
+            # Refresh the tree breakdown label for the confirmed polygon. No
+            # gate: any OSM tree layer is submittable — trees that don't match
+            # a precise registry species are resolved to an archetype by the
+            # backend (untagged → broadleaf), so nothing is ever un-typeable.
             self._revalidate_trees()
-            if self._tree_has_type is False and not self.use_tree_catalog_type:
-                QMessageBox.warning(
-                    self, "No tree type detected",
-                    "No tree type was detected on this area. Please add a "
-                    "'genusCode' attribute to the tree layer per the documentation "
-                    "(see the Tree Catalog for supported values), or tick "
-                    "'Use tree catalog tree type' to apply the catalog species.",
-                )
-                return
 
             # Collect buildings from the active QGIS layer instead of the
             # SDK's Mapbox fetch — same return type (AreaBuildings, in
