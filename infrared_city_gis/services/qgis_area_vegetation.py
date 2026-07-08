@@ -365,14 +365,17 @@ def collect_qgis_area_vegetation(
                     props["crownDiameter"] = crown
                     props["diameter_crown"] = crown
 
-        # Key by OSM id when the layer has one (stable across runs), else a
-        # per-feature UUID. The mapping key IS the tree's identity end-to-end:
-        # the SDK's assign_vegetation_to_tiles distributes this dict per tile
-        # as-is (its osmid-based dedup only runs on server-FETCHED tiles), so
-        # a key collision here would silently drop a tree from the payload.
-        # A GeoJSON feature-level `id` (common in raw OSM/Overpass exports, e.g.
-        # `"id": 2016564072`) is NOT a property — QGIS surfaces it as the
-        # feature id, so fall back to feat.id() before minting a random UUID.
+        # Key each tree for the payload. The key's ONLY job is per-submit
+        # uniqueness: the SDK's assign_vegetation_to_tiles distributes this dict
+        # per tile as-is (its osmid dedup runs only on server-FETCHED tiles, not
+        # this user layer), so a collision here would silently drop a tree — but
+        # the key is NOT a simulation input. The result depends on each tree's
+        # position + properties, not its key, so an unstable key across runs is
+        # harmless (same trees → same result).
+        # Order: a stable attribute id, else the QGIS feature id (best-effort —
+        # for an OGR-loaded GeoJSON this IS the feature-level `id`, e.g. a raw
+        # OSM export's `"id": 2016564072`; memory/edited layers may renumber it,
+        # harmless per the above), else a fresh UUID.
         feat_id = props.get("osm_id") or props.get("osmid") or props.get("@id")
         if feat_id in (None, ""):
             qgis_fid = feat.id()
