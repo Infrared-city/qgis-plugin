@@ -61,7 +61,7 @@ Cut a new patch release. plugins.qgis.org users will start seeing it in default 
 
 ## Environments
 
-There's no staging deployment for the plugin itself — it's a client. Test against Infrared API environments by changing the base URL in the auth dialog (or by editing `constants.py` for development builds):
+There's no staging deployment for the plugin itself — it's a client. The auth dialog only takes an API key; the backend base URL is fixed in code. Test against a different Infrared API environment by editing `INFRARED_API_BASE_URL` in `infrared_city_gis/constants.py` for a development build:
 
 | Environment | Base URL | Notes |
 |---|---|---|
