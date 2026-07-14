@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/Infrared-city/qgis-plugin/compare/v1.0.0...v1.1.0) (2026-07-14)
+
+
+### Features
+
+* API-key validation with UI gating, EPW queries via SDK, simulation fixes ([#34](https://github.com/Infrared-city/qgis-plugin/issues/34)) ([b61950d](https://github.com/Infrared-city/qgis-plugin/commit/b61950d9d420f2165c81b9cce36ae1d33106367e))
+
 ## [1.0.0](https://github.com/Infrared-city/qgis-plugin/compare/v0.2.6...v1.0.0) (2026-07-08)
 
 
