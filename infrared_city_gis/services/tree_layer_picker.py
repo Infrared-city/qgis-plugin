@@ -15,10 +15,9 @@ behaviour that belongs to it:
   of these is true:
     1. There are no candidate layers in the project.
     2. The current analysis type is in
-       :data:`_ANALYSES_WITHOUT_TREE_SUPPORT` (currently empty — the
-       Infrared models all accept a ``vegetation`` payload, so the
-       dropdown is enabled for every analysis type by default; tighten
-       this set if a future analysis genuinely cannot use vegetation).
+       :data:`_ANALYSES_WITHOUT_TREE_SUPPORT` (the wind analyses — the
+       backend wind models do no vegetation meshing, so a tree layer
+       would have zero effect on their results).
 
 * :func:`selected_tree_layer` — read accessor returning the currently
   selected ``QgsVectorLayer`` or ``None``. The caller decides whether to
@@ -47,9 +46,10 @@ _NAME_FILTER = "tree"
 _NONE_LABEL = "(none)"
 
 # Analyses for which the dropdown should be greyed out even when matching
-# layers exist. Empty by default — every analysis type supported by the
-# plugin currently accepts a ``vegetation`` payload via the SDK. Add an
-# AnalysisType member here to grey out the dropdown for that page.
+# layers exist. Ground truth is the backend model code (lambda-models):
+# the wind models do no vegetation meshing ("wind has no vegetation
+# meshing" in their handlers), every other analysis includes the
+# vegetation meshes in its scene geometry.
 _ANALYSES_WITHOUT_TREE_SUPPORT: set = {
     AnalysisType.WIND_SPEED,
     AnalysisType.PEDESTRIAN_WIND_COMFORT,

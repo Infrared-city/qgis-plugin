@@ -5,7 +5,7 @@ QGIS plugin that connects to the [Infrared City](https://infrared.city) simulati
 ## Stack
 
 - Python 3 (whatever QGIS ships — typically 3.9+)
-- QGIS ≥ 3.44 (PyQGIS / PyQt5)
+- QGIS 3.44 – 3.x (PyQGIS / PyQt5) — QGIS 4 (Qt6) not yet supported; `metadata.txt` caps at `qgisMaximumVersion=3.99`
 - `pb_tool` for plugin packaging (`infrared_city_gis/pb_tool.cfg`)
 - Internal services: `infrared-sdk`, REST calls to `api.infrared.city`
 

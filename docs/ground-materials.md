@@ -2,14 +2,15 @@
 
 How to fetch, edit, and include ground-material (surface) layers in an
 Infrared City simulation. Ground materials tell the thermal analyses (UTCI,
-TCS) and the solar/daylight analyses what each surface is made of — without
-them, every surface runs with a generic server default.
+TCS) what each surface is made of — without them, every surface runs with a
+generic server default.
 
-They only matter for analyses that use surface materials: **UTCI, TCS,
-Solar Radiation, Daylight Availability, Direct Sun Hours**. Wind Speed,
-Pedestrian Wind Comfort, and Sky View Factors are pure geometry — for those
-the Run Simulation dialog hides the ground-material section and nothing is
-sent.
+They only matter for the two thermal analyses: **UTCI and TCS** (the
+backend models use them for the per-material ground-longwave term). All
+other analyses ignore the input — the solar/daylight family and SVF accept
+but explicitly discard it, and the wind models don't read it at all — so
+for those the Run Simulation dialog hides the ground-material section and
+nothing is sent.
 
 ## Supported materials
 
