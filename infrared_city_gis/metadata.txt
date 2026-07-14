@@ -25,9 +25,6 @@ hasProcessingProvider=no
 changelog=1.1.0
     - Fix: weather-file queries moved to the api.infrared.city SDK endpoint (legacy endpoint rejected newly issued API keys with HTTP 401)
     - API key is verified against the server on save; invalid keys are not stored and toolbar actions stay disabled until a valid key is saved
-    - Fix: single-tile Pedestrian Wind Comfort results (Lawson class grids) render correctly
-    - Fix: Sky View Factors with a tree layer no longer fails (HTTP 400)
-    - Tree / ground-material options are shown only for analyses whose models use them (trees: all except wind; ground materials: UTCI / TCS)
     - Declared QGIS compatibility capped at 3.x (qgisMaximumVersion=3.99)
     1.0.0
     - First stable release
