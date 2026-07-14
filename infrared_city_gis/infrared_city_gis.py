@@ -28,6 +28,8 @@ from qgis.PyQt.QtCore import QCoreApplication, QSettings, QTranslator
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
+from .exceptions import InfraredAPIError
+
 # Import the code for the dialog
 from .infrared_city_fetch_geometry_dialog import InfraredCityFetchGeometryDialog
 from .infrared_city_fetch_ground_materials_dialog import (
@@ -90,9 +92,19 @@ class InfraredCityGIS:
         # colormaps reflect the latest server-side definitions. Only runs if
         # the user has already saved an API key; otherwise skipped silently
         # and will run later on save / on demand.
+        #
+        # The call doubles as a key check: a 401/403 here means the SAVED key
+        # was rejected by the server, and initGui() greys out every action
+        # except "Save API Key". Transient failures (offline, 5xx) do NOT
+        # flag the key — an outage must not lock the user out of the plugin.
+        self._saved_key_rejected = False
         if _load_api_key():
             try:
                 _ = fetch_from_registry()
+            except InfraredAPIError as e:
+                if e.status_code in (401, 403):
+                    self._saved_key_rejected = True
+                logger.warning("Startup registry refresh failed: %s", e)
             except Exception as e:
                 logger.warning("Startup registry refresh failed: %s", e)
 
@@ -202,7 +214,10 @@ class InfraredCityGIS:
             os.path.dirname(__file__), 'icons', 'ground_materials.png'
         )
 
-        self.add_action(
+        # Kept as an attribute: this is the one action that must stay
+        # enabled when the API key is missing or rejected (see
+        # _set_authed_actions_enabled).
+        self.auth_action = self.add_action(
             save_auth_icon_path,
             text=self.tr(u'Save API Key'),
             callback=self.save_api_key,
@@ -248,6 +263,41 @@ class InfraredCityGIS:
             callback=self.run_multiple_simulations,
             parent=self.iface.mainWindow()
         )
+
+        # Grey out everything but "Save API Key" until a key is present and
+        # not known-bad. New keys are only ever saved after verification
+        # (see InfraredCitySaveAuthDialog.accept); an ALREADY-saved key is
+        # only locked out on a confirmed 401/403 from the startup registry
+        # check above — a mere outage keeps the plugin usable.
+        if not _load_api_key():
+            self._set_authed_actions_enabled(False)
+        elif self._saved_key_rejected:
+            self._set_authed_actions_enabled(False)
+            self.iface.messageBar().pushWarning(
+                "InfraredCity",
+                "Your saved API key was rejected by the Infrared server. "
+                "Update it via 'Save API Key'. If you believe the key is "
+                "correct, please contact us at connectors@infrared.city.",
+            )
+
+    def _set_authed_actions_enabled(self, enabled):
+        """Enable/disable every action except "Save API Key".
+
+        Actions are disabled while no valid API key is configured, so users
+        cannot open dialogs whose API calls would only fail with auth errors.
+        Only this plugin's own toolbar/menu actions are gated — QGIS itself
+        is untouched. Disabled toolbar buttons still show their tooltip on
+        hover, so the tooltip explains WHY the action is greyed out.
+        """
+        why_disabled = self.tr(
+            u'Requires a valid API key — set one via "Save API Key"'
+        )
+        for action in self.actions:
+            if action is self.auth_action:
+                continue
+            action.setEnabled(enabled)
+            # QAction's default tooltip is its text; restore that on enable.
+            action.setToolTip(action.text() if enabled else why_disabled)
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -297,6 +347,15 @@ class InfraredCityGIS:
         else:
             logger.error("BBox selection cancelled")
 
+        # When the modal dialog closes, Qt hands keyboard focus back to the
+        # toolbar button that opened it, which macOS draws as a lingering
+        # focus ring around the "Select tile" icon. Move focus to the map
+        # canvas so the toolbar looks idle again.
+        try:
+            self.iface.mapCanvas().setFocus()
+        except Exception:
+            pass
+
     def select_tree_type(self):
         self.dlg = InfraredCityTreeCatalogDialog()
 
@@ -312,7 +371,10 @@ class InfraredCityGIS:
 
     def save_api_key(self):
         """Open the API key save dialog."""
-        self.dlg = InfraredCitySaveAuthDialog(self.iface.mainWindow())
+        self.dlg = InfraredCitySaveAuthDialog(
+            self.iface.mainWindow(),
+            saved_key_rejected=self._saved_key_rejected,
+        )
 
         # show the dialog
         self.dlg.show()
@@ -320,7 +382,11 @@ class InfraredCityGIS:
         result = self.dlg.exec_()
 
         if result:
-            logger.info("API key save dialog closed successfully")
+            # accept() only fires after the key was verified against the
+            # server AND saved — unlock the rest of the toolbar.
+            self._saved_key_rejected = False
+            self._set_authed_actions_enabled(True)
+            logger.info("API key save dialog closed successfully (verified)")
         else:
             logger.info("API key save dialog cancelled")
 

@@ -1,5 +1,5 @@
 # Architecture
-_Last updated: 2026-07-02_
+_Last updated: 2026-07-14_
 
 ## Overview
 
@@ -34,7 +34,7 @@ infrared_city_gis/
 │   ├── ground_materials.py  # Ground-material catalog, ground-* discovery/collect/validate
 │   ├── converter.py         # Geometry conversion
 │   ├── feature_height.py    # Building height heuristics
-│   ├── epw_query.py         # Weather data lookup (+ epw_parser.py for local EPW upload)
+│   ├── epw_query.py         # Weather data via SDK weather client (+ epw_parser.py for local EPW upload)
 │   ├── buildings_compare.py # Diff buildings across versions
 │   └── _geometry_io.py      # Geometry serialization helpers
 ├── models/                  # Domain models
@@ -70,7 +70,11 @@ infrared_city_gis/
 ## Data Flow
 
 ```
-User → Auth Dialog → API key stored in QGIS settings
+User → Auth Dialog → key VERIFIED against the API before saving
+                     (the registry fetch doubles as the check: 401/403 →
+                      not saved + "contact connectors@infrared.city";
+                      server unreachable → not saved either)
+                   → API key stored in QGIS settings
                      (+ registries fetched: models, vegetation, materials)
      → Select bbox / Select tile → Fetch buildings (POST /v2/buildings, GeoJson)
        (optional) Fetch ground materials → editable ground-* layers
@@ -79,6 +83,20 @@ User → Auth Dialog → API key stored in QGIS settings
      → SDK run_area_and_wait (area) / analyses.execute (single tile)
        → poll job status → download result → render as raster layer
 ```
+
+All toolbar actions except **Save API Key** are greyed out (with an
+explanatory tooltip) until a key is stored and not known-bad. The startup
+registry refresh doubles as a key re-check: a confirmed 401/403 locks the
+actions and pushes a message-bar warning; a mere outage does NOT — an
+already-saved key keeps working offline.
+
+Weather-file data for thermal/wind analyses comes from the SDK weather
+client (`/v2/utils/weather/{id}/data/filter`) via `services/epw_query.py` —
+same host and API key as everything else. (It previously hit a legacy
+`app.infrared.city` endpoint with a separate key registry; see
+battle-scars.) The half-open plugin `TimeFrame` → inclusive SDK
+`TimePeriod` translation, including the multi-month / year-wrap splitting
+rules, is documented in `epw_query._time_periods_from_time_frame`.
 
 The area path goes through `services/sdk_runner.py`, the single-tile path
 through `services/sdk_single_tile.py`. The legacy raw-REST
