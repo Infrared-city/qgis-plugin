@@ -17,7 +17,7 @@ Fetch building geometry with the help of Infrared City platform, run microclimat
 
 ## Requirements
 
-- QGIS ≥ 3.44
+- QGIS 3.44 – 3.x (QGIS 4 is not yet supported — the plugin is PyQt5-based)
 - An Infrared City API key
 
 ## Installation
@@ -31,7 +31,7 @@ Fetch building geometry with the help of Infrared City platform, run microclimat
 ## Usage
 
 1. Open the plugin from the QGIS toolbar or **Plugins** menu
-2. Enter your Infrared City API key (stored locally)
+2. Enter your Infrared City API key — it is verified against the server and stored locally; the other toolbar actions stay disabled until a valid key is saved
 3. Select an area of interest on the map
 4. Fetch building geometry (a 1 km × 1 km area around the entered coordinates)
 5. Choose a simulation type and configure parameters — for weather-based analyses you can **Upload EPW…** to use a local weather file instead of the built-in lookup

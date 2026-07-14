@@ -21,7 +21,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
 
 ## Requirements
 
-- QGIS 3.44 or later
+- QGIS 3.44 – 3.x (QGIS 4 is not yet supported)
 - An Infrared City API key ([infrared.city](https://infrared.city))
 
 ## Installation
@@ -34,7 +34,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
 ## Usage
 
 1. Open the plugin from the QGIS toolbar or **Plugins** menu
-2. Enter your Infrared City API key (saved locally for future sessions)
+2. Enter your Infrared City API key — it is verified against the server, then saved locally for future sessions; the other toolbar actions are disabled until a valid key is saved
 3. Select an area of interest on the map
 4. Fetch building geometry (a 1 km × 1 km area around the entered coordinates)
 5. Choose a simulation type and configure the parameters — for weather-based analyses you can **Upload EPW…** to use a local weather file instead of the built-in lookup

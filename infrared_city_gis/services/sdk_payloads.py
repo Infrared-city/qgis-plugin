@@ -38,7 +38,7 @@ from ..models.timeframes_parser import (
     makeTimeFrameObj,
     makeTimeFrameObjWithMonth,
 )
-from ..services.epw_query import Query_Type, query_infrared_epw
+from ..services.epw_query import query_infrared_epw
 from ..services.geometry import get_center_lon_lat_from_bbox
 
 # Days per month — leap years are irrelevant since TimePeriod is year-less and
@@ -155,7 +155,7 @@ def _subtype_from_tcs(tcs: ThermalComfortStatisticsType) -> TcsSubtype:
     return TcsSubtype(tcs.value)
 
 
-def _weather_data(dlg, analysis_type, weather_file: str, query_type, tf) -> dict:
+def _weather_data(dlg, analysis_type, weather_file: str, tf) -> dict:
     """Return the weather-array dict for a thermal/wind analysis.
 
     If the dialog has a custom EPW uploaded for this analysis type
@@ -171,7 +171,7 @@ def _weather_data(dlg, analysis_type, weather_file: str, query_type, tf) -> dict
         logger.info("Using uploaded EPW for %s: %s", analysis_type, os.path.basename(epw_path))
         return parse_epw(epw_path, tf)
     return query_infrared_epw(
-        file_name=weather_file, type=query_type, time_frame=tf, api_key=dlg.api_key,
+        file_name=weather_file, time_frame=tf, api_key=dlg.api_key,
     )
 
 
@@ -221,7 +221,7 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
             )
             return None
         tf = makeTimeFrameObj(isNorthHem=True, season=season.value, hourly=hours.value)
-        wind_data = _weather_data(dlg, at, weather_file, Query_Type.WIND, tf)
+        wind_data = _weather_data(dlg, at, weather_file, tf)
         dlg.sub_analysis_type = pwc_type
         return PwcModelRequest(
             analysis_type=AnalysesName.pedestrian_wind_comfort,
@@ -231,7 +231,18 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
         )
 
     if at == AnalysisType.SKY_VIEW_FACTORS:
-        return SvfModelRequest(analysis_type=AnalysesName.sky_view_factors)
+        # lat/lon are optional for SVF inference itself, but the backend
+        # vegetation validator needs them as its conversion referencePoint —
+        # without them an SVF run WITH a tree layer is rejected (HTTP 400,
+        # "latitude and longitude are required for vegetation conversion").
+        # The area orchestrator injects the tile centroid automatically; the
+        # single-tile path sends the payload as-is, so stamp the tile centre
+        # here (same convention as the thermal/solar builders below).
+        lon, lat = get_center_lon_lat_from_bbox(dlg.bbox, dlg.crs)
+        return SvfModelRequest(
+            analysis_type=AnalysesName.sky_view_factors,
+            latitude=lat, longitude=lon,
+        )
 
     if at in (AnalysisType.DAYLIGHT_AVAILABILITY, AnalysisType.DIRECT_SUN_HOURS):
         if at == AnalysisType.DAYLIGHT_AVAILABILITY:
@@ -258,7 +269,7 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
             QMessageBox.warning(dlg, "Missing Input", "Weather file or uploaded EPW is required.")
             return None
         tf = makeTimeFrameObjWithMonth(month=month, hourly=hours.value)
-        wd = _weather_data(dlg, at, weather_file, Query_Type.UTCI, tf)
+        wd = _weather_data(dlg, at, weather_file, tf)
         lon, lat = get_center_lon_lat_from_bbox(dlg.bbox, dlg.crs)
         return SolarRadiationModelRequest(
             analysis_type=AnalysesName.solar_radiation,
@@ -277,7 +288,7 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
             QMessageBox.warning(dlg, "Missing Input", "Weather file or uploaded EPW is required.")
             return None
         tf = makeTimeFrameObjWithMonth(month=month, hourly=hours.value)
-        wd = _weather_data(dlg, at, weather_file, Query_Type.UTCI, tf)
+        wd = _weather_data(dlg, at, weather_file, tf)
         lon, lat = get_center_lon_lat_from_bbox(dlg.bbox, dlg.crs)
         if dlg.legend_min_enable_tci.isChecked():
             dlg.min_legend_value = dlg.legend_min_input_tci.value()
@@ -311,7 +322,7 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
         tf = makeTimeFrameObj(
             isNorthHem=True, season=season.value, hourly=hours.value, analysis_type=at,
         )
-        wd = _weather_data(dlg, at, weather_file, Query_Type.UTCI, tf)
+        wd = _weather_data(dlg, at, weather_file, tf)
         lon, lat = get_center_lon_lat_from_bbox(dlg.bbox, dlg.crs)
         dlg.sub_analysis_type = tcs_type
         return TcsModelRequest(

@@ -27,6 +27,7 @@ from threading import Lock
 from qgis.core import QgsApplication
 
 from ..constants import FETCH_FROM_REGISTRY_URL
+from ..exceptions import InfraredAPIError
 from ..infrared_logger import logger
 from . import qgis_http as requests
 
@@ -72,7 +73,14 @@ def _load_api_key():
 def _get_json(path_suffix, api_key):
     """GET ``{FETCH_FROM_REGISTRY_URL}/{path_suffix}`` with x-api-key header.
 
-    Returns the parsed JSON body or ``None`` on any failure.
+    Returns the parsed JSON body, or ``None`` on transient failures
+    (network, 5xx, parse) — the plugin keeps working from the on-disk
+    registry copies in that case.
+
+    An auth rejection (HTTP 401/403) is different: it means the API key
+    itself is bad, so it is re-raised as :class:`InfraredAPIError` for
+    callers to surface (key-save validation, icon gating) instead of
+    being swallowed like an outage.
     """
     url = f"{FETCH_FROM_REGISTRY_URL}/{path_suffix.lstrip('/')}"
     headers = {"x-api-key": api_key}
@@ -81,6 +89,12 @@ def _get_json(path_suffix, api_key):
         r = requests.get(url, headers=headers, timeout=_REGISTRY_TIMEOUT_SEC)
         r.raise_for_status()
         return r.json()
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else None
+        logger.warning("Registry GET %s failed: HTTP %s", url, status)
+        if status in (401, 403):
+            raise InfraredAPIError(status_code=status) from e
+        return None
     except Exception as e:
         logger.warning("Registry GET %s failed: %s", url, e)
         return None

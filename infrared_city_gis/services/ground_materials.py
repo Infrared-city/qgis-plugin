@@ -344,21 +344,23 @@ def material_opacity(material: str) -> float:
 def has_ground_material_support(analysis_type) -> bool:
     """True when ground materials influence this analysis type.
 
-    Per the SDK guidance (README "Vegetation & Ground Materials" + the
-    analysis-tour demo): thermal analyses (UTCI, TCS) and the solar/daylight
-    family use surface materials (emissivity / reflectance); wind-based
-    analyses and SVF are pure geometry and ignore them — for those the
-    dialog hides the section entirely and the runners skip collection.
-    ``None`` (unknown) errs on showing the option.
+    Ground truth is the backend model code (lambda-models): only the two
+    thermal analyses consume ``ground-materials`` — TCI and TCS use it for
+    the per-material ground-longwave term. The solar/daylight family and
+    SVF *accept* the input but explicitly ignore it
+    (``warn_ground_materials_ignored`` in their schedulers), and the wind
+    models don't reference it at all. Offering the option for those
+    analyses would mislead users into thinking materials affect the
+    result, so the dialog hides the section and the runners skip
+    collection. ``None`` (unknown) errs on showing the option.
     """
     if analysis_type is None:
         return True
     from ..models.analysis import AnalysisType
 
-    return analysis_type not in {
-        AnalysisType.WIND_SPEED,
-        AnalysisType.PEDESTRIAN_WIND_COMFORT,
-        AnalysisType.SKY_VIEW_FACTORS,
+    return analysis_type in {
+        AnalysisType.THERMAL_COMFORT_INDEX,
+        AnalysisType.THERMAL_COMFORT_STATISTICS,
     }
 
 

@@ -11,7 +11,7 @@ key is set and building geometry exists.
 
 ## Prerequisites
 
-- QGIS ≥ 3.44 with the plugin installed (from ZIP or the repo folder).
+- QGIS 3.44 – 3.x with the plugin installed (from ZIP or the repo folder). QGIS 4 is not supported (`qgisMaximumVersion=3.99`).
 - An Infrared City API key with an active subscription.
 - Test data:
   - A **building** layer or coordinates to fetch one.
@@ -35,10 +35,13 @@ The plugin adds these actions (left to right):
 
 ## 1. API key
 
-- ☐ **Save a valid key** — Save API Key → paste key → save. Expect a success message, dialog closes, no duplicate dialog re-open.
+- ☐ **Save a valid key** — Save API Key → paste key → save. Expect "verified and saved" success message, dialog closes, all toolbar icons enabled.
 - ☐ **Change the key** — reopen Save API Key, paste a different valid key, save. Expect the new key to take effect (subsequent fetches/simulations use it; registries re-fetch).
-- ☐ **Invalid key** — save a bogus key, then attempt a fetch. Expect a clear error (auth/subscription), not a crash.
-- ☐ **No key** — with no key saved, open Run Simulation / Fetch. Expect a clear "save your API key first"-style message.
+- ☐ **Invalid key** — save a bogus key. Expect a rejection dialog referencing connectors@infrared.city, the key is NOT saved, and (if no valid key was stored before) the other toolbar icons stay greyed out.
+- ☐ **No key** — with no key saved, all toolbar icons except Save API Key are greyed out.
+- ☐ **Offline save** — disconnect network, save a plausible key. Expect a "could not verify / NOT saved" warning distinct from the invalid-key rejection; the key is not stored.
+- ☐ **Startup with revoked saved key** — a bad stored key can no longer be *saved* (save validates first); it arises when a key is revoked/expires *after* saving. Setup: save a valid key, then revoke that key (delete it in the infrared.city dashboard) — or overwrite it unvalidated from the QGIS Python console: `QSettings().setValue("infrared_city/api_key", "bogus")`. Restart QGIS. Expect a message-bar warning, icons greyed out except Save API Key, and a hover tooltip on the greyed icons explaining a valid key is required.
+- ☐ **Startup offline with good saved key** — restart QGIS with a valid key stored but no network. Expect icons to stay ENABLED (an outage must not lock the plugin); calls fail later with connection errors.
 
 ## 2. Fetch building geometry
 
@@ -85,15 +88,20 @@ Change the **analysis type** and confirm the **Tree layer** and **Ground
 materials** sections appear/hide per this matrix. Also confirm the **weather /
 Upload EPW** control shows only on weather-based analyses.
 
+The matrix mirrors what the backend models actually consume (lambda-models):
+wind models do no vegetation meshing and read no materials; only UTCI/TCS
+use ground materials — the solar/daylight family and SVF accept but ignore
+them.
+
 | Analysis type | Tree option | Ground materials | Weather / EPW |
 |---|:--:|:--:|:--:|
 | Wind Speed | ✗ | ✗ | ✗ |
 | Pedestrian Wind Comfort (PWC) | ✗ | ✗ | ✓ |
 | Thermal Comfort Index (UTCI) | ✓ | ✓ | ✓ |
 | Thermal Comfort Statistics (TCS) | ✓ | ✓ | ✓ |
-| Solar Radiation | ✓ | ✓ | ✓ |
-| Daylight Availability | ✓ | ✓ | ✗ |
-| Direct Sun Hours | ✓ | ✓ | ✗ |
+| Solar Radiation | ✓ | ✗ | ✓ |
+| Daylight Availability | ✓ | ✗ | ✗ |
+| Direct Sun Hours | ✓ | ✗ | ✗ |
 | Sky View Factors | ✓ | ✗ | ✗ |
 
 - ☐ **Wind Speed / PWC** — no Tree section, no Ground-materials section.

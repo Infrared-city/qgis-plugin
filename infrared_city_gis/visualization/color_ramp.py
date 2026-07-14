@@ -65,7 +65,14 @@ def get_visual_config(analysis_type, sub_analysis_type=None):
     registry_configs = load_registry_visual_configs()
     if registry_configs is None:
         logger.info("model_registry.json not found on disk — fetching from API")
-        registry_configs = fetch_registry_visual_configs()
+        try:
+            registry_configs = fetch_registry_visual_configs()
+        except Exception as e:
+            # An auth error (InfraredAPIError) mid-render must not crash the
+            # display of an already-computed result — fall back to "no
+            # config" like any other registry failure.
+            logger.warning("Registry fetch for visual config failed: %s", e)
+            registry_configs = None
 
     if not registry_configs:
         logger.warning("No registry visual configs available")
