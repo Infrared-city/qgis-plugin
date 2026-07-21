@@ -9,7 +9,7 @@ qgisMinimumVersion=3.44
 # conventional cap that admits every 3.x release while excluding 4.0.
 qgisMaximumVersion=3.99
 description=Run urban climate simulations (wind, thermal comfort, solar) directly from QGIS using the infrared.city platform.
-version=1.0.0
+version=1.1.0
 author=infrared.city
 email=connectors@infrared.city
 
@@ -22,7 +22,11 @@ repository=https://github.com/Infrared-city/qgis-plugin
 # Recommended items:
 
 hasProcessingProvider=no
-changelog=1.0.0
+changelog=1.1.0
+    - Fix: weather-file queries moved to the api.infrared.city SDK endpoint (legacy endpoint rejected newly issued API keys with HTTP 401)
+    - API key is verified against the server on save; invalid keys are not stored and toolbar actions stay disabled until a valid key is saved
+    - Declared QGIS compatibility capped at 3.x (qgisMaximumVersion=3.99)
+    1.0.0
     - First stable release
     - Ground materials: fetch editable surface layers (asphalt, concrete, vegetation, soil, water, building) and include them in thermal / solar simulations
     - Trees: submit any OpenStreetMap tree layer — trees are typed from their own species / genus / leaf_type tags (no manual tagging needed)
