@@ -2,10 +2,13 @@
 
 Mirrors the .NET plugin's ``SingleTileSelection`` static state. The
 "Select tile" map tool stores the picked 512×512 m tile here; the Run
-Simulation dialog :func:`consume`s it on open to enter *single-tile mode*.
+Simulation dialog :func:`peek`s at it on open to enter *single-tile mode*.
 
-Consuming clears the state, so re-opening the dialog without re-selecting
-falls back to *area mode* — exactly like the ArcGIS plugin. Single-tile
+The dialog only :func:`peek`s on open and :func:`clear`s after a
+simulation is actually submitted — so closing the dialog without running
+keeps the selection pending, and re-opening (while the tile selection is
+still active) stays in *single-tile mode*. Once a simulation runs, the
+state is cleared and the next open falls back to *area mode*. Single-tile
 mode submits **one** tile via ``client.analyses.execute`` (≈10 tokens)
 instead of routing the 512 m box through the area tiler, which would split
 it into multiple overlapping 256 m-step tiles and multiply the token cost.

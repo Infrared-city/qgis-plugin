@@ -100,11 +100,17 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self._epw_paths = {}
 
         # ArcGIS-style mode detection: if the "Select tile" tool stored a
-        # one-shot single-tile selection, consume it and run that single
+        # one-shot single-tile selection, peek at it and run that single
         # 512×512 m tile via analyses.execute (1 tile ≈ 10 tokens). Otherwise
         # fall back to area mode driven by the current QGIS feature selection.
+        #
+        # We *peek* rather than *consume* here: closing the dialog without
+        # running a simulation must leave single-tile mode intact, so
+        # re-opening (while the tile selection is still active) stays in
+        # single-tile mode. The pending selection is cleared only after a
+        # simulation is actually submitted — see accept().
         self.is_single_tile = False
-        _sel = single_tile_selection.consume()
+        _sel = single_tile_selection.peek()
         if _sel is not None:
             self.is_single_tile = True
             self.polygon = _sel.polygon
@@ -812,6 +818,13 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 # Payload validation failed; build_sdk_payload already
                 # showed a QMessageBox. Keep the dialog open.
                 return
+
+            # Simulation submitted — now consume the one-shot single-tile
+            # selection so the next dialog open falls back to area mode.
+            # (We only peek() on open, so closing without running keeps it.)
+            if self.is_single_tile:
+                single_tile_selection.clear()
+
             super().accept()
 
         except InfraredAPIError as e:
