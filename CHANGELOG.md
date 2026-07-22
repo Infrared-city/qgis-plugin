@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/Infrared-city/qgis-plugin/compare/v1.1.0...v1.1.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* single-tile selection persists on reopen; bump infrared-sdk to 0.4.11 ([#37](https://github.com/Infrared-city/qgis-plugin/issues/37)) ([c981c01](https://github.com/Infrared-city/qgis-plugin/commit/c981c010f351d14db4c83968906da5089e4b6f7a))
+
 ## [1.1.0](https://github.com/Infrared-city/qgis-plugin/compare/v1.0.0...v1.1.0) (2026-07-14)
 
 
