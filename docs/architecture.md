@@ -64,7 +64,7 @@ infrared_city_gis/
 
 - **Infrared City API** (`api.infrared.city/v2`) — simulation backend and building geometry source (`/v2/buildings`, Mapbox-backed core-geometries-service; subscription required)
 - **QGIS / PyQGIS** — host application
-- **`infrared-sdk`** (≥0.4.10) — Python SDK; pinned in `requirements.txt`
+- **`infrared-sdk`** (≥0.4.11) — Python SDK; pinned in `requirements.txt`
 - **shapely**, **pyproj**, **mapbox_earcut**, **numpy**, **structlog**, **requests**
 
 ## Data Flow
