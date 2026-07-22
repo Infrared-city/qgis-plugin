@@ -54,6 +54,7 @@ The plugin adds these actions (left to right):
 - ☐ **Pick a tile** — Select tile → click on the map. Expect a single 512×512 m tile selection to be stored.
 - ☐ **Feeds Run Simulation** — open Run Simulation immediately after: it runs in **single-tile mode** (see §5).
 - ☐ **Feeds Fetch ground materials** — with a pending tile pick, Fetch ground materials covers that one tile (the pick is *peeked*, so Run Simulation still gets it).
+- ☐ **Persists across close/reopen** — after a tile pick, open Run Simulation, close it *without running*, then reopen. Expect it to still be in single-tile mode. The pick is only cleared once a simulation is actually submitted — or you pick a new tile / restart QGIS. (Consequence: a stale pending pick keeps Run Simulation in single-tile mode; to run an *area* simulation instead, submit or clear the pending single-tile pick first.)
 
 ## 4. Fetch ground materials
 
