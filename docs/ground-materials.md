@@ -14,19 +14,27 @@ nothing is sent.
 
 ## Supported materials
 
+Listed bottom → top in the stacking order (see *Overlaps and stacking* below):
+
 | Material | What it covers |
 |---|---|
 | `asphalt` | Roads, paved areas (also the server's gap-fill default) |
-| `building` | Building footprints (as land cover) |
 | `concrete` | Hard surfaces — parking, industrial/commercial areas |
-| `vegetation` | **Green surfaces** — grass, lawns, parks |
-| `soil` | Bare ground, sand, agriculture |
 | `water` | Water bodies, wetlands |
+| `soil` | Bare ground, sand, agriculture |
+| `vegetation` | **Green surfaces** — grass, lawns, parks |
 
 The list is registry-driven: the plugin refreshes it from the materials
 registry when you save your API key, so new backend materials appear without
-a plugin update. The six above are the canonical set the automatic fetch can
-return.
+a plugin update. These five are the whole set — the fetch returns nothing
+else, and the run dialog offers nothing else.
+
+> **A `ground-*` layer naming a material that isn't on this list is ignored**
+> — a typo (`ground-asphlat`), a leftover `ground-building`, an unrelated
+> `ground-parcels`. The server would not reject such a key; it would silently
+> assign a fabricated mid-range surface and quietly change your result, so the
+> run dialog does not list those layers. Buildings in particular are 3D volumes
+> that belong in the building layer, not a flat ground surface.
 
 > **`vegetation` here is NOT trees.** This material is 2D green *surface*
 > polygons (grass, parks). Trees are separate 3D objects that live in a
@@ -46,15 +54,16 @@ Use the **Fetch ground materials** toolbar action:
 2. The dialog shows the selection size in tiles (512×512 m each). Areas over
    **100 tiles** are rejected — select a smaller area.
 3. **Fetch** pulls the surface layers from the Infrared City platform
-   (Mapbox land cover, cleaned server-side: surfaces under buildings are
-   masked out and gaps are filled with asphalt).
+   (Overture land cover/use + road-surface FlatGeobuf, cleaned server-side:
+   streets and water are carved out of vegetation/soil and gaps are filled
+   with asphalt).
 
 The result is added as one **editable vector layer per material**, named by
 convention:
 
 ```
-ground-asphalt   ground-building   ground-concrete
-ground-vegetation   ground-soil   ground-water
+ground-asphalt   ground-concrete   ground-water
+ground-soil      ground-vegetation
 ```
 
 Fetching again (a different area, a larger selection) numbers the new layers
@@ -110,6 +119,28 @@ FeatureCollection. Features are never merged across materials — the
 material identity is the dict key the server's emissivity lookup uses, and
 it comes from the layer name. Like buildings and trees, surfaces up to
 ~100 m outside the selection are also sent as context.
+
+## Overlaps and stacking
+
+Where two materials cover the same spot, the thermal model resolves it
+geometrically: the surfaces are stacked as 2.5D geometry a hundredth of a
+millimetre apart and a ray fired straight down from each sensor takes the
+**topmost** one. The order (bottom → top) is
+`asphalt → concrete → water → soil → vegetation`, and a material the backend
+adds later stacks above all five. Asphalt is lowest because it is the gap-fill
+background covering the whole area — anything above it wins; vegetation is
+highest, so a park drawn over a road reads as vegetation.
+
+Two consequences for hand-drawn layers:
+
+- You don't need to cut holes in the layers underneath. Draw a pond in
+  `ground-water` straight over `ground-asphalt` and the pond wins — but note
+  water sits *below* soil and vegetation, so a park polygon overlapping the
+  pond would win instead. Trim the vegetation polygon if that's not what you
+  want.
+- The order is the platform's own (`_CANONICAL_Z_ORDER` in the
+  utilities-service), and the plugin emits the payload in it so a manual run
+  stacks identically to an auto-fetched one.
 
 ## Size limits
 
