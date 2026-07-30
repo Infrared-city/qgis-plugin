@@ -2,13 +2,21 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "enabledPlugins": {
     "ir-dev@infrared": true,
-    "ir-org@infrared": true
+    "ir-org@infrared": true,
+    "ir-sdk@infrared": true,
+    "infrared@infrared-skills": true
   },
   "extraKnownMarketplaces": {
     "infrared": {
       "source": {
         "source": "github",
-        "repo": "Infrared-city/infrared-claude-marketplace"
+        "repo": "Infrared-city/ir-team-skills"
+      }
+    },
+    "infrared-skills": {
+      "source": {
+        "source": "github",
+        "repo": "Infrared-city/infrared-skills"
       }
     }
   },
