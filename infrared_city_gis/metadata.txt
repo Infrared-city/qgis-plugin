@@ -9,7 +9,7 @@ qgisMinimumVersion=3.44
 # conventional cap that admits every 3.x release while excluding 4.0.
 qgisMaximumVersion=3.99
 description=Run urban climate simulations (wind, thermal comfort, solar) directly from QGIS using the infrared.city platform.
-version=1.1.1
+version=1.1.2
 author=infrared.city
 email=connectors@infrared.city
 
@@ -22,7 +22,9 @@ repository=https://github.com/Infrared-city/qgis-plugin
 # Recommended items:
 
 hasProcessingProvider=no
-changelog=1.1.1
+changelog=1.1.2
+    - Fix: ground-material surfaces are stacked in the platform's canonical order (asphalt, concrete, water, soil, vegetation) — overlapping surfaces now resolve to the correct material in thermal comfort analyses
+    1.1.1
     - Fix: single-tile simulation mode is kept when the Run Simulation dialog is closed without running — re-opening (with the tile still selected) stays in single-tile mode instead of falling back to area mode
     - SDK bumped to infrared-sdk>=0.4.11
     1.1.0
