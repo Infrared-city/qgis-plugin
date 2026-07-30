@@ -10,7 +10,14 @@ The SDK/backend contract (see docs/ground-materials.md):
   (``GET /v2/utils/registry/materials`` → ``settings/materials_registry.json``);
   the SDK only WARNS on names it doesn't know, so a registry-driven list stays
   forward-compatible when the backend adds materials. When the registry is
-  missing we fall back to the canonical six.
+  missing we fall back to the canonical five.
+* An unknown material name is NOT rejected by the server — the model's
+  ``props_for`` table (lambda-models ``rust/solar-models/src/material_props.rs``)
+  falls through to an ``__unknown__`` row (albedo 0.20, dt_max 5.0), i.e. a
+  fabricated mid-range surface. So a typo (``ground-asphlat``) or an unrelated
+  polygon layer (``ground-parcels``) would quietly change the thermal result
+  instead of failing. Such layers are therefore not offered in the run dialog
+  — see :func:`supported_materials` / :func:`ground_material_layers`.
 
 In QGIS, each material lives in its own vector layer named
 ``ground-<material>`` (e.g. ``ground-asphalt``) — created by the fetch dialog
@@ -50,14 +57,67 @@ GROUND_LAYER_PREFIX = "ground-"
 # at its own tiny Z offset and the UTCI Lambda raycasts DOWNWARD with
 # multiple_hits=False — the highest surface wins where layers overlap. The
 # fetched GeoJSON carries these Z values, but QGIS 2D memory layers drop
-# them, so the collector re-stamps Z using the server's MaterialCategory
-# order (asphalt = the bbox-covering background, lowest; water on top).
-# Without this, overlays would tie with the asphalt background at z=0 and
-# sensors could read asphalt everywhere.
+# them, so the collector re-stamps Z.
+#
+# Order is the server's own ``_CANONICAL_Z_ORDER`` (utilities-service
+# ``ground_material/fgb_sources.py``), which ``merge_fgb_layers`` already
+# applies when collecting: asphalt lowest (the bbox-covering gap-fill
+# background), vegetation on top. Verified 2026-07-28 (arcgis-plugin
+# ``GroundMaterialNaming.cs``) by diffing an auto-fetch payload straight
+# from clean-v3 against a manual one on the same tile: asphalt=1e-5,
+# concrete=2e-5, water=3e-5, soil=4e-5, vegetation=5e-5.
+#
+# These five are the whole set. The pre-fgb order this constant used to carry
+# (asphalt, building, concrete, vegetation, soil, water) came from the Mapbox
+# ``regroup_layers`` enum walk, which pre-created a key per ``MaterialCategory``
+# — including ``building``, whose feature loop was already commented out, so it
+# only ever shipped empty. No source emits it now, the live materials registry
+# does not carry it, and the model has no props row for it. Buildings are 3D
+# volumes in the ``buildings`` payload, not a ground surface.
+#
+# Z is assigned by FIXED index (not rank among the materials present) so a
+# manual run with a subset — vegetation without soil, say — still puts
+# vegetation at 5e-5 exactly as the server does, instead of collapsing it
+# to a lower slot and letting water override it.
 MATERIAL_Z_ORDER: Tuple[str, ...] = (
-    "asphalt", "building", "concrete", "vegetation", "soil", "water",
+    "asphalt", "concrete", "water", "soil", "vegetation",
 )
 _Z_STEP_M = 0.00001  # clean-v3's _Z_STEP_M
+
+
+def _material_z_offsets(materials) -> Dict[str, float]:
+    """Fixed-slot Z offset per material — see :data:`MATERIAL_Z_ORDER`.
+
+    Materials outside the known canon stack above all known ones,
+    alphabetically, so a hand-drawn future material still beats the
+    asphalt background.
+    """
+    unknown = sorted(m for m in materials if m not in MATERIAL_Z_ORDER)
+    offsets: Dict[str, float] = {}
+    for material in materials:
+        if material in MATERIAL_Z_ORDER:
+            idx = MATERIAL_Z_ORDER.index(material)
+        else:
+            idx = len(MATERIAL_Z_ORDER) + unknown.index(material)
+        offsets[material] = (idx + 1) * _Z_STEP_M
+    return offsets
+
+
+def _in_z_order(layers: Dict[str, dict]) -> Dict[str, dict]:
+    """Re-key ``layers`` into :data:`MATERIAL_Z_ORDER` stacking order.
+
+    The stamped Z is not the only thing that carries the stack: both
+    clean-v3 and infrared-core's ``ground_clean`` (which the TCI/TCS
+    scheduler runs in-process on the per-tile payload) re-stamp
+    ``z = (i + 1) * z_step`` by dict INSERTION order, and insert the
+    full-bbox default backdrop at asphalt's index. So the key order of the
+    dict we send decides the stack — asphalt must come first or the
+    backdrop lands on top of everything. Emitting in canonical order also
+    makes a manual payload byte-order-identical to an auto-fetched one.
+    """
+    known = [m for m in MATERIAL_Z_ORDER if m in layers]
+    unknown = sorted(m for m in layers if m not in MATERIAL_Z_ORDER)
+    return {m: layers[m] for m in known + unknown}
 
 
 def _with_z(coords, z):
@@ -73,17 +133,16 @@ def _with_z(coords, z):
     return [_with_z(c, z) for c in coords]
 
 
-# Canonical fallback catalog — matches the server's MaterialCategory enum and
-# the SDK's _KNOWN_MATERIAL_NAMES. Colors mirror the SDK demo palette.
+# Canonical fallback catalog — the five materials the live registry carries and
+# the only five the model has props for. Colors mirror the SDK demo palette.
 # NOTE: the material is "vegetation" (green surfaces), NOT "grass" — the old
 # display helper used "grass", a key the server never returns.
 DEFAULT_MATERIALS: Dict[str, dict] = {
     "asphalt": {"displayName": "Asphalt", "color": (119, 119, 119)},
-    "building": {"displayName": "Building", "color": (232, 168, 90)},
     "concrete": {"displayName": "Concrete", "color": (189, 189, 189)},
-    "vegetation": {"displayName": "Vegetation (green surfaces)", "color": (155, 208, 163)},
-    "soil": {"displayName": "Soil", "color": (202, 164, 114)},
     "water": {"displayName": "Water", "color": (126, 182, 232)},
+    "soil": {"displayName": "Soil", "color": (202, 164, 114)},
+    "vegetation": {"displayName": "Vegetation (green surfaces)", "color": (155, 208, 163)},
 }
 
 
@@ -100,8 +159,9 @@ def load_material_catalog() -> Dict[str, dict]:
     Registry-driven: reads ``materials_registry.json`` (``materials`` is keyed
     by uuid; each entry has ``name``/``displayName``/``diffuseColor`` with
     0..1 floats and ``opacity``). Registry entries are overlaid on
-    :data:`DEFAULT_MATERIALS` so materials the registry doesn't carry (e.g.
-    ``building``) keep their default styling instead of falling to gray.
+    :data:`DEFAULT_MATERIALS`, so a material the backend adds later gets its
+    own styling while the canonical five keep theirs when the registry is
+    unavailable.
     """
     catalog: Dict[str, dict] = {
         name: {"opacity": 1.0, **entry} for name, entry in DEFAULT_MATERIALS.items()
@@ -138,6 +198,18 @@ def load_material_catalog() -> Dict[str, dict]:
     return catalog
 
 
+def supported_materials() -> Tuple[str, ...]:
+    """Material names it is safe to send as payload dict keys.
+
+    The cached materials registry is the authority (so a material the backend
+    adds shows up without a plugin release); the canonical five stand in until
+    it has been fetched. An unknown key is not rejected — it silently gets the
+    model's ``__unknown__`` surface props — so layers outside this set are not
+    offered in the run dialog. See the module docstring.
+    """
+    return tuple(load_material_catalog().keys())
+
+
 def _material_from_layer_name(layer_name: str) -> Optional[str]:
     """Material name for a ``ground-*`` layer, or ``None`` when not one.
 
@@ -163,17 +235,34 @@ def ground_material_layers() -> Dict[str, List[QgsVectorLayer]]:
     and the simulation dialog lets the user tick them individually.
     User-created layers (e.g. a hand-drawn ``ground-water``) join
     automatically.
+
+    Only materials in :func:`supported_materials` are returned. A
+    ``ground-<something-else>`` layer — a typo, a stale ``ground-building``,
+    an unrelated ``ground-parcels`` — would reach the server as a live
+    material key and silently pick up the model's ``__unknown__`` surface
+    props, so it is skipped (and logged) rather than offered.
     """
+    supported = set(supported_materials())
     found: Dict[str, List[QgsVectorLayer]] = {}
+    skipped: Dict[str, int] = {}
     for layer in QgsProject.instance().mapLayers().values():
         if not isinstance(layer, QgsVectorLayer):
             continue
         material = _material_from_layer_name(layer.name())
         if material is None:
             continue
+        if material not in supported:
+            skipped[material] = skipped.get(material, 0) + 1
+            continue
         found.setdefault(material, []).append(layer)
     for layers in found.values():
         layers.sort(key=lambda ly: ly.name().lower())
+    if skipped:
+        logger.info(
+            "ground_material_layers: skipped %s — not a known material (known: %s)",
+            ", ".join(f"ground-{m} x{n}" for m, n in sorted(skipped.items())),
+            ", ".join(sorted(supported)),
+        )
     return found
 
 
@@ -245,10 +334,11 @@ def collect_ground_materials(
     the fetched features, and the thermal raycast needs it to resolve
     overlaps.
 
-    Returns ``{material_name: FeatureCollection}``; materials with no
-    features in the envelope are omitted entirely — sending an empty
-    FeatureCollection would tell the server "this surface type is absent"
-    rather than "unspecified".
+    Returns ``{material_name: FeatureCollection}`` in :data:`MATERIAL_Z_ORDER`
+    key order (see :func:`_in_z_order` — the key order carries the stack, not
+    just the stamped Z); materials with no features in the envelope are
+    omitted entirely — sending an empty FeatureCollection would tell the
+    server "this surface type is absent" rather than "unspecified".
     """
     west, south, east, north = _polygon_wgs84_bbox_with_margin(
         polygon, context_margin_m,
@@ -260,13 +350,7 @@ def collect_ground_materials(
         [[QgsPointXY(x, y) for x, y in bbox_ring]]
     )
 
-    # Stacking order among the materials actually present (server semantics:
-    # index within the input layer list drives Z). Materials beyond the known
-    # canon go on top, alphabetically, so a hand-drawn future material still
-    # beats the asphalt background.
-    known = [m for m in MATERIAL_Z_ORDER if m in layers]
-    unknown = sorted(m for m in layers if m not in MATERIAL_Z_ORDER)
-    z_of = {m: (i + 1) * _Z_STEP_M for i, m in enumerate(known + unknown)}
+    z_of = _material_z_offsets(layers)
 
     out: Dict[str, dict] = {}
     skipped_non_polygon = 0
@@ -318,6 +402,10 @@ def collect_ground_materials(
                 })
         if features:
             out[material] = {"type": "FeatureCollection", "features": features}
+
+    # The dict arrives in list-widget (alphabetical) order; the wire order is
+    # what the server's z re-stamp reads, so canonicalize before returning.
+    out = _in_z_order(out)
 
     logger.info(
         "collect_ground_materials: %d material layer(s) in, %d with features "
@@ -371,6 +459,12 @@ def stamp_material_properties(layers: Dict[str, dict]) -> Dict[str, dict]:
     single-tile path embeds the payload as-is — auto-fetched layers (which
     come straight from the SDK, unstamped) need this before embedding or
     the Lambda's emissivity lookup falls back to the 0.97 default.
+
+    The result is also re-keyed into :data:`MATERIAL_Z_ORDER`. The SDK hands
+    back whatever key order ``/ground-material/collect`` produced; that is
+    canonical today (``merge_fgb_layers``), but the order decides the server's
+    z re-stamp, so don't depend on it silently — an asphalt key that drifted
+    last would put the full-bbox backdrop on top of the whole stack.
     """
     stamped: Dict[str, dict] = {}
     for material, fc in layers.items():
@@ -381,4 +475,4 @@ def stamp_material_properties(layers: Dict[str, dict]) -> Dict[str, dict]:
                 "properties": {**(feat.get("properties") or {}), "material": material},
             })
         stamped[material] = {"type": "FeatureCollection", "features": features}
-    return stamped
+    return _in_z_order(stamped)
