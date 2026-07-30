@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/Infrared-city/qgis-plugin/compare/v1.1.1...v1.1.2) (2026-07-30)
+
+
+### Bug Fixes
+
+* ground-material stacking follows the platform canon ([#40](https://github.com/Infrared-city/qgis-plugin/issues/40)) ([86fba74](https://github.com/Infrared-city/qgis-plugin/commit/86fba74bd8dfd34bdcfe2098b9973b39c88ffadd))
+
 ## [1.1.1](https://github.com/Infrared-city/qgis-plugin/compare/v1.1.0...v1.1.1) (2026-07-22)
 
 
