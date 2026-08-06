@@ -40,5 +40,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # PyQt6's QtGui links against EGL/OpenGL, so even *importing* it fails on
+      # a bare runner with "libEGL.so.1: cannot open shared object file". The
+      # script only reads attributes — it never constructs a QApplication — but
+      # the dynamic linker still needs these present at import time.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libdbus-1-3 libxkbcommon0
       - run: pip install PyQt6
       - run: python scripts/check_qt6_names.py infrared_city_gis
+        env:
+          QT_QPA_PLATFORM: offscreen
