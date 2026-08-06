@@ -42,11 +42,23 @@ from .infrared_city_save_auth import InfraredCitySaveAuthDialog
 from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
 from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
 from .infrared_logger import logger
-
-# Initialize Qt resources from file resources.py
-from .resources import *  # noqa: F401,F403
 from .services.fetch_from_registry import _load_api_key, fetch_from_registry
 from .utils.helper import cleanup_old_data
+
+_ICON_DIR = os.path.join(os.path.dirname(__file__), 'icons')
+
+
+def _icon(name: str) -> str:
+    """File system path to a bundled icon.
+
+    Icons used to be addressed through Qt resource paths
+    (``:/plugins/infrared_city_gis/icons/...``) backed by a ``pyrcc5``-compiled
+    ``resources.py``. PyQt6 ships no resource compiler, so that module could
+    not be rebuilt for QGIS 4 — and importing it pulled in ``PyQt5`` directly,
+    which fails outright there. ``QIcon`` takes a plain path just as happily,
+    on both Qt5 and Qt6, and a new icon needs no build step.
+    """
+    return os.path.join(_ICON_DIR, name)
 
 
 class InfraredCityGIS:
@@ -138,8 +150,10 @@ class InfraredCityGIS:
     ):
         """Add a toolbar icon to the toolbar.
 
-        :param icon_path: Path to the icon for this action. Can be a resource
-            path (e.g. ':/plugins/foo/bar.png') or a normal file system path.
+        :param icon_path: File system path to the icon for this action — see
+            :func:`_icon`. Qt resource paths (``:/plugins/...``) are no longer
+            used; the compiled resource module they needed cannot be rebuilt
+            for Qt6.
         :type icon_path: str
 
         :param text: Text that should be shown in menu items for this action.
@@ -202,17 +216,12 @@ class InfraredCityGIS:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
-        save_auth_icon_path = ':/plugins/infrared_city_gis/icons/login.png'
-        fetch_geometry_icon_path = ':/plugins/infrared_city_gis/icons/get_geometry.png'
-        select_bbox_icon_path = ':/plugins/infrared_city_gis/icons/select_area.png'
-        tree_icon_path = ':/plugins/infrared_city_gis/icons/tree.svg'
-        run_multiple_icon_path = ':/plugins/infrared_city_gis/icons/run_multiple.svg'
-        # Loaded from disk, not the compiled resource file — adding a file to
-        # resources.qrc requires a pyrcc5 recompile, which QIcon(file path)
-        # sidesteps entirely.
-        ground_materials_icon_path = os.path.join(
-            os.path.dirname(__file__), 'icons', 'ground_materials.png'
-        )
+        save_auth_icon_path = _icon('login.png')
+        fetch_geometry_icon_path = _icon('get_geometry.png')
+        select_bbox_icon_path = _icon('select_area.png')
+        tree_icon_path = _icon('tree.svg')
+        run_multiple_icon_path = _icon('run_multiple.svg')
+        ground_materials_icon_path = _icon('ground_materials.png')
 
         # Kept as an attribute: this is the one action that must stay
         # enabled when the API key is missing or rejected (see
@@ -300,7 +309,25 @@ class InfraredCityGIS:
             action.setToolTip(action.text() if enabled else why_disabled)
 
     def unload(self):
-        """Removes the plugin menu item and icon from QGIS GUI."""
+        """Remove the plugin's menu items and toolbar icons, and stop polling.
+
+        Stopping the pollers is the part that matters on **quit**: QGIS tears
+        the Qt and network stacks down while static destructors run, and a
+        poller still ticking can open an HTTPS connection mid-teardown —
+        observed as a SIGSEGV in Qt's own SSL cleanup
+        (``QSslConfigurationPrivate::deepCopyDefaultConfiguration`` on the
+        QNetworkAccessManager thread). Submitted jobs continue server-side, so
+        nothing is lost by stopping.
+        """
+        from .services.sdk_runner import _ACTIVE_POLLERS
+
+        for poller in list(_ACTIVE_POLLERS):
+            try:
+                poller.shutdown()
+            except Exception as e:  # never let teardown fail on a dead C++ object
+                logger.warning("unload: could not stop poller: %s", e)
+        _ACTIVE_POLLERS.clear()
+
         for action in self.actions:
             self.iface.removePluginMenu(
                 self.tr(u'&infrared.city GIS'),
@@ -319,7 +346,7 @@ class InfraredCityGIS:
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
 
         if result:
             logger.info("Multiple simulations dialog closed successfully")
@@ -334,7 +361,7 @@ class InfraredCityGIS:
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
 
         if result:
 
@@ -362,7 +389,7 @@ class InfraredCityGIS:
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
 
         if result:
             logger.info("Tree type selected successfully")
@@ -379,7 +406,7 @@ class InfraredCityGIS:
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
 
         if result:
             # accept() only fires after the key was verified against the
@@ -400,7 +427,7 @@ class InfraredCityGIS:
             logger.info("Ground materials dialog: preconditions not met")
             return
 
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
         if result:
             logger.info(
                 "Ground materials fetched: %s",
@@ -416,7 +443,7 @@ class InfraredCityGIS:
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
         # See if OK was pressed
         if result:  # OK was pressed
             self.last_geojson_path = getattr(self.dlg, "geojson_path", None)

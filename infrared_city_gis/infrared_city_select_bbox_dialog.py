@@ -68,7 +68,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
         self.map_tool = QgsMapToolEmitPoint(canvas)
         self.map_tool.canvasClicked.connect(self._on_map_clicked)
         canvas.setMapTool(self.map_tool)
-        iface.messageBar().pushMessage("InfraredCity", "Click on the map to choose bbox center.", level=0)
+        iface.messageBar().pushMessage("InfraredCity", "Click on the map to choose bbox center.", level=Qgis.Info)
 
     def _on_map_clicked(self, point, button):
         logger.info("Map clicked at: %.6f, %.6f", point.x(), point.y())
@@ -97,7 +97,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
             try:
                 lonlat = transform_to_wgs84.transform(point)
             except Exception as e:
-                iface.messageBar().pushMessage("InfraredCity", f"Transform failed: {e}", level=3)
+                iface.messageBar().pushMessage("InfraredCity", f"Transform failed: {e}", level=Qgis.Critical)
                 logger.error("Transform to WGS84 failed: %s", e)
                 return
 
@@ -109,7 +109,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 xmin, ymin, xmax, ymax = get_bbox(center_lon, center_lat, 512)
                 bbox_rect_wgs84 = QgsRectangle(xmin, ymin, xmax, ymax)
             except Exception as e:
-                iface.messageBar().pushMessage("InfraredCity", f"get_bbox failed: {e}", level=3)
+                iface.messageBar().pushMessage("InfraredCity", f"get_bbox failed: {e}", level=Qgis.Critical)
                 logger.error("get_bbox failed: %s", e)
                 return
 
@@ -131,7 +131,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                     iface.messageBar().pushMessage(
                         "InfraredCity",
                         "No polygon vector layer found. Add a buildings layer to the project first.",
-                        level=2,
+                        level=Qgis.Critical,
                     )
                     logger.error("No polygon vector layer in project.")
                     return
@@ -141,7 +141,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                         "InfraredCity",
                         f"Multiple polygon layers found. Click the buildings layer in the Layers panel "
                         f"to make it active, then try again. Currently active: '{active_name}'.",
-                        level=1,
+                        level=Qgis.Warning,
                         duration=8,
                     )
                     logger.warning(
@@ -221,7 +221,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 "InfraredCity",
                 f"512×512 m tile selected ({count} buildings). "
                 "Open 'Run simulation' to run it.",
-                level=0,
+                level=Qgis.Info,
                 duration=8,
             )
 

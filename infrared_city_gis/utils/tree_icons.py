@@ -38,7 +38,7 @@ def _trunk(p: QPainter, s: float, cx_frac: float, bottom_frac: float,
     """Draw a rectangular trunk."""
     cx = s * cx_frac
     p.setBrush(QBrush(_TRUNK))
-    p.setPen(Qt.NoPen)
+    p.setPen(Qt.PenStyle.NoPen)
     p.drawRect(QRectF(
         cx - s * w_frac / 2,
         s * top_frac,
@@ -54,7 +54,7 @@ def _draw_stone_pine(p: QPainter, s: float):
     _trunk(p, s, 0.5, 0.97, 0.44, 0.10)
     # wide, low umbrella crown (wider than it is tall)
     p.setBrush(QBrush(crown))
-    p.setPen(Qt.NoPen)
+    p.setPen(Qt.PenStyle.NoPen)
     p.drawEllipse(QRectF(s * 0.04, s * 0.14, s * 0.92, s * 0.52))
 
 
@@ -65,12 +65,12 @@ def _draw_pencil_tree(p: QPainter, s: float):
 
     # Main stem
     p.setBrush(QBrush(color))
-    p.setPen(Qt.NoPen)
+    p.setPen(Qt.PenStyle.NoPen)
     p.drawRect(QRectF(cx - s * 0.07, s * 0.04, s * 0.14, s * 0.92))
 
     # Branches (rounded caps)
     pen = QPen(color, s * 0.07)
-    pen.setCapStyle(Qt.RoundCap)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     p.setPen(pen)
     p.drawLine(QPointF(cx, s * 0.27), QPointF(cx - s * 0.34, s * 0.10))
     p.drawLine(QPointF(cx, s * 0.42), QPointF(cx + s * 0.34, s * 0.28))
@@ -89,7 +89,7 @@ def _draw_mediterranean_cypress(p: QPainter, s: float):
     path.cubicTo(cx - s * 0.20, s * 0.72,
                  cx - s * 0.26, s * 0.18, cx, s * 0.02)          # left side
     p.setBrush(QBrush(crown))
-    p.setPen(Qt.NoPen)
+    p.setPen(Qt.PenStyle.NoPen)
     p.drawPath(path)
 
 
@@ -98,7 +98,7 @@ def _draw_holm_oak(p: QPainter, s: float):
     crown = _CROWN[TreeType.HOLM_OAK]
     _trunk(p, s, 0.5, 0.97, 0.58, 0.13)
     p.setBrush(QBrush(crown))
-    p.setPen(Qt.NoPen)
+    p.setPen(Qt.PenStyle.NoPen)
     p.drawEllipse(QRectF(s * 0.06, s * 0.05, s * 0.88, s * 0.80))
 
 
@@ -112,7 +112,7 @@ def _draw_european_larch(p: QPainter, s: float):
     path.lineTo(s * 0.04, s * 0.82)   # bottom-left
     path.closeSubpath()
     p.setBrush(QBrush(crown))
-    p.setPen(Qt.NoPen)
+    p.setPen(Qt.PenStyle.NoPen)
     p.drawPath(path)
 
 
@@ -121,7 +121,7 @@ def _draw_english_oak(p: QPainter, s: float):
     crown = _CROWN[TreeType.ENGLISH_OAK]
     _trunk(p, s, 0.5, 0.97, 0.56, 0.14)
     p.setBrush(QBrush(crown))
-    p.setPen(Qt.NoPen)
+    p.setPen(Qt.PenStyle.NoPen)
     # Very wide ellipse
     p.drawEllipse(QRectF(s * 0.02, s * 0.10, s * 0.96, s * 0.68))
 
@@ -131,7 +131,7 @@ def _draw_bushwillow(p: QPainter, s: float):
     crown = _CROWN[TreeType.BUSHWILLOW]
     _trunk(p, s, 0.5, 0.97, 0.54, 0.12)
     p.setBrush(QBrush(crown))
-    p.setPen(Qt.NoPen)
+    p.setPen(Qt.PenStyle.NoPen)
     p.drawEllipse(QRectF(s * 0.13, s * 0.10, s * 0.74, s * 0.66))
 
 
@@ -145,7 +145,7 @@ def _draw_bald_cypress(p: QPainter, s: float):
     path.lineTo(s * 0.16, s * 0.82)   # bottom-left
     path.closeSubpath()
     p.setBrush(QBrush(crown))
-    p.setPen(Qt.NoPen)
+    p.setPen(Qt.PenStyle.NoPen)
     p.drawPath(path)
 
 
@@ -181,11 +181,11 @@ def make_tree_icon(tree_type: TreeType, size: int = 24) -> QPixmap:
 
     draw_size = size * 4
     pixmap = QPixmap(draw_size, draw_size)
-    pixmap.fill(Qt.transparent)
+    pixmap.fill(Qt.GlobalColor.transparent)
 
     painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
-    painter.setRenderHint(QPainter.SmoothPixmapTransform)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
     draw_fn = _DRAW_FUNCS.get(tree_type)
     if draw_fn:
@@ -193,6 +193,6 @@ def make_tree_icon(tree_type: TreeType, size: int = 24) -> QPixmap:
 
     painter.end()
 
-    result = pixmap.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    result = pixmap.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
     _cache[key] = result
     return result

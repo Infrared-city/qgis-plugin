@@ -228,6 +228,16 @@ class AreaPoller(QObject):
                 level=Qgis.Warning, duration=10)
         self.deleteLater()
 
+    def shutdown(self) -> None:
+        """Stop polling silently — for plugin unload / QGIS quit.
+
+        Same effect as :meth:`cancel` minus the message-bar notification:
+        during teardown the bar may already be gone, and the user did not ask
+        for anything. Jobs continue server-side either way.
+        """
+        self._timer.stop()
+        self.deleteLater()
+
     # -- internal ------------------------------------------------------
 
     def _on_tick(self) -> None:

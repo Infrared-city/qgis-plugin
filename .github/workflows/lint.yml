@@ -26,3 +26,19 @@ jobs:
           python-version: "3.12"
       - run: pip install flake8
       - run: flake8 infrared_city_gis/
+
+  # Qt6 removed every unscoped enum member and moved some classes between
+  # modules. Those accesses sit inside functions, so neither a linter nor an
+  # import smoke test touches them — they fail only when a user opens the
+  # dialog. Resolving them against a real PyQt6 catches them at push time.
+  # Qt names only; QGIS classes need a QGIS install (the script reports them
+  # as uncovered). See docs/battle-scars.md for the full local check.
+  qt6-names:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install PyQt6
+      - run: python scripts/check_qt6_names.py infrared_city_gis

@@ -26,7 +26,7 @@ from qgis.core import (
     QgsProject,
     QgsVectorLayer,
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType
 from qgis.utils import iface
 
 from ..infrared_logger import logger
@@ -218,7 +218,7 @@ def plot_selected_polygon(polygon):
 
     pr = vlayer.dataProvider()
     fields = QgsFields()
-    fields.append(QgsField("id", QVariant.Int))
+    fields.append(QgsField("id", QMetaType.Type.Int))
     pr.addAttributes(fields)
     vlayer.updateFields()
 

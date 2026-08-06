@@ -1,5 +1,5 @@
-from PyQt5.QtGui import QColor
 from qgis.core import QgsColorRampShader
+from qgis.PyQt.QtGui import QColor
 
 from ..infrared_logger import logger
 from ..services.fetch_from_registry import (
