@@ -25,7 +25,7 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
     ini). The shared ``services.secret_manager`` module owns the read /
     write side; this dialog just drives the UI.
 
-    The input field uses ``QLineEdit.Password`` echo so the secret is
+    The input field uses ``QLineEdit.EchoMode.Password`` echo so the secret is
     masked while typing. We never log the literal value — only metadata
     ("loaded existing key", "saved", etc.).
     """
@@ -48,7 +48,7 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         # surfing / accidental screen recording. The .ui file also sets
         # echoMode, but doing it here as well makes the contract obvious
         # to anyone reading the code.
-        self.api_key_input.setEchoMode(QLineEdit.Password)
+        self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
 
         # Set by accept(): True once the save-time validation call got a
         # 2xx. The dialog only accepts (and only saves the key) when this
@@ -142,9 +142,9 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
             reply = QMessageBox.question(
                 self, "Short API Key",
                 "The API key seems unusually short. Are you sure you want to save it?",
-                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
-            if reply == QMessageBox.No:
+            if reply == QMessageBox.StandardButton.No:
                 return
 
         # Validate the key with a real authenticated call BEFORE saving: the
@@ -161,7 +161,7 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         self.key_verified = False
         self.status_label.setText("Verifying API key…")
         self.status_label.setStyleSheet("color: orange;")
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         # The validation call below blocks this thread — repaint first so the
         # "Verifying…" state is actually visible.
         QApplication.processEvents()

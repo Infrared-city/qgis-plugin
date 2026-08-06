@@ -5,7 +5,8 @@ QGIS plugin that connects to the [Infrared City](https://infrared.city) simulati
 ## Stack
 
 - Python 3 (whatever QGIS ships — typically 3.9+)
-- QGIS 3.44 – 3.x (PyQGIS / PyQt5) — QGIS 4 (Qt6) not yet supported; `metadata.txt` caps at `qgisMaximumVersion=3.99`
+- QGIS 3.44 (current LTR) – 3.x, PyQGIS via the `qgis.PyQt` shim — always import through `qgis.PyQt.*`, never `PyQt5.*` directly, and use scoped Qt enums (`Qt.CheckState.Checked`, not `Qt.Checked`) so one codebase serves Qt5 and Qt6
+- QGIS 4 (Qt6, released 2026-03) is served by the **same package** — `qgisMaximumVersion=4.99`, no separate branch, ZIP or `supportsQt6` flag (that one was removed from QGIS core). The Plugin Manager reads `metadata.txt` before loading any code, so the cap is a promise to the user, not a capability check: never ship a raised cap that the `docs/manual-testing.md` round has not actually passed on QGIS 4. See `docs/battle-scars.md` for what a grep cannot catch.
 - `pb_tool` for plugin packaging (`infrared_city_gis/pb_tool.cfg`)
 - Internal services: `infrared-sdk`, REST calls to `api.infrared.city`
 

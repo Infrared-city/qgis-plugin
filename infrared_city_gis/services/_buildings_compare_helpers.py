@@ -22,7 +22,7 @@ from qgis.core import (
     QgsProject,
     QgsVectorLayer,
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType
 from qgis.utils import iface
 
 from ..infrared_logger import logger
@@ -237,7 +237,7 @@ def greedy_centroid_match(
 
 
 def _make_polygon_layer(
-    name: str, fields_def: List[Tuple[str, "QVariant.Type"]],
+    name: str, fields_def: List[Tuple[str, "QMetaType.Type"]],
 ) -> QgsVectorLayer:
     layer = QgsVectorLayer("Polygon?crs=EPSG:4326", name, "memory")
     pr = layer.dataProvider()
@@ -269,14 +269,14 @@ def add_diff_layers(
 
     matched_layer = _make_polygon_layer(
         "Buildings — matched (QGIS ∩ SDK)",
-        [("qgis_fid", QVariant.Int), ("sdk_id", QVariant.String),
-         ("centroid_dist_m", QVariant.Double)],
+        [("qgis_fid", QMetaType.Type.Int), ("sdk_id", QMetaType.Type.QString),
+         ("centroid_dist_m", QMetaType.Type.Double)],
     )
     qgis_only_layer = _make_polygon_layer(
-        "Buildings — QGIS only", [("fid", QVariant.Int)],
+        "Buildings — QGIS only", [("fid", QMetaType.Type.Int)],
     )
     sdk_only_layer = _make_polygon_layer(
-        "Buildings — SDK only (Mapbox)", [("sdk_id", QVariant.String)],
+        "Buildings — SDK only (Mapbox)", [("sdk_id", QMetaType.Type.QString)],
     )
 
     by_qgis_fid = {q["fid"]: q for q in qgis_buildings}

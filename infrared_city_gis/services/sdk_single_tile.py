@@ -199,6 +199,14 @@ class SingleTilePoller(QObject):
                 level=Qgis.Warning, duration=10)
         self.deleteLater()
 
+    def shutdown(self) -> None:
+        """Stop polling silently — for plugin unload / QGIS quit.
+
+        See :meth:`AreaPoller.shutdown`; the job continues server-side.
+        """
+        self._timer.stop()
+        self.deleteLater()
+
     def _on_tick(self) -> None:
         try:
             job = self._client.jobs.get_status(self._job.job_id)

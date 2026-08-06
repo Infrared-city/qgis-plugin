@@ -146,7 +146,7 @@ class InfraredCityTreeCatalogDialog(QtWidgets.QDialog, FORM_CLASS):
             "size, then tick 'Use tree catalog tree type' in the Run Simulation "
             "dialog to force it on every tree in the area."
         )
-        note.setTextFormat(Qt.RichText)
+        note.setTextFormat(Qt.TextFormat.RichText)
         note.setOpenExternalLinks(True)
         note.setWordWrap(True)
         note.setStyleSheet("color: #555;")

@@ -1,4 +1,3 @@
-from PyQt5.QtGui import QColor
 from qgis.core import (
     QgsFeature,
     QgsGeometry,
@@ -6,6 +5,7 @@ from qgis.core import (
     QgsProject,
     QgsVectorLayer,
 )
+from qgis.PyQt.QtGui import QColor
 
 from ..infrared_logger import logger
 

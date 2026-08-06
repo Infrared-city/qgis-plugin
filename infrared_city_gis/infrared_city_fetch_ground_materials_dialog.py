@@ -63,9 +63,9 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
         layout.addWidget(self.status_label)
 
         self.button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        self.button_box.button(QDialogButtonBox.Ok).setText("Fetch")
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Fetch")
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
@@ -75,7 +75,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
     # ------------------------------------------------------------------
 
     def _set_fetch_enabled(self, enabled: bool):
-        self.button_box.button(QDialogButtonBox.Ok).setEnabled(enabled)
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(enabled)
 
     def _prepare(self):
         """Validate API key + selection and preview the tile count."""

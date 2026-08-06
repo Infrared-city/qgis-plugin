@@ -375,11 +375,11 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         for material in sorted(self._ground_layers):
             for layer in self._ground_layers[material]:
                 item = QListWidgetItem(f"{material} — {layer.name()}")
-                item.setData(Qt.UserRole, (material, layer))
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setData(Qt.ItemDataRole.UserRole, (material, layer))
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 # Opt-in: ground materials are extra payload + server work,
                 # so the dialog opens with nothing ticked.
-                item.setCheckState(Qt.Unchecked)
+                item.setCheckState(Qt.CheckState.Unchecked)
                 lst.addItem(item)
         lst.blockSignals(False)
         self._revalidate_ground_materials()
@@ -397,8 +397,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         """
         from qgis.PyQt.QtCore import Qt
 
-        if changed_item.checkState() == Qt.Checked:
-            data = changed_item.data(Qt.UserRole)
+        if changed_item.checkState() == Qt.CheckState.Checked:
+            data = changed_item.data(Qt.ItemDataRole.UserRole)
             if data:
                 material = data[0]
                 lst = self.ground_materials_list
@@ -407,9 +407,9 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     item = lst.item(i)
                     if item is changed_item:
                         continue
-                    other = item.data(Qt.UserRole)
+                    other = item.data(Qt.ItemDataRole.UserRole)
                     if other and other[0] == material:
-                        item.setCheckState(Qt.Unchecked)
+                        item.setCheckState(Qt.CheckState.Unchecked)
                 lst.blockSignals(False)
         self._revalidate_ground_materials()
 
@@ -424,8 +424,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         selected = {}
         for i in range(lst.count()):
             item = lst.item(i)
-            if item.checkState() == Qt.Checked:
-                data = item.data(Qt.UserRole)
+            if item.checkState() == Qt.CheckState.Checked:
+                data = item.data(Qt.ItemDataRole.UserRole)
                 if not data:
                     continue
                 material, layer = data
