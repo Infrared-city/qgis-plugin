@@ -32,9 +32,16 @@ jobs:
                "infrared_city_gis/tests/*" \
                "infrared_city_gis/test/*" \
                "infrared_city_gis/plugin_upload.py" \
+               "infrared_city_gis/utils/prep_wheels.py" \
                "infrared_city_gis/pb_tool.cfg" \
                "infrared_city_gis/pylintrc" \
                "infrared_city_gis/Makefile"
+
+          # The "*/.*" exclusion above strips every dotfile — including the one
+          # the plugins.qgis.org security scanner reads. It only looks at the
+          # top level of the ZIP (next to metadata.txt), so add it back by hand
+          # rather than loosening the exclusion and letting .DS_Store et al in.
+          zip -g "infrared-city-qgis-${GITHUB_REF_NAME}.zip" infrared_city_gis/.bandit
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

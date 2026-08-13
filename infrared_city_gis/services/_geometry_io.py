@@ -191,5 +191,7 @@ def notify_user(message, level=Qgis.Warning, duration=10):
     try:
         if iface is not None:
             iface.messageBar().pushMessage("InfraredCity", message, level=level, duration=duration)
-    except Exception:
-        pass
+    except Exception as e:
+        # Telling the user something went wrong must never itself raise —
+        # the message bar is gone in headless runs and during shutdown.
+        logger.debug("message bar unavailable, dropped notice %r: %s", message, e)

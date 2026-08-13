@@ -80,8 +80,10 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 if self.map_tool:
                     try:
                         self.map_tool.canvasClicked.disconnect(self._on_map_clicked)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # Qt raises when the signal was never connected — that is
+                        # the normal case on a second close, not a failure.
+                        logger.debug("canvasClicked was not connected: %s", e)
                 if self.prev_map_tool:
                     canvas.setMapTool(self.prev_map_tool)
                 else:
@@ -236,13 +238,13 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
             if self.map_tool:
                 try:
                     self.map_tool.canvasClicked.disconnect(self._on_map_clicked)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Not connected — normal when the dialog closes twice.
+                    logger.debug("canvasClicked was not connected: %s", e)
             if self.prev_map_tool:
                 iface.mapCanvas().setMapTool(self.prev_map_tool)
         except Exception as e:
             logger.error("Failed to restore map tool: %s", e)
-            pass
 
         self._clear_rubber()
         super().closeEvent(event)

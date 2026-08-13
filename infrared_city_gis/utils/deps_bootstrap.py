@@ -1,10 +1,17 @@
 import hashlib
+import logging
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404 - see _pip_install for why a subprocess is required
 import sys
 from pathlib import Path
 from typing import List, Optional
+
+# Stdlib logging, deliberately not ..infrared_logger: that module imports
+# structlog, which is one of the packages this bootstrap installs. As a child of
+# the "InfraredCity" logger these records reach the plugin's log file once it is
+# configured, and fall back to stderr before that.
+_log = logging.getLogger("InfraredCity.bootstrap")
 
 # Paths relative to this file (utils/)
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
@@ -62,7 +69,13 @@ def _reqs_hash() -> str:
     ``infrared-sdk>=0.4.10`` -> ``>=0.5.0``) would never be reinstalled.
     """
     specs = sorted(_read_requirements())
-    digest = hashlib.sha1("\n".join(specs).encode("utf-8")).hexdigest()
+    # Not a security hash — it only namespaces a cache directory. Kept as SHA-1
+    # with usedforsecurity=False rather than switched to SHA-256: a different
+    # algorithm would change every existing user's deps-<hash> folder name and
+    # silently re-download the whole dependency set on upgrade.
+    digest = hashlib.sha1(
+        "\n".join(specs).encode("utf-8"), usedforsecurity=False
+    ).hexdigest()
     return digest[:12]
 
 
@@ -92,8 +105,9 @@ def _cleanup_legacy_thirdparty() -> None:
                 shutil.rmtree(stale, ignore_errors=True)
             elif stale.exists():
                 stale.unlink()
-        except Exception:
-            pass
+        except Exception as e:
+            # Best-effort cleanup of a previous layout — never block startup.
+            _log.debug("could not remove legacy path %s: %s", stale, e)
 
 
 def _cleanup_old_deps_dirs() -> None:
@@ -112,8 +126,10 @@ def _cleanup_old_deps_dirs() -> None:
         for child in root.iterdir():
             if child.is_dir() and child.name.startswith("deps-") and child.name != keep:
                 shutil.rmtree(child, ignore_errors=True)
-    except Exception:
-        pass
+    except Exception as e:
+        # Leftover deps-* folders only cost disk space; failing here would
+        # stop the plugin from loading at all.
+        _log.debug("could not prune old deps folders under %s: %s", root, e)
 
 
 def _read_requirements() -> List[str]:
@@ -172,7 +188,11 @@ def _is_python_interpreter(exe: str) -> bool:
     if not exe:
         return False
     try:
-        result = subprocess.run(
+        # nosec B603 - fixed argv list, no shell; `exe` comes from
+        # _candidate_pythons(), which builds paths from sys.base_prefix and the
+        # QGIS bundle layout, never from user input. This call exists precisely
+        # to verify a candidate before it is trusted with the pip install below.
+        result = subprocess.run(  # nosec B603
             [exe, "-c", "import sys; print(sys.version_info[0])"],
             capture_output=True,
             timeout=5,
@@ -208,8 +228,10 @@ def _pip_install(packages: List[str]):
         rc = pip_main(["install"] + base_cmd + packages)
         if rc == 0:
             return
-    except Exception:
-        pass
+    except Exception as e:
+        # In-process pip is unavailable or refused the install; the subprocess
+        # fallback below is the supported path on those QGIS builds.
+        _log.debug("in-process pip install failed, falling back: %s", e)
 
     # 2) Subprocess fallback. Build a candidate list of *real* Python
     #    interpreters — never the QGIS binary itself.
@@ -236,8 +258,11 @@ def _pip_install(packages: List[str]):
     last_err: Optional[Exception] = None
     for py in verified:
         try:
+            # nosec B603 - fixed argv list, no shell. `py` passed
+            # _is_python_interpreter() above; `packages` are the specs read from
+            # the plugin's own bundled requirements.txt, not user input.
             cmd = [py, "-m", "pip", "install"] + base_cmd + packages
-            subprocess.check_call(cmd, env=child_env)
+            subprocess.check_call(cmd, env=child_env)  # nosec B603
             return
         except Exception as e:
             last_err = e
@@ -313,6 +338,7 @@ def ensure_deps(plugin_name: str = "infrared_city_gis") -> None:
     try:
         if not _find_missing(reqs):
             _marker().write_text("ok", encoding="utf-8")
-    except Exception:
-        # Non-fatal if marker can't be written
-        pass
+    except Exception as e:
+        # Non-fatal if the marker can't be written — the next start just
+        # re-checks the imports instead of trusting the marker.
+        _log.debug("could not write the deps marker: %s", e)

@@ -28,6 +28,8 @@ the user.
 
 from qgis.core import QgsWkbTypes
 
+from ..infrared_logger import logger
+
 # ---------------------------------------------------------------------------
 # Field-name candidates. All entries are pre-normalised (lowercase, no spaces,
 # `:` -> `_`, no diacritics on the German entries that need it).
@@ -214,8 +216,10 @@ def has_height_capable_schema(layer) -> bool:
     has_3d = False
     try:
         has_3d = QgsWkbTypes.hasZ(layer.wkbType())
-    except Exception:
-        pass
+    except Exception as e:
+        # Not every layer exposes a wkbType (broken provider, no data source);
+        # treat it as "no Z" and fall back to the attribute-based checks.
+        logger.debug("could not read wkbType from %r: %s", layer, e)
 
     return has_top or has_height or has_levels or has_3d
 
@@ -297,9 +301,10 @@ def resolve_feature_height_with_source(
                     z_range = max(zs) - min(zs)
                     if z_range > 0:
                         return z_range, SOURCE_Z_RANGE
-        except Exception:
+        except Exception as e:
             # constructing vertices() can fail on malformed geoms — fall through
-            pass
+            # to the attribute-based sources below.
+            logger.debug("Z-range extraction failed, trying attributes: %s", e)
 
     # 5. OSM building type → typical height (rough estimate)
     type_h, _osm_type = _resolve_from_building_type(feat, lookup)

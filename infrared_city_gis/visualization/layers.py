@@ -33,6 +33,7 @@ def _create_layer_from_feature_collection(name, collection, color):
     provider = layer.dataProvider()
 
     new_features = []
+    skipped_geometry = 0
     for f in features_in:
         geom = (f or {}).get("geometry") or {}
         coords = geom.get("coordinates")
@@ -64,9 +65,19 @@ def _create_layer_from_feature_collection(name, collection, color):
             else:
                 continue
         except Exception:
+            # Counted rather than logged here: malformed coordinates come in
+            # runs, and this loop can see thousands of features. The comment
+            # above records what already bit us once.
+            skipped_geometry += 1
             continue
         qfeat.setGeometry(qgeom)
         new_features.append(qfeat)
+
+    if skipped_geometry:
+        logger.warning(
+            "%s: %d feature(s) had unreadable coordinates and were dropped",
+            name, skipped_geometry,
+        )
 
     if not new_features:
         return None
@@ -74,8 +85,9 @@ def _create_layer_from_feature_collection(name, collection, color):
     provider.addFeatures(new_features)
     try:
         layer.renderer().symbol().setColor(color)
-    except Exception:
-        pass
+    except Exception as e:
+        # Styling is cosmetic — a layer with default symbology still works.
+        logger.debug("could not set the symbol color on %r: %s", name, e)
 
     QgsProject.instance().addMapLayer(layer)
     return layer

@@ -1,0 +1,22 @@
+# Read by the plugins.qgis.org security scanner, which looks for this file at
+# the top level of the plugin ZIP (next to metadata.txt). It does NOT honour
+# inline `# nosec` comments — those are documented nowhere in
+# https://plugins.qgis.org/docs/security-scanning/skipping — so the two
+# subprocess findings need a rule-level waiver here as well as the per-call
+# `# nosec B603` comments that keep local runs and CI clean.
+#
+# This file does not weaken CI: bandit only reads it when pointed at it with
+# `--ini` (`-c` is for the YAML config and rejects this format), and
+# .github/workflows/lint.yml deliberately runs without either. New subprocess
+# code still has to justify itself at the call site.
+#
+# B603 - subprocess without shell: utils/deps_bootstrap.py installs the plugin's
+#        Python dependencies. Both calls pass a fixed argv list with no shell,
+#        the interpreter path is verified by _is_python_interpreter() first, and
+#        the package specs come from the bundled requirements.txt. Removing this
+#        means vendoring wheels at build time — one wheel set per platform and
+#        Python version, which one plugin ZIP cannot carry.
+# B404 - the `import subprocess` that the above requires.
+[bandit]
+skips = B603,B404
+exclude_dirs = tests,test,thirdparty

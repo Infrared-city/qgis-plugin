@@ -37,7 +37,10 @@ def _release_existing_layer(output_path: str) -> None:
                 continue
             try:
                 src = os.path.normcase(os.path.abspath(lyr.source()))
-            except Exception:
+            except Exception as e:
+                # Some providers hand back a source string that is not a path
+                # (memory layers, WMS URIs) — it cannot be the file we mean.
+                logger.debug("skipping layer %r, unreadable source: %s", lyr.name(), e)
                 continue
             if src == target:
                 ids_to_remove.append(lyr.id())
