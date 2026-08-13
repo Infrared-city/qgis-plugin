@@ -291,6 +291,9 @@ def collect_qgis_area_vegetation(
     skipped_duplicate = 0
     id_collisions = 0
     resolved_count = 0
+    # Counted, not logged in the loop: an attribute that fails to convert fails
+    # for every feature, and one line per tree would swamp the log.
+    skipped_attrs = 0
 
     for feat in layer.getFeatures():
         geom = feat.geometry()
@@ -332,6 +335,7 @@ def collect_qgis_area_vegetation(
             try:
                 props[name] = _to_json_primitive(feat[name])
             except Exception:
+                skipped_attrs += 1
                 continue
 
         if model is not None:
@@ -421,10 +425,10 @@ def collect_qgis_area_vegetation(
     elapsed = time.monotonic() - t0
     logger.info(
         "collect_qgis_area_vegetation: kept=%d (type-resolved=%d); skipped "
-        "(geom=%d outside=%d non_point=%d duplicate=%d) in %.2fs",
+        "(geom=%d outside=%d non_point=%d duplicate=%d attrs=%d) in %.2fs",
         len(out), resolved_count,
         skipped_geom, skipped_outside, skipped_non_point, skipped_duplicate,
-        elapsed,
+        skipped_attrs, elapsed,
     )
 
     return out

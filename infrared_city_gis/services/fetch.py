@@ -79,8 +79,10 @@ def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str
         if e.response is not None:
             try:
                 parsed_message = e.response.json().get("message")
-            except Exception:
-                pass
+            except Exception as parse_error:
+                # Non-JSON error body (HTML gateway page, empty response) — the
+                # status code alone still makes a usable InfraredAPIError.
+                logger.debug("could not parse the error body: %s", parse_error)
         raise InfraredAPIError(status_code=status, server_message=parsed_message) from e
 
 
@@ -137,8 +139,10 @@ def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str
         if e.response is not None:
             try:
                 parsed_message = e.response.json().get("message")
-            except Exception:
-                pass
+            except Exception as parse_error:
+                # Non-JSON error body (HTML gateway page, empty response) — the
+                # status code alone still makes a usable InfraredAPIError.
+                logger.debug("could not parse the error body: %s", parse_error)
         raise InfraredAPIError(status_code=status, server_message=parsed_message) from e
 
 

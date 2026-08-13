@@ -24,6 +24,22 @@ jobs:
           fi
           echo "Version match: $TAG"
 
+      # Lint (and with it the security job) runs on branch pushes, never on
+      # tags — and a tag can point at any commit. Re-run the scanners here so
+      # nothing reaches a GitHub Release without them, using the same strict
+      # settings: no waiver config on the path bandit would discover.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install bandit detect-secrets
+      - name: Security scan
+        run: |
+          bandit -r infrared_city_gis/ \
+            -x infrared_city_gis/tests,infrared_city_gis/test,infrared_city_gis/thirdparty
+          git ls-files -z 'infrared_city_gis/*' \
+            | grep -zEv '^infrared_city_gis/(tests|test)/' \
+            | xargs -0 detect-secrets-hook
+
       - name: Build plugin ZIP
         run: |
           zip -r "infrared-city-qgis-${GITHUB_REF_NAME}.zip" infrared_city_gis/ \
@@ -32,9 +48,45 @@ jobs:
                "infrared_city_gis/tests/*" \
                "infrared_city_gis/test/*" \
                "infrared_city_gis/plugin_upload.py" \
+               "infrared_city_gis/utils/prep_wheels.py" \
                "infrared_city_gis/pb_tool.cfg" \
                "infrared_city_gis/pylintrc" \
                "infrared_city_gis/Makefile"
+
+          # The security scanner reads .bandit from the top level of the ZIP.
+          # It is kept out of the repo tree under a different name so that CI's
+          # `bandit -r infrared_city_gis/` cannot auto-discover it and silently
+          # inherit its skips (see packaging/bandit-waiver.ini). Materialise it
+          # here, after the "*/.*" exclusion that would otherwise strip it.
+          cp packaging/bandit-waiver.ini infrared_city_gis/.bandit
+          zip -g "infrared-city-qgis-${GITHUB_REF_NAME}.zip" infrared_city_gis/.bandit
+          rm infrared_city_gis/.bandit
+
+      # Assert what the archive actually contains rather than trusting the
+      # exclusion list above — the two drift apart the moment someone adds a
+      # file to one and forgets the other, and nothing else opens this ZIP
+      # before plugins.qgis.org does.
+      - name: Check the ZIP manifest
+        run: |
+          ZIP="infrared-city-qgis-${GITHUB_REF_NAME}.zip"
+          manifest=$(unzip -Z1 "$ZIP")
+          fail=0
+          check() {   # check <description> <grep-pattern> <expected: yes|no>
+            if echo "$manifest" | grep -qE "$2"; then hit=yes; else hit=no; fi
+            if [ "$hit" != "$3" ]; then
+              echo "::error::$1 (expected $3, got $hit)"
+              fail=1
+            fi
+          }
+          check "metadata.txt present"        '^infrared_city_gis/metadata\.txt$'      yes
+          check ".bandit present"             '^infrared_city_gis/\.bandit$'           yes
+          check "no tests"                    '^infrared_city_gis/tests?/'             no
+          check "no dev helpers"              '(prep_wheels\.py|plugin_upload\.py)$'   no
+          check "no executables or scripts"   '\.(exe|dll|so|dylib|sh|bat|cmd|ps1)$'   no
+          echo "$manifest" | grep -E '/\.' | grep -v '/\.bandit$' && {
+            echo "::error::unexpected dotfiles in the archive"; fail=1; } || true
+          [ "$fail" = "0" ] || exit 1
+          echo "Manifest OK — $(echo "$manifest" | wc -l) entries"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

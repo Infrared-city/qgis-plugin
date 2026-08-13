@@ -17,6 +17,55 @@ jobs:
         with:
           args: check infrared_city_gis/
 
+  # plugins.qgis.org scans every upload with bandit + detect-secrets and blocks
+  # on findings, which is a slow way to learn about them: the ZIP is already
+  # built, tagged and released by then. Same scanners, same scope (only what
+  # actually ships — tests/ and test/ are excluded from the release ZIP), run on
+  # push instead. See docs/battle-scars.md for the findings this first caught.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install bandit detect-secrets
+
+      # Justified findings are marked with `# nosec <CODE> - <reason>` at the
+      # call site; a bare `# nosec` is not accepted in review.
+      # No config is passed, and none must be discoverable: bandit auto-loads a
+      # `.bandit` file found inside the scanned tree and applies its skips. The
+      # uploader's waiver therefore lives at packaging/bandit-waiver.ini and is
+      # only copied in when the release ZIP is built — otherwise a new unmarked
+      # subprocess call would inherit `skips = B603` here and ship green.
+      # venv/.venv are excluded for parity with .flake8 — a runner never has
+      # them, but a developer running this by hand does.
+      - name: bandit
+        run: |
+          bandit -r infrared_city_gis/ \
+            -x infrared_city_gis/tests,infrared_city_gis/test,infrared_city_gis/thirdparty,infrared_city_gis/venv,infrared_city_gis/.venv
+
+      # Honours `# pragma: allowlist secret` for false positives such as the
+      # X-Api-Key HEADER NAME in client.py.
+      - name: detect-secrets
+        run: |
+          git ls-files -z 'infrared_city_gis/*' \
+            | grep -zEv '^infrared_city_gis/(tests|test)/' \
+            | xargs -0 detect-secrets-hook
+
+      # The uploader rejects archives containing executables or scripts
+      # (FILE_SUSPICIOUS). Nothing in the package should need one.
+      - name: no executables in the package
+        run: |
+          found=$(git ls-files 'infrared_city_gis/*' \
+            | grep -Ev '^infrared_city_gis/(tests|test)/' \
+            | grep -Ei '\.(exe|dll|so|dylib|sh|bat|cmd|ps1)$' || true)
+          if [ -n "$found" ]; then
+            echo "Suspicious files would ship in the plugin ZIP:"
+            echo "$found"
+            exit 1
+          fi
+
   flake8:
     runs-on: ubuntu-latest
     steps:
