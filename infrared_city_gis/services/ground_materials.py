@@ -291,9 +291,10 @@ def validate_ground_material_layers(
         for ring in polygon["coordinates"]
     ])
     counts: Dict[str, int] = {}
-    # Counted rather than logged per feature: a layer in the wrong CRS fails on
-    # every one of its features, and a per-feature log line would bury the run.
-    skipped_transform = 0
+    # Counted per layer rather than logged per feature: a layer in the wrong CRS
+    # fails on every one of its features, so the useful information is which
+    # layer, not which feature.
+    skipped_transform: Dict[str, int] = {}
     for material, material_layers in layers.items():
         n = 0
         for layer in material_layers:
@@ -307,16 +308,19 @@ def validate_ground_material_layers(
                     try:
                         geom.transform(transform)
                     except Exception:
-                        skipped_transform += 1
+                        skipped_transform[layer.name()] = (
+                            skipped_transform.get(layer.name(), 0) + 1
+                        )
                         continue
                 if geom.intersects(area_geom):
                     n += 1
         if n:
             counts[material] = n
-    if skipped_transform:
+    for layer_name, skipped in sorted(skipped_transform.items()):
         logger.warning(
-            "ground_material_counts: %d feature(s) could not be reprojected to "
-            "WGS84 and were not counted", skipped_transform,
+            "validate_ground_material_layers: %d feature(s) in layer %r could not be "
+            "reprojected to WGS84 and are missing from its count — check the "
+            "layer's CRS", skipped, layer_name,
         )
     return counts
 
@@ -389,10 +393,15 @@ def collect_ground_materials(
                         continue
                 if not geom.intersects(bbox_geom):
                     continue
+                # z_of[material] is looked up OUTSIDE the try on purpose: it is
+                # built from the same `layers` keys, so a KeyError here means a
+                # caller mutated the mapping mid-run. That is a bug worth
+                # raising, not a malformed feature to count and skip.
+                material_z = z_of[material]
                 try:
                     geometry = json.loads(geom.asJson())
                     geometry["coordinates"] = _with_z(
-                        geometry["coordinates"], z_of[material],
+                        geometry["coordinates"], material_z,
                     )
                 except Exception:
                     skipped_geometry += 1

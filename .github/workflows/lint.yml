@@ -33,9 +33,11 @@ jobs:
 
       # Justified findings are marked with `# nosec <CODE> - <reason>` at the
       # call site; a bare `# nosec` is not accepted in review.
-      # Deliberately without `-c infrared_city_gis/.bandit`: that file waives
-      # B603/B404 for the uploader's scan, and CI should stay strict so new
-      # subprocess code still has to justify itself at the call site.
+      # No config is passed, and none must be discoverable: bandit auto-loads a
+      # `.bandit` file found inside the scanned tree and applies its skips. The
+      # uploader's waiver therefore lives at packaging/bandit-waiver.ini and is
+      # only copied in when the release ZIP is built — otherwise a new unmarked
+      # subprocess call would inherit `skips = B603` here and ship green.
       # venv/.venv are excluded for parity with .flake8 — a runner never has
       # them, but a developer running this by hand does.
       - name: bandit
