@@ -1,0 +1,4 @@
+# Run summaries are measurements of a moment, not source. Keep the directory,
+# ignore its contents.
+*
+!.gitignore

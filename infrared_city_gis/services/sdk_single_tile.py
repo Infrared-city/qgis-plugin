@@ -234,40 +234,11 @@ class SingleTilePoller(QObject):
         try:
             download = self._client.jobs.download_results(job.job_id, _job=job)
             result = JobsServiceClient.decompress(download.content)
-            at_str = str(self._render_state.analysis_type)
-            grid_list = _extract_grid(result, at_str)
-            if at_str == "pedestrian-wind-comfort":
-                # Categorical grid — PWC Lawson classes arrive as letter
-                # strings ('A'…'E'/'S') or 0-based index strings, not
-                # numbers. Map them to the registry's 1-based class indices,
-                # same as the area path does inside generate_geotiff. JSON
-                # nulls come through as Python None (object dtype) —
-                # normalise to the "None" nodata string map_categories
-                # expects. PWC ONLY: numeric grids of other analyses can
-                # also arrive as object/string arrays (floats + None), and
-                # map_categories' numeric mode would shift those by +1.
-                raw = np.array(grid_list)
-                if raw.dtype.kind in "fiu":
-                    # Already-numeric PWC matrix — mirror generate_geotiff's
-                    # float branch: treat as mapped, no re-mapping.
-                    grid = raw.astype(np.float32)
-                else:
-                    if raw.dtype.kind == "O":
-                        raw = np.where(
-                            np.equal(raw, None), "None", raw
-                        ).astype(str)
-                    sub = (
-                        self._render_state.sub_analysis_type.value
-                        if self._render_state.sub_analysis_type is not None
-                        else None
-                    )
-                    grid, _ = map_categories(
-                        raw, analysis_type=at_str, criteria=sub,
-                    )
-            else:
-                # Numeric analyses: force float32 directly — numpy converts
-                # JSON-null Nones to NaN.
-                grid = np.array(grid_list, dtype=np.float32)
+            grid = grid_from_result(
+                result,
+                self._render_state.analysis_type,
+                self._render_state.sub_analysis_type,
+            )
         except Exception as e:
             self._fail(f"download/extract failed: {e}", exc=e)
             return
@@ -294,6 +265,41 @@ class SingleTilePoller(QObject):
         self._timer.stop()
         self.failed.emit(msg)
         self.deleteLater()
+
+
+def grid_from_result(result, analysis_type, sub_analysis_type=None) -> np.ndarray:
+    """Turn a decompressed single-tile job result into the grid the renderer draws.
+
+    Kept separate from the poller so the e2e tests can compare a real run's grid
+    against a baseline without reimplementing the PWC category mapping — that
+    mapping is exactly the kind of logic a test copy would silently drift from.
+    """
+    at_str = str(analysis_type)
+    grid_list = _extract_grid(result, at_str)
+
+    if at_str != "pedestrian-wind-comfort":
+        # Numeric analyses: force float32 directly — numpy converts JSON-null
+        # Nones to NaN.
+        return np.array(grid_list, dtype=np.float32)
+
+    # Categorical grid — PWC Lawson classes arrive as letter strings ('A'…'E'/'S')
+    # or 0-based index strings, not numbers. Map them to the registry's 1-based
+    # class indices, same as the area path does inside generate_geotiff. JSON
+    # nulls come through as Python None (object dtype) — normalise to the "None"
+    # nodata string map_categories expects. PWC ONLY: numeric grids of other
+    # analyses can also arrive as object/string arrays (floats + None), and
+    # map_categories' numeric mode would shift those by +1.
+    raw = np.array(grid_list)
+    if raw.dtype.kind in "fiu":
+        # Already-numeric PWC matrix — mirror generate_geotiff's float branch:
+        # treat as mapped, no re-mapping.
+        return raw.astype(np.float32)
+
+    if raw.dtype.kind == "O":
+        raw = np.where(np.equal(raw, None), "None", raw).astype(str)
+    sub = sub_analysis_type.value if sub_analysis_type is not None else None
+    grid, _ = map_categories(raw, analysis_type=at_str, criteria=sub)
+    return grid
 
 
 def _single_tile_geometries(area) -> dict:
