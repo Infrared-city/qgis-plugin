@@ -124,6 +124,9 @@ def validate_tree_layer(
     field_names = [f.name() for f in layer.fields()]
     resolver = load_tree_type_resolver()
     counts: Dict[str, int] = {}
+    # Counted, not logged in the loop: a field that fails to convert fails for
+    # every feature, and one line per tree would swamp the log.
+    skipped_attrs = 0
 
     for feat in layer.getFeatures():
         geom = feat.geometry()
@@ -151,6 +154,7 @@ def validate_tree_layer(
             try:
                 props_lower[name.lower()] = _to_json_primitive(feat[name])
             except Exception:
+                skipped_attrs += 1
                 continue
 
         if _present_keys(props_lower, OSM_ID_KEYS):
@@ -171,9 +175,9 @@ def validate_tree_layer(
     result.type_counts = counts
     logger.info(
         "Tree validation: detected=%d precise=%d archetype_signal=%d default=%d "
-        "with_osm_id=%d non_point_skipped=%d types=%s",
+        "with_osm_id=%d non_point_skipped=%d unreadable_attrs=%d types=%s",
         result.detected, result.with_type_props, result.with_archetype_signal,
         result.default_count, result.with_osm_id, result.non_point_skipped,
-        result.type_counts,
+        skipped_attrs, result.type_counts,
     )
     return result

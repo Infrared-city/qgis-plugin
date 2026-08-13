@@ -291,6 +291,10 @@ def validate_ground_material_layers(
         for ring in polygon["coordinates"]
     ])
     counts: Dict[str, int] = {}
+    # Counted per layer rather than logged per feature: a layer in the wrong CRS
+    # fails on every one of its features, so the useful information is which
+    # layer, not which feature.
+    skipped_transform: Dict[str, int] = {}
     for material, material_layers in layers.items():
         n = 0
         for layer in material_layers:
@@ -304,11 +308,20 @@ def validate_ground_material_layers(
                     try:
                         geom.transform(transform)
                     except Exception:
+                        skipped_transform[layer.name()] = (
+                            skipped_transform.get(layer.name(), 0) + 1
+                        )
                         continue
                 if geom.intersects(area_geom):
                     n += 1
         if n:
             counts[material] = n
+    for layer_name, skipped in sorted(skipped_transform.items()):
+        logger.warning(
+            "validate_ground_material_layers: %d feature(s) in layer %r could not be "
+            "reprojected to WGS84 and are missing from its count — check the "
+            "layer's CRS", skipped, layer_name,
+        )
     return counts
 
 
@@ -354,6 +367,11 @@ def collect_ground_materials(
 
     out: Dict[str, dict] = {}
     skipped_non_polygon = 0
+    # Same reasoning as ground_material_counts: these fail per feature (or per
+    # field), so they are counted and reported once instead of logged in a loop.
+    skipped_transform = 0
+    skipped_geometry = 0
+    skipped_props = 0
     for material, material_layers in layers.items():
         features = []
         for layer in material_layers:
@@ -371,15 +389,22 @@ def collect_ground_materials(
                     try:
                         geom.transform(transform)
                     except Exception:
+                        skipped_transform += 1
                         continue
                 if not geom.intersects(bbox_geom):
                     continue
+                # z_of[material] is looked up OUTSIDE the try on purpose: it is
+                # built from the same `layers` keys, so a KeyError here means a
+                # caller mutated the mapping mid-run. That is a bug worth
+                # raising, not a malformed feature to count and skip.
+                material_z = z_of[material]
                 try:
                     geometry = json.loads(geom.asJson())
                     geometry["coordinates"] = _with_z(
-                        geometry["coordinates"], z_of[material],
+                        geometry["coordinates"], material_z,
                     )
                 except Exception:
+                    skipped_geometry += 1
                     continue
                 # Unwrap QVariants — the SDK deep-copies features per tile
                 # and a raw QVariant in properties breaks pickling (same
@@ -389,6 +414,7 @@ def collect_ground_materials(
                     try:
                         props[name] = _to_json_primitive(feat[name])
                     except Exception:
+                        skipped_props += 1
                         continue
                 # Material stamp: run_area's tile assignment adds this
                 # itself, but the single-tile path embeds the payload as-is
@@ -409,10 +435,11 @@ def collect_ground_materials(
 
     logger.info(
         "collect_ground_materials: %d material layer(s) in, %d with features "
-        "(%s); %d non-polygon feature(s) skipped",
+        "(%s); skipped %d non-polygon, %d unprojectable, %d unreadable "
+        "geometry, %d unreadable attribute(s)",
         len(layers), len(out),
         ", ".join(f"{k}={len(v['features'])}" for k, v in out.items()) or "none",
-        skipped_non_polygon,
+        skipped_non_polygon, skipped_transform, skipped_geometry, skipped_props,
     )
     return out
 

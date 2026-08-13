@@ -353,8 +353,9 @@ class InfraredCityGIS:
         # canvas so the toolbar looks idle again.
         try:
             self.iface.mapCanvas().setFocus()
-        except Exception:
-            pass
+        except Exception as e:
+            # Cosmetic only — a lingering focus ring is not worth an error.
+            logger.debug("could not move focus to the map canvas: %s", e)
 
     def select_tree_type(self):
         self.dlg = InfraredCityTreeCatalogDialog()

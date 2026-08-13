@@ -158,8 +158,10 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
                     f"{progress.completed_count}/{progress.total_count} tiles"
                 )
                 QApplication.processEvents()
-            except Exception:
-                pass
+            except Exception as e:
+                # The dialog may already be closing — a progress tick is never
+                # worth interrupting the fetch for.
+                logger.debug("progress label update skipped: %s", e)
 
         try:
             from infrared_sdk import InfraredClient

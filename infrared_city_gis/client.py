@@ -20,7 +20,10 @@ from .utils.helper import decode
 
 class Headers(Enum):
     """Headers for Infrared API"""
-    X_API_KEY = 'X-Api-Key'
+    # The HTTP header NAME, not a credential — detect-secrets' keyword rule sees
+    # "API_KEY = '...'" and cannot tell the two apart. The key itself lives in
+    # QSettings (services/secret_manager.py) and is never written into source.
+    X_API_KEY = 'X-Api-Key'  # pragma: allowlist secret
     CONTENT_TYPE = 'Content-Type'
     X_INFRARED_ENCODING = 'X-Infrared-Encoding'
     X_INFRARED_CLIENT = "X-Infrared-Client"
