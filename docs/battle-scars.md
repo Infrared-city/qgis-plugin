@@ -18,6 +18,30 @@ _Non-obvious bugs, hard-won lessons. Date each entry. Remove when root cause is 
 - **[2026-08-03]** [qt6/tooling] **Verify names against the bundled interpreter instead of guessing.** QGIS ships its own Python; on macOS `/Applications/QGIS-<ver>.app/Contents/MacOS/python3.12` runs headless with `PYTHONPATH=<app>/Contents/Resources/python3.12{,/lib-dynload,/site-packages}:<app>/Contents/Resources/python` (PYTHONHOME does **not** work — the stdlib sits at `Resources/python3.12`, not the `Resources/lib/python3.12` the interpreter derives). That gives real `PyQt6` **and** `qgis.core`, so every name the plugin uses can be resolved on both bindings before shipping — which is how the QVariant break below was caught after two hand sweeps had cleared it.
 - **[2026-08-03]** [qt6] `QVariant.Int` / `.String` / `.Double` **break on Qt6 — and so does the scoped `QVariant.Type.Int`**: PyQt6 drops the type constants entirely, so `QgsField("id", QVariant.Int)` fails at runtime. Use `QMetaType.Type.Int` / `.QString` / `.Double` (note `String` → **`QString`**), which exist on PyQt5 and PyQt6 alike, and which QGIS has preferred since 3.38. The `QVariant` *class* itself survives, so `isinstance(value, QVariant)` in `geotiff.py` is fine. Verified fine and left alone: `QgsWkbTypes.PolygonGeometry` / `.PointGeometry` (deprecated since 3.30, still present in 4.2) and `from qgis.PyQt.QtWidgets import QAction` (Qt6 moved `QAction` to `QtGui`, but the shim re-exports it into `QtWidgets`).
 
+## Reviewer Corrections
+
+_Deliberate deviations from `ir-dev:conventions`. The auto PR reviewer reads this
+section — record it here rather than re-arguing it on every PR._
+
+- **[2026-08-18]** [naming] **Python modules are `snake_case`, not the kebab-case
+  `ir-dev:conventions` specifies for files.** `import infrared-city-gis` is a syntax
+  error, so a QGIS plugin package has no choice: the folder is `infrared_city_gis/`
+  and every module under it follows. The convention's intent (consistent, readable
+  filenames) is met; only the separator differs. `scripts/` follows the same
+  separator on purpose (`run_qgis_tests.sh`, `check_qt6_names.py`) — one rule for
+  the whole repo beats a boundary nobody remembers. Docs and workflows are
+  kebab-case as the convention specifies.
+- **[2026-08-18]** [logging] **Log calls are prose with `%`-style args, not the
+  structured key–value events `logging-conventions.md` requires.** The plugin does
+  use `structlog`, but renders through `ConsoleRenderer` into a per-day file in the
+  user's QGIS profile (`infrared_logger.py`) — it is never shipped to an aggregator,
+  and nothing queries it. The reader is a human debugging their own install, or a
+  user pasting a log into a support thread, so a readable sentence beats a
+  machine-parsable event. The parts of that standard that **do** apply are followed:
+  levels mean what the standard says, and secrets/PII stay out (`secret_manager.py`
+  logs only the source a key came from, `sdk_payloads.py` logs an EPW basename
+  rather than the full path). Revisit if these logs ever get collected centrally.
+
 ## Format
 
 - **[YYYY-MM-DD]** [area] Short description — why it happens and how to work around it.

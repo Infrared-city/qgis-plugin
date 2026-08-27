@@ -15,10 +15,11 @@
 
 3. **Install dev tools**:
    ```bash
-   pip install pylint
+   pip install ruff flake8 bandit detect-secrets pytest
    ```
 
-   Linting config: `infrared_city_gis/pylintrc`.
+   Lint config: `.flake8` at the repo root. (`infrared_city_gis/pylintrc` is a
+   leftover — pylint is not run by CI or by reviewers.)
 
 4. **Symlink into your QGIS plugin folder** so QGIS picks up live changes:
    - macOS: `~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/`
@@ -36,11 +37,32 @@
 1. **Branch**: `feat/<short-description>`, `fix/<short-description>`, `chore/<description>`. Target `main` (or `staging` if it exists).
 2. **Commit** following [Conventional Commits](https://www.conventionalcommits.org): `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `ci:`. Lowercase type, imperative mood. Append `!` for breaking changes.
 3. **Open a PR** with a short summary and a test plan. One concern per PR.
-4. **Reviewer checks** pylint passes (`pylint --rcfile=infrared_city_gis/pylintrc infrared_city_gis/`), plugin loads in QGIS, no regressions on the dialogs you touched.
+4. **Reviewer checks** CI is green (`ruff`, `flake8`, `qt6-names`, `security`),
+   the plugin loads in QGIS, and there are no regressions on the dialogs you
+   touched. Run `/ir-dev:audit-branch` before opening the PR.
 
 ## Testing
 
-The plugin is QGIS-runtime-only — there's no headless test harness yet. Manual checks:
+Automated tests run inside a real headless QGIS — `scripts/run_qgis_tests.sh`
+wraps pytest in a working QGIS runtime (on macOS it also works around code
+signing; see the comments in the script):
+
+```bash
+./scripts/run_qgis_tests.sh -q          # free: no network, no API key
+./scripts/run_qgis_tests.sh -m qgis     # only the QGIS-backed tests
+
+# These hit prod. The simulation matrix is billable, hence the second gate.
+INFRARED_API_KEY=… ./scripts/run_qgis_tests.sh -m e2e -s
+INFRARED_RUN_SIMULATIONS=1 INFRARED_API_KEY=… ./scripts/run_qgis_tests.sh -m e2e -s
+```
+
+Simulation inputs are replayed from `infrared_city_gis/tests/fixtures/` and the
+expected numbers live in `tests/baselines/`, so a result only moves when the
+model does — re-record with `UPDATE_FIXTURES=1` / `UPDATE_BASELINE=1`. Every run
+writes a summary to `tests/results/`.
+
+Manual checks still matter for anything UI-shaped (full list in
+[`docs/manual-testing.md`](docs/manual-testing.md)):
 
 - Plugin loads (no exceptions in QGIS Python console)
 - Auth dialog accepts a valid API key

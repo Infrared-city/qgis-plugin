@@ -4,6 +4,7 @@
     "ir-dev@infrared": true,
     "ir-org@infrared": true,
     "ir-sdk@infrared": true,
+    "ir-research@infrared": true,
     "infrared@infrared-skills": true
   },
   "extraKnownMarketplaces": {
@@ -23,11 +24,19 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
+      "Bash(python3:*)",
       "Bash(pip:*)",
       "Bash(uv:*)",
       "Bash(pytest:*)",
+      "Bash(make:*)",
+      "Bash(./scripts/run_qgis_tests.sh:*)",
       "Bash(ruff:*)",
+      "Bash(flake8:*)",
+      "Bash(pylint:*)",
+      "Bash(bandit:*)",
       "Bash(pb_tool:*)",
+      "Bash(zip:*)",
+      "Bash(unzip:*)",
       "Bash(git status)",
       "Bash(git log:*)",
       "Bash(git diff:*)",
@@ -36,7 +45,10 @@
       "Bash(gh pr list:*)",
       "Bash(gh pr view:*)",
       "Bash(gh issue list:*)",
-      "Bash(gh issue view:*)"
+      "Bash(gh issue view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh workflow view:*)"
     ]
   }
 }
