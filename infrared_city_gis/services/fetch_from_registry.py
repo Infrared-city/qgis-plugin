@@ -29,6 +29,7 @@ from qgis.core import QgsApplication
 from ..constants import FETCH_FROM_REGISTRY_URL
 from ..exceptions import InfraredAPIError
 from ..infrared_logger import logger
+from ..utils.client_identity import client_headers
 from . import qgis_http as requests
 
 # In-memory cache of the last known good visualConfigurations. Populated from
@@ -83,7 +84,7 @@ def _get_json(path_suffix, api_key):
     being swallowed like an outage.
     """
     url = f"{FETCH_FROM_REGISTRY_URL}/{path_suffix.lstrip('/')}"
-    headers = {"x-api-key": api_key}
+    headers = {**client_headers(), "x-api-key": api_key}
     try:
         logger.info("Fetching %s", url)
         r = requests.get(url, headers=headers, timeout=_REGISTRY_TIMEOUT_SEC)
