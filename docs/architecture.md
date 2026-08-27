@@ -16,8 +16,6 @@ infrared_city_gis/
 ├── infrared_city_select_bbox_dialog.{py,ui}
 ├── infrared_city_run_multiple_simulation_dialog.{py,ui}  # "Run simulation" (single-tile + area)
 ├── infrared_city_tree_catalog_dialog.{py,ui}
-├── infrared_city_dialog_base.ui  # Shared dialog base
-├── client.py                # HTTP wrapper around infrared-sdk
 ├── constants.py             # Endpoints, defaults
 ├── exceptions.py            # Domain exceptions
 ├── infrared_logger.py       # structlog setup
@@ -35,7 +33,6 @@ infrared_city_gis/
 │   ├── converter.py         # Geometry conversion
 │   ├── feature_height.py    # Building height heuristics
 │   ├── epw_query.py         # Weather data via SDK weather client (+ epw_parser.py for local EPW upload)
-│   ├── buildings_compare.py # Diff buildings across versions
 │   └── _geometry_io.py      # Geometry serialization helpers
 ├── models/                  # Domain models
 │   ├── analysis.py          # Simulation request/response shapes
@@ -51,7 +48,7 @@ infrared_city_gis/
 | Module | Role |
 |---|---|
 | `infrared_city_gis.py` | QGIS plugin lifecycle — registers menu/toolbar entries, opens dialogs |
-| `client.py` | Thin HTTP wrapper. Reads API key from auth-dialog-saved credentials |
+| `services/qgis_http.py` | Every direct HTTP call the plugin makes, routed through QGIS's network stack so the user's QGIS proxy settings apply |
 | `services/fetch.py` | Pulls building footprints from the Infrared City buildings API (`POST /v2/buildings`, GeoJson), single request with a 512 m-tile fallback |
 | `services/sdk_runner.py` | Submits area simulations through the SDK (`client.run_area_and_wait`), passing buildings + trees + ground materials |
 | `services/sdk_single_tile.py` | Single-tile simulation (`analyses.execute`) with the same inputs embedded in the payload |
@@ -99,8 +96,9 @@ battle-scars.) The half-open plugin `TimeFrame` → inclusive SDK
 rules, is documented in `epw_query._time_periods_from_time_frame`.
 
 The area path goes through `services/sdk_runner.py`, the single-tile path
-through `services/sdk_single_tile.py`. The legacy raw-REST
-`RUN_ANALYSIS_ENDPOINT` in `constants.py`/`client.py` has no callers anymore.
+through `services/sdk_single_tile.py`. The legacy raw-REST simulation path
+(`client.py` and its `RUN_ANALYSIS_ENDPOINT`) lost its last caller when both
+moved to the SDK, and was removed in 1.2.0.
 Trees and ground materials are documented in
 [`vegetation-input.md`](vegetation-input.md) and
 [`ground-materials.md`](ground-materials.md).
