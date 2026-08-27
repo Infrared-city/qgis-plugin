@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/Infrared-city/qgis-plugin/compare/v1.1.2...v1.1.3) (2026-08-13)
+
+
+### Bug Fixes
+
+* surface swallowed errors and clear the plugins.qgis.org security scan ([#45](https://github.com/Infrared-city/qgis-plugin/issues/45)) ([ef7d4b7](https://github.com/Infrared-city/qgis-plugin/commit/ef7d4b7830cba2e676a2afe91db70db9ad6620cd))
+
 ## [1.1.2](https://github.com/Infrared-city/qgis-plugin/compare/v1.1.1...v1.1.2) (2026-07-30)
 
 
