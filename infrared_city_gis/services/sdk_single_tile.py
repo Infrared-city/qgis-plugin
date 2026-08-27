@@ -267,7 +267,11 @@ class SingleTilePoller(QObject):
         self.deleteLater()
 
 
-def grid_from_result(result, analysis_type, sub_analysis_type=None) -> np.ndarray:
+def grid_from_result(
+    result: dict,
+    analysis_type: Any,
+    sub_analysis_type: Optional[Any] = None,
+) -> np.ndarray:
     """Turn a decompressed single-tile job result into the grid the renderer draws.
 
     Kept separate from the poller so the e2e tests can compare a real run's grid

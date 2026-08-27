@@ -7,7 +7,6 @@ only meaningful next to them.
 """
 
 import math
-import time
 
 from _baseline import record
 from _fake_dialog import NEEDS_WEATHER, FakeRunDialog
@@ -42,21 +41,19 @@ def polygon(lon, lat, size_m):
     }
 
 
-def _await_result(client, job):
-    """Poll one job to completion and return its decompressed result."""
-    from infrared_sdk.analyses.jobs import JobsServiceClient, JobStatus
+def _await_result(client, job) -> dict:
+    """Poll one job to completion and return its decompressed result.
 
-    deadline = time.monotonic() + JOB_TIMEOUT_S
-    while True:
-        job = client.jobs.get_status(job.job_id)
-        if job.status == JobStatus.succeeded:
-            break
-        if job.status == JobStatus.failed:
-            raise AssertionError(f"job failed: {job.error or '(no message)'}")
-        if time.monotonic() > deadline:
-            raise AssertionError(f"job timed out (last status {job.status})")
-        time.sleep(5)
+    Uses the SDK's own ``wait_for_completion`` — exponential backoff with
+    jitter, and typed ``JobFailedError`` / ``JobTimeoutError`` instead of the
+    flat 5-second loop this used to hand-roll. The plugin's *production* path
+    (``services.sdk_single_tile.SingleTilePoller``) cannot use it, because it
+    has to yield to Qt's event loop between polls; this harness is a plain
+    synchronous pytest process, so that constraint does not apply here.
+    """
+    from infrared_sdk.analyses.jobs import JobsServiceClient
 
+    job = client.jobs.wait_for_completion(job.job_id, timeout=JOB_TIMEOUT_S)
     download = client.jobs.download_results(job.job_id, _job=job)
     return JobsServiceClient.decompress(download.content)
 
@@ -73,9 +70,10 @@ def run_single_tile(api_key, analysis_type, *, weather_file, ground):
 
     Goes through the plugin's own builders — ``build_sdk_payload``,
     ``collect_qgis_area_buildings``, the two ground-material paths and
-    ``grid_from_result`` — so a regression in any of them shows up here. Only
-    the submit/poll loop is this module's own, because the plugin drives that
-    from a QTimer.
+    ``grid_from_result`` — so a regression in any of them shows up here. The
+    submit/poll/download sequence is the SDK's own (see ``_await_result``);
+    only the plugin's production path re-implements it, and only because Qt
+    demands it.
     """
     import numpy as np
     from infrared_sdk import InfraredClient
