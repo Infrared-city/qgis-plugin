@@ -13,6 +13,7 @@ from ..constants import (
 )
 from ..exceptions import InfraredAPIError
 from ..infrared_logger import logger
+from ..utils.client_identity import client_headers
 from . import qgis_http as requests
 from .geometry import get_bbox
 
@@ -35,7 +36,7 @@ def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str
         f"and api-key provided={bool(api_key)}"
     )
 
-    headers = {"x-api-key": api_key} if api_key else {}
+    headers = {**client_headers(), **({"x-api-key": api_key} if api_key else {})}
 
     try:
         response = requests.get(base_url, params=params, headers=headers, timeout=20)
@@ -98,7 +99,7 @@ def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str
         "radius": radius,
     }
 
-    headers = {"x-api-key": api_key} if api_key else {}
+    headers = {**client_headers(), **({"x-api-key": api_key} if api_key else {})}
 
     logger.info(
         f"Fetching weather file names from {base_url} with params={params} "
@@ -232,7 +233,8 @@ def _fetch_buildings_request(lat, lon, size_x, size_y, api_key):
         "returnBuildingIds": False,
         "compress": False,
     }
-    headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+    headers = {**client_headers(), "x-api-key": api_key,
+               "Content-Type": "application/json"}
 
     logger.info("POST %s (size=%sx%s m)", FETCH_BUILDINGS_URL, size_x, size_y)
     try:
