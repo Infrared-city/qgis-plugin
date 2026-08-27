@@ -18,8 +18,7 @@ qgis-plugin/
 │   ├── __init__.py            # Plugin entry point — classFactory()
 │   ├── infrared_city_gis.py   # Main plugin class
 │   ├── infrared_city_*.{py,ui}# Dialogs (auth, fetch geometry, ground materials, simulation, bbox, trees)
-│   ├── client.py              # HTTP client wrapper around infrared-sdk
-│   ├── services/              # Domain helpers (fetch, area_poller, geometry, buildings)
+│   ├── services/              # Domain helpers (fetch, qgis_http, area_poller, geometry, buildings)
 │   ├── models/                # Analysis, vegetation, time-frame parsers
 │   ├── visualization/         # Raster rendering helpers
 │   ├── utils/                 # Shared utilities
@@ -43,8 +42,26 @@ zip -r infrared-city-qgis.zip infrared_city_gis/ \
   -x "*__pycache__*" "*.pyc" "*.pyo" "*.DS_Store" "*/.*" \
      "infrared_city_gis/tests/*" "infrared_city_gis/test/*"
 
-# Lint
-pylint --rcfile=infrared_city_gis/pylintrc infrared_city_gis/
+# Lint — these two are the CI gates (NOT pylint; pylintrc is a leftover)
+ruff check infrared_city_gis/
+flake8 infrared_city_gis/
+
+# Security — the same two scanners plugins.qgis.org runs on every upload.
+# Run bandit with NO config: it auto-discovers any .bandit inside the tree it
+# scans and silently applies its skips. The upload waiver is kept outside the
+# scanned tree for exactly that reason.
+bandit -r infrared_city_gis/ -x infrared_city_gis/tests,infrared_city_gis/test
+git ls-files 'infrared_city_gis/*' | xargs detect-secrets-hook
+
+# Tests — real QGIS runtime; see the marker gates in infrared_city_gis/tests/
+./scripts/run_qgis_tests.sh -q                       # free, no network
+INFRARED_API_KEY=… ./scripts/run_qgis_tests.sh -m e2e -s   # hits prod, costs tokens
+
+# Qt5/Qt6 name resolution (what a linter cannot catch — see Stack above).
+# Needs the binding installed: `pip install PyQt6`, or run it under the QGIS
+# bundled interpreter to cover Qgs* classes too (docs/battle-scars.md 2026-08-03).
+python scripts/check_qt6_names.py infrared_city_gis
+python scripts/check_qt6_names.py infrared_city_gis --binding pyqt5
 ```
 
 Plugin uploads to `plugins.qgis.org` are **manual via the web UI** — see [`docs/deployment.md`](docs/deployment.md).
@@ -63,6 +80,25 @@ git tag v0.2.2 && git push --tags
 CI builds the ZIP and creates a GitHub Release. Upload to `plugins.qgis.org` is still **manual** — review the release on plugins.qgis.org before promoting to non-experimental.
 
 See [`docs/deployment.md`](docs/deployment.md) for full deploy details.
+
+## Conventions
+
+Team-wide rules are **not duplicated here** — they live in the plugins enabled by
+[`.claude/settings.json`](.claude/settings.json) and are the default for this repo:
+
+| Skill | Use it for |
+|---|---|
+| `ir-dev:conventions` | Size limits, naming, imports, error handling, testing tiers, git workflow. Its `python-conventions.md` and `logging-conventions.md` are the baseline for every file here. |
+| `infrared:use-infrared` + `ir-sdk:infrared-sdk-consumers` | The simulation domain this plugin drives — analysis types, weather data, area vs. single-tile, result handling. Read before changing anything under `services/`. |
+| `ir-research:simulation-context` | What the results *mean* — the Lawson and UTCI standards this plugin renders, model accuracy, the serving pipeline. |
+| `ir-dev:codebase-overview` | Where this repo sits among the org's services, and how the SDK is released. |
+| `/ir-dev:audit-branch` | Run before opening a PR — checks conventions, reinvention, and doc sync. |
+| `/security-review`, `/code-review` | Before a release. plugins.qgis.org scans every upload and **blocks on Critical findings**. |
+
+Two deviations from those conventions are deliberate and documented under
+**Reviewer Corrections** in [`docs/battle-scars.md`](docs/battle-scars.md):
+snake_case module names, and prose logging. Read that section before "fixing"
+either — both are load-bearing.
 
 ## Doc Map
 
