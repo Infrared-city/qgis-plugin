@@ -24,7 +24,6 @@
 
 import os
 
-from infrared_sdk import InfraredClient
 from qgis.core import Qgis
 from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtWidgets import QMessageBox
@@ -67,6 +66,7 @@ from .services.tree_layer_picker import (
     update_tree_layer_enabled,
 )
 from .services.tree_validation import validate_tree_layer
+from .utils.client_identity import make_client
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
@@ -221,7 +221,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         else:
             try:
 
-                client = InfraredClient(api_key=self.api_key)
+                client = make_client(self.api_key)
                 self.polygon = create_wgs84_geojson_polygon_from_selection()
                 preview = client.preview_area(self.polygon)
                 logger.info("Preview area: %s", preview.tile_count)

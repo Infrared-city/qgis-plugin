@@ -27,7 +27,6 @@ import time
 from typing import Any, Callable, Optional
 
 import numpy as np
-from infrared_sdk import InfraredClient
 from infrared_sdk.analyses.jobs import JobsServiceClient, JobStatus
 from infrared_sdk.tiling.orchestrator import _extract_grid
 from qgis.core import Qgis
@@ -36,6 +35,7 @@ from qgis.PyQt.QtWidgets import QApplication, QMessageBox
 from qgis.utils import iface
 
 from ..infrared_logger import logger
+from ..utils.client_identity import make_client
 from ..visualization.display import add_geojson_then_raster
 from .area_poller import AreaRenderState
 from .geotiff import generate_geotiff, map_categories
@@ -392,7 +392,7 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
         if getattr(dlg, "use_infrared_ground_materials", False):
             _status("InfraredCity: fetching ground materials for the tile…")
             try:
-                with InfraredClient(api_key=dlg.api_key) as gm_client:
+                with make_client(dlg.api_key) as gm_client:
                     area_gm = gm_client.ground_materials.get_area(polygon)
                 if area_gm.layers:
                     ground_materials = stamp_material_properties(area_gm.layers)
@@ -432,7 +432,7 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
     render_state = AreaRenderState.from_dialog(dlg)
     parent = iface.mainWindow() if iface is not None else None
 
-    client = InfraredClient(api_key=dlg.api_key)
+    client = make_client(dlg.api_key)
     _status("InfraredCity: submitting single-tile job…")
     try:
         job = client.analyses.execute(payload=payload)

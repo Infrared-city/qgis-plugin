@@ -9,21 +9,29 @@ pair (see Infrared-city/qgis-plugin#43)::
     x-infrared-application: qgis
     x-infrared-sdk:         qgis-plugin/<version>
 
-**Scope, so the numbers are read correctly.** These cover the calls the plugin
-makes itself through ``services.qgis_http`` — the registry fetches at startup,
-the weather-file lookup, and the building-geometry fetch. They do NOT cover
-anything routed through ``infrared-sdk``, which hardcodes
-``x-infrared-application: "sdk"`` in each of its service clients with no way to
-override it. That is where the simulations run, so ``client = 'qgis'`` currently
-counts plugin *sessions and fetches*, not analyses. Attributing those needs an
-SDK change; until then, do not read the figure as a run count.
+**Both halves of the plugin's traffic are covered.**
+
+* The calls the plugin makes itself through ``services.qgis_http`` — the
+  registry reads, the weather-file lookup, the building-geometry fetch — merge
+  :func:`client_headers` into their own header block.
+* The calls routed through ``infrared-sdk`` — every simulation, the
+  ground-material reads, the EPW query — go through :func:`make_client`, which
+  passes the same two values to ``InfraredClient``. The SDK appends its own
+  token to the second one, so the wire carries
+  ``qgis-plugin/<version> infrared-sdk/<sdk version>``: the surface is
+  attributed without losing which SDK version ran.
+
+The SDK arguments arrived in 0.9.4 (infrared-sdk#195); before that each service
+client hardcoded ``x-infrared-application: "sdk"`` with no way to override it,
+which is why ``client = 'qgis'`` used to count plugin sessions and fetches but
+not analyses. ``requirements.txt`` pins the floor that makes them available.
 """
 
 from __future__ import annotations
 
 import configparser
 import os
-from typing import Dict
+from typing import Any, Dict
 
 #: Surface name for this client, from the agreed vocabulary
 #: (qgis | arcgis | sketchup | platform | webapp | script | …).
@@ -65,9 +73,40 @@ def plugin_version() -> str:
     return _version_cache
 
 
+def sdk_id() -> str:
+    """The ``x-infrared-sdk`` value this plugin contributes.
+
+    The SDK chains its own ``infrared-sdk/<version>`` token onto whatever it is
+    given, so this is the leading token only — never the full header value.
+    """
+    return f"{CLIENT_NAME}/{plugin_version()}"
+
+
 def client_headers() -> Dict[str, str]:
     """The identifying headers to merge into every outgoing plugin request."""
     return {
         "x-infrared-application": APPLICATION,
-        "x-infrared-sdk": f"{CLIENT_NAME}/{plugin_version()}",
+        "x-infrared-sdk": sdk_id(),
     }
+
+
+def make_client(api_key: str, **kwargs: Any):
+    """Build an ``InfraredClient`` that identifies this plugin to the API.
+
+    The one construction point for the SDK client, so a new call site cannot
+    forget the attribution the way a hand-rolled ``InfraredClient(api_key=...)``
+    silently did. ``kwargs`` is passed straight through for the callers that
+    need to tune the run (``max_workers`` and friends).
+
+    Imported lazily: ``infrared-sdk`` is installed at runtime by
+    ``utils.deps_bootstrap``, so a module-level import here would run before the
+    bootstrap on a cold profile.
+    """
+    from infrared_sdk import InfraredClient
+
+    return InfraredClient(
+        api_key=api_key,
+        application=APPLICATION,
+        sdk_id=sdk_id(),
+        **kwargs,
+    )

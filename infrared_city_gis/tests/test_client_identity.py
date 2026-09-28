@@ -1,4 +1,4 @@
-"""The plugin identifies itself to the API on every call it makes itself.
+"""The plugin identifies itself to the API on every call, direct and via the SDK.
 
 Without these headers the gateway cannot attribute a request to QGIS and falls
 back to guessing from the auth method, which lands plugin traffic in the same
@@ -7,7 +7,8 @@ bucket as any other API-key script (Infrared-city/qgis-plugin#43).
 The header helper alone is not worth a test — what breaks in practice is a new
 request site that forgets to merge it, or an old one that gets rewritten. So the
 tests below call the real fetch functions with the transport swapped out and
-assert on what was actually handed to it.
+assert on what was actually handed to it, and build a real ``InfraredClient``
+through the factory to assert on the headers the SDK resolved.
 """
 
 import configparser
@@ -20,7 +21,9 @@ from infrared_city_gis.utils.client_identity import (
     APPLICATION,
     CLIENT_NAME,
     client_headers,
+    make_client,
     plugin_version,
+    sdk_id,
 )
 
 PLUGIN_ROOT = Path(__file__).parent.parent
@@ -112,3 +115,35 @@ def test_every_request_the_plugin_makes_identifies_itself(module, call, monkeypa
         assert headers.get("x-infrared-sdk", "").startswith(f"{CLIENT_NAME}/")
         # The identity headers must not displace authentication.
         assert headers.get("x-api-key") == "k"
+
+
+def test_the_sdk_client_carries_the_same_identity():
+    """Simulations run through the SDK, so the factory must label them too.
+
+    Asserted on the resolved headers rather than on the constructor call: the
+    SDK owns how ``sdk_id`` reaches the wire (it chains its own token on), and a
+    test that only checked the arguments would keep passing if that contract
+    changed under us. Constructing a client makes no request, so a throwaway key
+    is enough.
+    """
+    client = make_client("k")
+    try:
+        headers = client.telemetry.as_headers()
+    finally:
+        client.close()
+
+    assert headers["x-infrared-application"] == APPLICATION
+
+    # The plugin's own token leads; the SDK appends its own version behind it.
+    tokens = headers["x-infrared-sdk"].split()
+    assert tokens[0] == sdk_id()
+    assert any(token.startswith("infrared-sdk/") for token in tokens[1:])
+
+
+def test_the_factory_passes_extra_arguments_through():
+    """Callers tune the run (max_workers and friends) on the same constructor."""
+    client = make_client("k", transport="json")
+    try:
+        assert client.telemetry.application == APPLICATION
+    finally:
+        client.close()

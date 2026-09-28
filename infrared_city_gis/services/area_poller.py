@@ -11,7 +11,7 @@ Usage::
 
     state = AreaRenderState.from_dialog(dlg)   # snapshot before closing
     poller = AreaPoller(
-        client=InfraredClient(api_key=dlg.api_key),
+        client=make_client(dlg.api_key),
         polygon=polygon,
         area=area,
         payload=payload,

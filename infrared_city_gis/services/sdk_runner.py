@@ -23,7 +23,6 @@ import tempfile
 from typing import Any, Optional, Tuple
 
 import numpy as np
-from infrared_sdk import InfraredClient
 from qgis.core import Qgis
 from qgis.PyQt.QtWidgets import QApplication, QMessageBox
 from qgis.utils import iface
@@ -38,6 +37,7 @@ from ..services.ground_materials import (
 from ..services.qgis_area_vegetation import collect_qgis_area_vegetation
 from ..services.sdk_payloads import build_sdk_payload
 from ..services.tree_layer_picker import has_tree_support, selected_tree_layer
+from ..utils.client_identity import make_client
 from ..visualization.display import add_geojson_then_raster
 
 
@@ -310,7 +310,7 @@ def run_sdk_area(dlg, polygon: dict, area) -> None:
     if payload is None:
         return
 
-    client = InfraredClient(api_key=dlg.api_key)
+    client = make_client(dlg.api_key)
     _status("InfraredCity: submitting area jobs…")
     try:
         result = client.run_area_and_wait(
@@ -422,7 +422,7 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
         if getattr(dlg, "use_infrared_ground_materials", False):
             _status("InfraredCity: fetching ground materials for the area…")
             try:
-                with InfraredClient(api_key=dlg.api_key) as gm_client:
+                with make_client(dlg.api_key) as gm_client:
                     area_gm = gm_client.ground_materials.get_area(polygon)
                 ground_materials = area_gm.layers or None
                 logger.info(
@@ -456,7 +456,7 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
                     ground_materials = None
 
     poller = AreaPoller(
-        client=InfraredClient(api_key=dlg.api_key),
+        client=make_client(dlg.api_key),
         polygon=polygon,
         area=area,
         payload=payload,

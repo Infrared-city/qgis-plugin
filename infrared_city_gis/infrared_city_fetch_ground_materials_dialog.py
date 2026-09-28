@@ -34,6 +34,7 @@ from .services.polygon_from_selection import (
     create_wgs84_geojson_polygon_from_selection,
 )
 from .services.secret_manager import get_api_key
+from .utils.client_identity import make_client
 from .visualization.layers import display_ground_materials
 
 # Same cap as the Run Simulation dialog — and the SDK's own
@@ -106,9 +107,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
                 return
 
             try:
-                from infrared_sdk import InfraredClient
-
-                client = InfraredClient(api_key=self.api_key)
+                client = make_client(self.api_key)
                 preview = client.preview_area(self.polygon)
                 self.tile_count = preview.tile_count
             except Exception as e:
@@ -164,9 +163,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
                 logger.debug("progress label update skipped: %s", e)
 
         try:
-            from infrared_sdk import InfraredClient
-
-            with InfraredClient(api_key=self.api_key) as client:
+            with make_client(self.api_key) as client:
                 area_gm = client.ground_materials.get_area(
                     self.polygon, on_progress=on_progress,
                 )
