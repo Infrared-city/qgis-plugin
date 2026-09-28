@@ -57,14 +57,14 @@ def get_visual_config(analysis_type, sub_analysis_type=None):
     analysis type.
 
     Source of truth is ``settings/model_registry.json``. If the file does not
-    exist yet, triggers a fetch from the production registry
-    (``GET /v2/utils/registry/models``) which persists the response to disk.
-    Returns ``None`` if the registry is unavailable or the analysis type is
-    not present.
+    exist yet, triggers a fetch from the public registry mirror
+    (``registry.infrared.city/models/latest.json``) which persists the response
+    to disk. Returns ``None`` if the registry is unavailable or the analysis
+    type is not present.
     """
     registry_configs = load_registry_visual_configs()
     if registry_configs is None:
-        logger.info("model_registry.json not found on disk — fetching from API")
+        logger.info("model_registry.json not found on disk — fetching from the mirror")
         try:
             registry_configs = fetch_registry_visual_configs()
         except Exception as e:

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from infrared_city_gis.services import fetch, fetch_from_registry
+from infrared_city_gis.services import fetch, fetch_from_registry, key_check
 from infrared_city_gis.utils.client_identity import (
     APPLICATION,
     CLIENT_NAME,
@@ -93,17 +93,14 @@ def test_headers_carry_the_agreed_surface_and_client_name():
             id="weather-file-names",
         ),
         pytest.param(
-            fetch_from_registry,
-            # The private request helper, not the public fetch_from_registry()
-            # wrapper: the wrapper fans out to three endpoints and resolves the
-            # key from QSettings, neither of which this test is about.
-            lambda: fetch_from_registry._get_json("utils/registry/models", "k"),
-            id="registry",
+            key_check,
+            lambda: key_check.verify_api_key("k"),
+            id="api-key-check",
         ),
     ],
 )
-def test_every_request_the_plugin_makes_identifies_itself(module, call, monkeypatch):
-    """Each live request site merges the identity headers, alongside the API key."""
+def test_every_authenticated_request_identifies_itself(module, call, monkeypatch):
+    """Each authenticated request site merges the identity headers next to the key."""
     recorder = _Recorder({"data": {"locations": []}})
     monkeypatch.setattr(module, "requests", recorder)
 
@@ -115,6 +112,27 @@ def test_every_request_the_plugin_makes_identifies_itself(module, call, monkeypa
         assert headers.get("x-infrared-sdk", "").startswith(f"{CLIENT_NAME}/")
         # The identity headers must not displace authentication.
         assert headers.get("x-api-key") == "k"
+
+
+def test_the_registry_reads_identify_themselves_but_carry_no_key():
+    """The registries are public documents; sending the key there is a leak.
+
+    Asserted on the real fan-out rather than the request helper: what this
+    guards is that no future caller reintroduces an authenticated registry
+    read, and the fan-out is where such a caller would land.
+    """
+    recorder = _Recorder({"version": "1.0.0", "visualConfigurations": {}})
+    original = fetch_from_registry.requests
+    fetch_from_registry.requests = recorder
+    try:
+        fetch_from_registry.fetch_from_registry()
+    finally:
+        fetch_from_registry.requests = original
+
+    assert len(recorder.calls) == 3, "expected one read per registry document"
+    for headers in recorder.calls:
+        assert headers.get("x-infrared-application") == "qgis"
+        assert "x-api-key" not in headers
 
 
 def test_the_sdk_client_carries_the_same_identity():

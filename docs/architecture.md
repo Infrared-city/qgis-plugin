@@ -21,7 +21,8 @@ infrared_city_gis/
 ├── infrared_logger.py       # structlog setup
 ├── services/                # API + I/O helpers
 │   ├── fetch.py             # Building fetch (Infrared City /v2/buildings)
-│   ├── fetch_from_registry.py # Registry fetch on API-key save (models, vegetation, materials)
+│   ├── fetch_from_registry.py # Registry fetch on startup (models, vegetation, materials)
+│   ├── key_check.py         # Verifies an API key (GET /v2/webhooks)
 │   ├── sdk_runner.py        # Area simulation via SDK run_area_and_wait
 │   ├── sdk_single_tile.py   # Single-tile simulation via SDK analyses.execute
 │   ├── single_tile_selection.py # One-shot "Select tile" pick shared across dialogs
@@ -60,19 +61,22 @@ infrared_city_gis/
 ## External Dependencies
 
 - **Infrared City API** (`api.infrared.city/v2`) — simulation backend and building geometry source (`/v2/buildings`, Mapbox-backed core-geometries-service; subscription required)
+- **Registry mirror** (`registry.infrared.city`) — the public models / vegetation / materials documents, served without credentials. Read on startup; these used to come from the utilities service (`/v2/utils/registry/*`), which is being retired.
 - **QGIS / PyQGIS** — host application
-- **`infrared-sdk`** (≥0.4.11) — Python SDK; pinned in `requirements.txt`
+- **`infrared-sdk`** (≥0.9.5, `[geodata]` extra) — Python SDK; pinned in `requirements.txt`. The extra brings pyarrow + shapely, which `ground_materials.get_area` needs to read Overture parquet in-process.
 - **shapely**, **pyproj**, **mapbox_earcut**, **numpy**, **structlog**, **requests**
 
 ## Data Flow
 
 ```
+Plugin start → registries fetched from the public mirror
+                (models, vegetation, materials — no key needed)
+
 User → Auth Dialog → key VERIFIED against the API before saving
-                     (the registry fetch doubles as the check: 401/403 →
+                     (GET /v2/webhooks: 401/403 →
                       not saved + "contact connectors@infrared.city";
                       server unreachable → not saved either)
                    → API key stored in QGIS settings
-                     (+ registries fetched: models, vegetation, materials)
      → Select bbox / Select tile → Fetch buildings (POST /v2/buildings, GeoJson)
        (optional) Fetch ground materials → editable ground-* layers
      → Configure simulation (analysis, time frame, EPW, tree-* layer,
@@ -82,10 +86,12 @@ User → Auth Dialog → key VERIFIED against the API before saving
 ```
 
 All toolbar actions except **Save API Key** are greyed out (with an
-explanatory tooltip) until a key is stored and not known-bad. The startup
-registry refresh doubles as a key re-check: a confirmed 401/403 locks the
-actions and pushes a message-bar warning; a mere outage does NOT — an
-already-saved key keeps working offline.
+explanatory tooltip) until a key is stored and not known-bad. A startup
+`key_check.verify_api_key` re-checks a saved key: a confirmed 401/403 locks
+the actions and pushes a message-bar warning; a mere outage does NOT — an
+already-saved key keeps working offline. (This check used to be a side
+effect of the registry refresh, back when the registries were read from the
+utilities service with the key attached.)
 
 Weather-file data for thermal/wind analyses comes from the SDK weather
 client (`/v2/utils/weather/{id}/data/filter`) via `services/epw_query.py` —

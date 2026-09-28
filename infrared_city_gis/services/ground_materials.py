@@ -7,7 +7,8 @@ The SDK/backend contract (see docs/ground-materials.md):
   the material identity — the server's emissivity table is looked up by name,
   so features are never merged across materials.
 * Material names come from the materials registry
-  (``GET /v2/utils/registry/materials`` → ``settings/materials_registry.json``);
+  (``registry.infrared.city/materials/latest.json`` →
+  ``settings/materials_registry.json``);
   the SDK only WARNS on names it doesn't know, so a registry-driven list stays
   forward-compatible when the backend adds materials. When the registry is
   missing we fall back to the canonical five.

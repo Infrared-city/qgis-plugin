@@ -13,7 +13,25 @@ FETCH_WEATHER_FILES_URL = f"{INFRARED_API_V2_URL}/utils/weather/location"
 # /utils — it is mounted directly at /v2/buildings (same endpoint the SDK's
 # client.buildings.get_area uses).
 FETCH_BUILDINGS_URL = f"{INFRARED_API_V2_URL}/buildings"
-FETCH_FROM_REGISTRY_URL = INFRARED_API_V2_URL
+
+# The cheapest authenticated GET on the API, used only to verify an API key.
+# A list route rather than a dedicated one: there is no /whoami, and this
+# answers 401/403 for a bad key without costing tokens or creating anything.
+VERIFY_API_KEY_URL = f"{INFRARED_API_V2_URL}/webhooks"
+
+# Model / vegetation / material registries.
+#
+# These are PUBLIC documents, mirrored to R2 and served without credentials —
+# the plugin used to read them from the utilities service
+# (GET /v2/utils/registry/*), which is being retired. Same documents, verified
+# identical version-for-version; the API key is no longer sent, so a registry
+# read can no longer double as an auth check (see services.key_check).
+INFRARED_REGISTRY_BASE_URL = "https://registry.infrared.city"
+REGISTRY_DOCUMENTS = {
+    "model": f"{INFRARED_REGISTRY_BASE_URL}/models/latest.json",
+    "vegetation": f"{INFRARED_REGISTRY_BASE_URL}/vegetation/latest.json",
+    "materials": f"{INFRARED_REGISTRY_BASE_URL}/materials/latest.json",
+}
 
 
 # HTTP timeouts (seconds) — passed to requests as (connect, read).

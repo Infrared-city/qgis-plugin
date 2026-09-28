@@ -6,7 +6,7 @@ from qgis.PyQt.QtWidgets import QApplication, QDialog, QLineEdit, QMessageBox
 
 from .exceptions import InfraredAPIError
 from .infrared_logger import logger
-from .services.fetch_from_registry import fetch_from_registry
+from .services.key_check import verify_api_key
 from .services.secret_manager import get_api_key, set_api_key
 
 CONTACT_EMAIL = "connectors@infrared.city"
@@ -147,9 +147,7 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
             if reply == QMessageBox.StandardButton.No:
                 return
 
-        # Validate the key with a real authenticated call BEFORE saving: the
-        # registry refresh doubles as the key check (it needs to run on every
-        # key change anyway so trees / colormaps work without a QGIS restart).
+        # Validate the key with a real authenticated call BEFORE saving.
         # Only a verified key is saved:
         #   - 2xx        -> key verified, save + accept
         #   - 401 / 403  -> key rejected by the server, do NOT save
@@ -166,8 +164,7 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         # "Verifying…" state is actually visible.
         QApplication.processEvents()
         try:
-            results = fetch_from_registry(api_key=api_key)
-            self.key_verified = any(results.values())
+            self.key_verified = verify_api_key(api_key)
         except InfraredAPIError as e:
             logger.warning("API key validation failed: %s", e)
             self.update_status()
@@ -180,7 +177,7 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
             )
             return
         except Exception as e:
-            logger.warning("Registry refresh during key save failed: %s", e)
+            logger.warning("API key verification during key save failed: %s", e)
         finally:
             QApplication.restoreOverrideCursor()
 

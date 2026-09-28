@@ -1,23 +1,37 @@
-"""Fetch and load the Infrared model and vegetation registries.
+"""Fetch and load the Infrared model, vegetation and material registries.
 
-Two on-disk files are the single source of truth:
+The three documents are PUBLIC — they are mirrored to ``registry.infrared.city``
+and served without credentials. The plugin used to read them from the utilities
+service (``GET /v2/utils/registry/*``, API key attached), which is being
+retired; the mirror carries the same documents, verified identical
+version-for-version.
 
-  - ``<QGIS settings>/infrared_city_gis/settings/model_registry.json``
-    visualConfigurations (per-analysis-type colormaps, steps, units, …).
-  - ``<QGIS settings>/infrared_city_gis/settings/vegetation_registry.json``
-    Tree / vegetation species metadata.
+Two consequences worth knowing:
+
+* **No API key is sent any more**, so these reads no longer double as an auth
+  check. That job moved to :mod:`services.key_check`.
+* **They work before a key is saved**, so colormaps and the tree catalog are
+  populated on first launch rather than on the first key save.
+
+Three on-disk files under ``<QGIS settings>/infrared_city_gis/settings/`` remain
+the single source of truth for the rest of the plugin:
+
+  - ``model_registry.json``      visualConfigurations (colormaps, steps, units).
+  - ``vegetation_registry.json`` tree / vegetation species metadata.
+  - ``materials_registry.json``  the ground-material catalog.
 
 Public API:
   - ``load_registry_visual_configs()`` reads ``model_registry.json`` (with a
     small in-memory cache for visualConfigurations).
-  - ``fetch_registry_visual_configs(api_key)`` GETs ``/v2/utils/registry/models``
-    and overwrites ``model_registry.json``.
-  - ``fetch_registry_vegetation(api_key)`` GETs ``/v2/utils/registry/vegetation``
-    and overwrites ``vegetation_registry.json``.
-  - ``fetch_registry_materials(api_key)`` GETs ``/v2/utils/registry/materials``
-    and overwrites ``materials_registry.json`` (ground-material catalog).
-  - ``fetch_from_registry(api_key)`` runs all fetches. Called on plugin init
-    (when an API key is already saved) and after the user saves a new API key.
+  - ``fetch_registry_visual_configs()`` GETs the models mirror and overwrites
+    ``model_registry.json``.
+  - ``fetch_registry_vegetation()`` GETs the vegetation mirror and overwrites
+    ``vegetation_registry.json``.
+  - ``fetch_registry_materials()`` GETs the materials mirror and overwrites
+    ``materials_registry.json``.
+  - ``fetch_from_registry()`` runs all three. Called on plugin init and after
+    the user saves a new API key (the documents are versioned server-side, so a
+    refresh is how a new release's colormaps reach an installed plugin).
 """
 
 import json
@@ -26,8 +40,7 @@ from threading import Lock
 
 from qgis.core import QgsApplication
 
-from ..constants import FETCH_FROM_REGISTRY_URL
-from ..exceptions import InfraredAPIError
+from ..constants import REGISTRY_DOCUMENTS
 from ..infrared_logger import logger
 from ..utils.client_identity import client_headers
 from . import qgis_http as requests
@@ -60,42 +73,23 @@ def _materials_registry_path():
     return os.path.join(_settings_dir(), "materials_registry.json")
 
 
-def _load_api_key():
-    """Load the saved API key from QSettings (or env var), '' if neither.
+def _get_json(url):
+    """GET a public registry document. Returns the parsed JSON, or ``None``.
 
-    Centralised in :mod:`secret_manager`; this thin wrapper exists only
-    to keep the existing ``_load_api_key`` callsites in this module
-    untouched.
+    Every failure is transient by definition here: the plugin keeps working
+    from the on-disk copies, and there is no auth outcome to distinguish any
+    more — the mirror takes no credentials, so it cannot reject a key.
+
+    The identity headers still ride along. They carry no secret and the mirror
+    logs them, which is how registry traffic from QGIS is told apart from a
+    browser or another host.
     """
-    from .secret_manager import get_api_key
-    return get_api_key()
-
-
-def _get_json(path_suffix, api_key):
-    """GET ``{FETCH_FROM_REGISTRY_URL}/{path_suffix}`` with x-api-key header.
-
-    Returns the parsed JSON body, or ``None`` on transient failures
-    (network, 5xx, parse) — the plugin keeps working from the on-disk
-    registry copies in that case.
-
-    An auth rejection (HTTP 401/403) is different: it means the API key
-    itself is bad, so it is re-raised as :class:`InfraredAPIError` for
-    callers to surface (key-save validation, icon gating) instead of
-    being swallowed like an outage.
-    """
-    url = f"{FETCH_FROM_REGISTRY_URL}/{path_suffix.lstrip('/')}"
-    headers = {**client_headers(), "x-api-key": api_key}
+    headers = client_headers()
     try:
         logger.info("Fetching %s", url)
         r = requests.get(url, headers=headers, timeout=_REGISTRY_TIMEOUT_SEC)
         r.raise_for_status()
         return r.json()
-    except requests.HTTPError as e:
-        status = e.response.status_code if e.response is not None else None
-        logger.warning("Registry GET %s failed: HTTP %s", url, status)
-        if status in (401, 403):
-            raise InfraredAPIError(status_code=status) from e
-        return None
     except Exception as e:
         logger.warning("Registry GET %s failed: %s", url, e)
         return None
@@ -146,25 +140,17 @@ def load_registry_visual_configs():
         return None
 
 
-def fetch_registry_visual_configs(api_key=None):
-    """Fetch ``visualConfigurations`` from ``/v2/utils/registry/models``.
+def fetch_registry_visual_configs():
+    """Fetch ``visualConfigurations`` from the public models mirror.
 
     Always hits the network. Persists the full JSON response to
     ``settings/model_registry.json`` and refreshes the in-memory cache.
-    If ``api_key`` is not provided, falls back to the one stored via
-    :func:`services.secret_manager.get_api_key` (QSettings + env var).
 
     Returns:
         dict: the ``visualConfigurations`` dict on success.
-        None: on any failure (network, auth, missing key, parse).
+        None: on any failure (network, parse).
     """
-    if not api_key:
-        api_key = _load_api_key()
-    if not api_key:
-        logger.warning("fetch_registry_visual_configs: no api-key available")
-        return None
-
-    doc = _get_json("utils/registry/models", api_key)
+    doc = _get_json(REGISTRY_DOCUMENTS["model"])
     if doc is None:
         return None
 
@@ -181,25 +167,17 @@ def fetch_registry_visual_configs(api_key=None):
     return visual_configs
 
 
-def fetch_registry_vegetation(api_key=None):
-    """Fetch the vegetation registry from ``/v2/utils/registry/vegetation``.
+def fetch_registry_vegetation():
+    """Fetch the vegetation registry from the public mirror.
 
     Always hits the network. Persists the full JSON response to
-    ``settings/vegetation_registry.json``. If ``api_key`` is not provided,
-    falls back to the one stored via
-    :func:`services.secret_manager.get_api_key` (QSettings + env var).
+    ``settings/vegetation_registry.json``.
 
     Returns:
         dict: the parsed JSON document on success.
-        None: on any failure (network, auth, missing key, parse).
+        None: on any failure (network, parse).
     """
-    if not api_key:
-        api_key = _load_api_key()
-    if not api_key:
-        logger.warning("fetch_registry_vegetation: no api-key available")
-        return None
-
-    doc = _get_json("utils/registry/vegetation", api_key)
+    doc = _get_json(REGISTRY_DOCUMENTS["vegetation"])
     if doc is None:
         return None
 
@@ -209,25 +187,17 @@ def fetch_registry_vegetation(api_key=None):
     return doc
 
 
-def fetch_registry_materials(api_key=None):
-    """Fetch the ground-material registry from ``/v2/utils/registry/materials``.
+def fetch_registry_materials():
+    """Fetch the ground-material registry from the public mirror.
 
     Always hits the network. Persists the full JSON response to
-    ``settings/materials_registry.json``. If ``api_key`` is not provided,
-    falls back to the one stored via
-    :func:`services.secret_manager.get_api_key` (QSettings + env var).
+    ``settings/materials_registry.json``.
 
     Returns:
         dict: the parsed JSON document on success.
-        None: on any failure (network, auth, missing key, parse).
+        None: on any failure (network, parse).
     """
-    if not api_key:
-        api_key = _load_api_key()
-    if not api_key:
-        logger.warning("fetch_registry_materials: no api-key available")
-        return None
-
-    doc = _get_json("utils/registry/materials", api_key)
+    doc = _get_json(REGISTRY_DOCUMENTS["materials"])
     if doc is None:
         return None
 
@@ -237,21 +207,18 @@ def fetch_registry_materials(api_key=None):
     return doc
 
 
-def fetch_from_registry(api_key=None):
-    """Refresh the model, vegetation, and materials registries from the API.
+def fetch_from_registry():
+    """Refresh the model, vegetation and materials registries from the mirror.
 
     Convenience wrapper used on plugin init and after the user saves an API
     key. Returns a dict with all results (any may be ``None`` if that
-    particular endpoint failed).
-    """
-    if not api_key:
-        api_key = _load_api_key()
-    if not api_key:
-        logger.warning("fetch_from_registry: no api-key available")
-        return {"model": None, "vegetation": None, "materials": None}
+    particular document failed).
 
+    Takes no API key: the mirror is public. A caller that wants to know whether
+    a key is good wants :func:`services.key_check.verify_api_key` instead.
+    """
     return {
-        "model": fetch_registry_visual_configs(api_key=api_key),
-        "vegetation": fetch_registry_vegetation(api_key=api_key),
-        "materials": fetch_registry_materials(api_key=api_key),
+        "model": fetch_registry_visual_configs(),
+        "vegetation": fetch_registry_vegetation(),
+        "materials": fetch_registry_materials(),
     }

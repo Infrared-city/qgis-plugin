@@ -42,7 +42,9 @@ from .infrared_city_save_auth import InfraredCitySaveAuthDialog
 from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
 from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
 from .infrared_logger import logger
-from .services.fetch_from_registry import _load_api_key, fetch_from_registry
+from .services.fetch_from_registry import fetch_from_registry
+from .services.key_check import verify_api_key
+from .services.secret_manager import get_api_key
 from .utils.helper import cleanup_old_data
 
 _ICON_DIR = os.path.join(os.path.dirname(__file__), 'icons')
@@ -100,25 +102,36 @@ class InfraredCityGIS:
         # cleanup old data
         cleanup_old_data()
 
-        # Refresh the model registry (visualConfigurations) on startup so that
-        # colormaps reflect the latest server-side definitions. Only runs if
-        # the user has already saved an API key; otherwise skipped silently
-        # and will run later on save / on demand.
+        # Refresh the registries on startup so that colormaps, the tree catalog
+        # and the ground-material palette reflect the latest published
+        # definitions. The documents are public, so this runs whether or not a
+        # key is saved — on a fresh install the plugin is fully styled before
+        # the user has one. Failure is silent by design: the on-disk copies
+        # from the previous run keep the plugin working offline.
+        try:
+            _ = fetch_from_registry()
+        except Exception as e:
+            logger.warning("Startup registry refresh failed: %s", e)
+
+        # Separately, check the SAVED key. A 401/403 means the server rejected
+        # it and initGui() greys out every action except "Save API Key".
+        # Transient failures (offline, 5xx) do NOT flag the key — an outage
+        # must not lock the user out of the plugin.
         #
-        # The call doubles as a key check: a 401/403 here means the SAVED key
-        # was rejected by the server, and initGui() greys out every action
-        # except "Save API Key". Transient failures (offline, 5xx) do NOT
-        # flag the key — an outage must not lock the user out of the plugin.
+        # This used to be a side effect of the registry refresh above, back
+        # when the registries came from the utilities service with the key
+        # attached. The public mirror cannot reject a key, so the check is now
+        # its own call (services.key_check).
         self._saved_key_rejected = False
-        if _load_api_key():
+        if get_api_key():
             try:
-                _ = fetch_from_registry()
+                verify_api_key(get_api_key())
             except InfraredAPIError as e:
                 if e.status_code in (401, 403):
                     self._saved_key_rejected = True
-                logger.warning("Startup registry refresh failed: %s", e)
+                logger.warning("Startup API key check failed: %s", e)
             except Exception as e:
-                logger.warning("Startup registry refresh failed: %s", e)
+                logger.warning("Startup API key check failed: %s", e)
 
     # noinspection PyMethodMayBeStatic
 
@@ -278,7 +291,7 @@ class InfraredCityGIS:
         # (see InfraredCitySaveAuthDialog.accept); an ALREADY-saved key is
         # only locked out on a confirmed 401/403 from the startup registry
         # check above — a mere outage keeps the plugin usable.
-        if not _load_api_key():
+        if not get_api_key():
             self._set_authed_actions_enabled(False)
         elif self._saved_key_rejected:
             self._set_authed_actions_enabled(False)
