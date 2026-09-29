@@ -99,16 +99,14 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         # "Upload EPW…" controls and read by build_sdk_payload.
         self._epw_paths = {}
 
-        # ArcGIS-style mode detection: if the "Select tile" tool stored a
-        # one-shot single-tile selection, peek at it and run that single
-        # 512×512 m tile via analyses.execute (1 tile ≈ 10 tokens). Otherwise
-        # fall back to area mode driven by the current QGIS feature selection.
+        # Mode detection: if the "Select tile" toggle is pressed, a tile is
+        # armed — run that single 512×512 m tile via analyses.execute
+        # (1 tile ≈ 10 tokens). Otherwise fall back to area mode, driven by
+        # the current QGIS feature selection.
         #
-        # We *peek* rather than *consume* here: closing the dialog without
-        # running a simulation must leave single-tile mode intact, so
-        # re-opening (while the tile selection is still active) stays in
-        # single-tile mode. The pending selection is cleared only after a
-        # simulation is actually submitted — see accept().
+        # We *peek*: this dialog never ends the mode. Neither closing it nor
+        # running a simulation clears the tile, so a second analysis on the
+        # same tile needs no re-pick. Only the toolbar toggle does.
         self.is_single_tile = False
         _sel = single_tile_selection.peek()
         if _sel is not None:
@@ -819,12 +817,10 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 # showed a QMessageBox. Keep the dialog open.
                 return
 
-            # Simulation submitted — now consume the one-shot single-tile
-            # selection so the next dialog open falls back to area mode.
-            # (We only peek() on open, so closing without running keeps it.)
-            if self.is_single_tile:
-                single_tile_selection.clear()
-
+            # The selection deliberately SURVIVES the run. Single-tile mode is
+            # a toolbar toggle the user holds down, so running one analysis on
+            # a tile and then another on the same tile must not need a re-pick.
+            # The toggle is the only thing that ends the mode.
             super().accept()
 
         except InfraredAPIError as e:

@@ -27,7 +27,7 @@ The plugin adds these actions (left to right):
 | 1 | Save API Key | Auth dialog |
 | 2 | Fetch building geometry | Fetch-geometry dialog |
 | 3 | Fetch ground materials | Ground-materials fetch dialog |
-| 4 | Select tile | Map tool (one-shot tile pick) |
+| 4 | Select tile | Toggle — arms single-tile mode via a map pick |
 | 5 | Tree catalog | Tree-catalog dialog |
 | 6 | Run simulation | Run-simulation dialog |
 
@@ -51,10 +51,15 @@ The plugin adds these actions (left to right):
 
 ## 3. Select tile (single-tile mode)
 
-- ☐ **Pick a tile** — Select tile → click on the map. Expect a single 512×512 m tile selection to be stored.
-- ☐ **Feeds Run Simulation** — open Run Simulation immediately after: it runs in **single-tile mode** (see §5).
-- ☐ **Feeds Fetch ground materials** — with a pending tile pick, Fetch ground materials covers that one tile (the pick is *peeked*, so Run Simulation still gets it).
-- ☐ **Persists across close/reopen** — after a tile pick, open Run Simulation, close it *without running*, then reopen. Expect it to still be in single-tile mode. The pick is only cleared once a simulation is actually submitted — or you pick a new tile / restart QGIS. (Consequence: a stale pending pick keeps Run Simulation in single-tile mode; to run an *area* simulation instead, submit or clear the pending single-tile pick first.)
+- ☐ **Pick a tile** — Select tile → click on the map. Expect a single 512×512 m tile to be stored **and the toolbar button to stay pressed**.
+- ☐ **Empty tile is refused** — pick a tile with no buildings. Expect a warning, no stored tile, and the button **not** pressed.
+- ☐ **Cancelling leaves it off** — press Select tile, close the dialog without picking. Expect the button released.
+- ☐ **Feeds Run Simulation** — with the button pressed, Run Simulation runs in **single-tile mode** (see §5).
+- ☐ **Feeds Fetch ground materials** — with the button pressed, Fetch ground materials covers that one tile, and the dialog says so *and* tells you how to switch back.
+- ☐ **Survives a run** — submit a single-tile simulation, then reopen Run Simulation. Expect it **still** in single-tile mode: the mode ends only when you release the button, so a second analysis on the same tile needs no re-pick.
+- ☐ **Release returns to area mode** — click the pressed button. Expect a message-bar confirmation, the button released, and both Run Simulation and Fetch ground materials back on your QGIS feature selection.
+- ☐ **Release does not re-open the pick dialog** — clicking a pressed button only releases; it must not start a new pick.
+- ☐ **Saving an API key releases it** — with the button pressed, save an API key. Expect the button released (a tile picked under one account must not carry into another).
 
 ## 4. Fetch ground materials
 

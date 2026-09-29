@@ -1,17 +1,21 @@
-"""One-shot holder for an ArcGIS-style single-tile selection.
+"""Holder for the armed single-tile selection.
 
-Mirrors the .NET plugin's ``SingleTileSelection`` static state. The
-"Select tile" map tool stores the picked 512×512 m tile here; the Run
-Simulation dialog :func:`peek`s at it on open to enter *single-tile mode*.
+The "Select tile" map tool stores the picked 512x512 m tile here, and the
+toolbar action of the same name is a TOGGLE that mirrors this state: pressed
+means a tile is armed. Both the Run Simulation and the Fetch ground materials
+dialogs :func:`peek` at it on open, and neither clears it — the only things
+that do are the user releasing the toggle, saving an API key (a tile picked
+against one account must not carry into another) and plugin unload.
 
-The dialog only :func:`peek`s on open and :func:`clear`s after a
-simulation is actually submitted — so closing the dialog without running
-keeps the selection pending, and re-opening (while the tile selection is
-still active) stays in *single-tile mode*. Once a simulation runs, the
-state is cleared and the next open falls back to *area mode*. Single-tile
-mode submits **one** tile via ``client.analyses.execute`` (≈10 tokens)
-instead of routing the 512 m box through the area tiler, which would split
-it into multiple overlapping 256 m-step tiles and multiply the token cost.
+The mode deliberately SURVIVES a simulation run. It used to be consumed on
+submit, which fit while the state was invisible; with a button showing it,
+running one analysis on a tile and then another on the same tile must not
+need a re-pick.
+
+Single-tile mode submits **one** tile via ``client.analyses.execute``
+(~10 tokens) instead of routing the 512 m box through the area tiler, which
+would split it into multiple overlapping 256 m-step tiles and multiply the
+token cost.
 """
 
 from __future__ import annotations
@@ -54,14 +58,6 @@ def set_selection(
         crs=crs,
         building_count=int(building_count),
     )
-
-
-def consume() -> Optional[SingleTileSelection]:
-    """Return the pending selection and clear it (one-shot)."""
-    global _PENDING
-    sel = _PENDING
-    _PENDING = None
-    return sel
 
 
 def peek() -> Optional[SingleTileSelection]:

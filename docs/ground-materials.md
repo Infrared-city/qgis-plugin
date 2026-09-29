@@ -48,9 +48,9 @@ Use the **Fetch ground materials** toolbar action:
 
 1. Select features on your **building layer** first — the selection defines
    the fetch area (the dialog asks you to *"select a building area first"*
-   otherwise). If you have a pending **Select tile** pick (single-tile
-   mode), that takes precedence: the fetch covers that one tile and the
-   pick stays available for Run Simulation afterwards.
+   otherwise). If the **Select tile** toolbar button is pressed (single-tile
+   mode), that takes precedence: the fetch covers that one tile, and the
+   dialog says so. Release the button to go back to your feature selection.
 2. The dialog shows the selection size in tiles (512×512 m each). Areas over
    **100 tiles** are rejected — select a smaller area.
 3. **Fetch** pulls the surface layers from the Infrared City platform

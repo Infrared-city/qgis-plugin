@@ -196,11 +196,12 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 )
                 return
 
-            # --- Store the 512×512 m tile as a one-shot single-tile selection
-            # (ArcGIS-style). No dotbim/geojson export here — the Run
-            # Simulation dialog consumes this selection, collects buildings
-            # from the active QGIS layer at run time, and submits ONE tile via
-            # analyses.execute (≈10 tokens) instead of the area tiler.
+            # --- Arm single-tile mode with this 512×512 m tile. No dotbim or
+            # geojson export here — the Run Simulation dialog reads the armed
+            # selection, collects buildings from the active QGIS layer at run
+            # time, and submits ONE tile via analyses.execute (≈10 tokens)
+            # instead of the area tiler. The toolbar toggle stays pressed
+            # until the user releases it.
             w = bbox_rect_wgs84.xMinimum()
             s = bbox_rect_wgs84.yMinimum()
             e = bbox_rect_wgs84.xMaximum()

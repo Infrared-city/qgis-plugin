@@ -42,6 +42,7 @@ from .infrared_city_save_auth import InfraredCitySaveAuthDialog
 from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
 from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
 from .infrared_logger import logger
+from .services import single_tile_selection
 from .services.fetch_from_registry import fetch_from_registry
 from .services.key_check import verify_api_key
 from .services.secret_manager import get_api_key
@@ -160,6 +161,7 @@ class InfraredCityGIS:
         status_tip=None,
         whats_this=None,
         parent=None,
+        checkable=False,
     ):
         """Add a toolbar icon to the toolbar.
 
@@ -194,6 +196,12 @@ class InfraredCityGIS:
         :param parent: Parent widget for the new action. Defaults None.
         :type parent: QWidget
 
+        :param checkable: Make the action a toggle. The caller owns the checked
+            state — ``add_action`` never sets it, because a checkable action
+            here reflects state the plugin holds elsewhere, not a preference of
+            its own.
+        :type checkable: bool
+
         :param whats_this: Optional text to show in the status bar when the
             mouse pointer hovers over the action.
 
@@ -204,7 +212,13 @@ class InfraredCityGIS:
 
         icon = QIcon(icon_path)
         action = QAction(icon, text, parent)
-        action.triggered.connect(callback)
+        action.setCheckable(checkable)
+        # `triggered` hands a checkable action its NEW checked state, which Qt
+        # has already applied. Every callback here re-derives the state from
+        # what it owns and calls setChecked itself, so the argument is dropped
+        # rather than trusted — a toggle that flips on click and only then
+        # finds out the operation failed would lie about the mode.
+        action.triggered.connect(lambda _checked=False: callback())
         action.setEnabled(enabled_flag)
 
         if status_tip is not None:
@@ -259,12 +273,21 @@ class InfraredCityGIS:
             parent=self.iface.mainWindow()
         )
 
-        self.add_action(
+        # A TOGGLE, not a one-shot: pressed means "single-tile mode is armed",
+        # and it stays pressed across simulation runs until the user releases
+        # it. The pending selection used to be invisible module state whose
+        # only exits were running a simulation or picking an empty tile, so a
+        # tile picked and forgotten silently narrowed the next ground-material
+        # fetch to 512 m. The button is now the only place that state lives
+        # visibly, and releasing it is the way out.
+        self.select_tile_action = self.add_action(
             select_bbox_icon_path,
             text=self.tr(u'Select tile'),
             callback=self.select_bbox,
-            parent=self.iface.mainWindow()
+            parent=self.iface.mainWindow(),
+            checkable=True,
         )
+        self._sync_single_tile_action()
 
         self.add_action(
             tree_icon_path,
@@ -341,6 +364,11 @@ class InfraredCityGIS:
                 logger.warning("unload: could not stop poller: %s", e)
         _ACTIVE_POLLERS.clear()
 
+        # Module-level state outlives the plugin object on a reload, so a tile
+        # armed before the reload would come back armed with nothing on the
+        # toolbar showing it.
+        single_tile_selection.clear()
+
         for action in self.actions:
             self.iface.removePluginMenu(
                 self.tr(u'&infrared.city GIS'),
@@ -366,8 +394,47 @@ class InfraredCityGIS:
         else:
             logger.info("Multiple simulations dialog cancelled")
 
+    def _sync_single_tile_action(self):
+        """Make the toolbar toggle show whether a tile is armed.
+
+        The pending selection in :mod:`services.single_tile_selection` is the
+        single source of truth; the button only reflects it. Deriving the
+        checked state instead of tracking it separately is what keeps the two
+        from drifting — a toggle that claims a mode the plugin is not in is
+        worse than no toggle.
+        """
+        action = getattr(self, "select_tile_action", None)
+        if action is None:
+            return
+        try:
+            action.setChecked(single_tile_selection.peek() is not None)
+        except RuntimeError as e:
+            # The C++ QAction can already be gone during teardown.
+            logger.debug("could not sync the single-tile toggle: %s", e)
+
+    def _disarm_single_tile(self):
+        """Drop any pending tile and release the toggle."""
+        single_tile_selection.clear()
+        self._sync_single_tile_action()
+
     def select_bbox(self):
-        """Run method that performs all the real work"""
+        """Arm single-tile mode by picking a 512 m tile, or release it.
+
+        Pressed, the plugin runs one tile: the simulation submits a single job
+        via ``analyses.execute``, and the ground-material fetch covers that
+        tile. Released, both follow the QGIS feature selection instead.
+        """
+        if single_tile_selection.peek() is not None:
+            self._disarm_single_tile()
+            logger.info("Single-tile mode released")
+            self.iface.messageBar().pushMessage(
+                "InfraredCity",
+                "Single-tile mode off. Simulations and ground-material "
+                "fetches now follow your QGIS feature selection.",
+                level=Qgis.Info,
+                duration=6,
+            )
+            return
 
         self.dlg = InfraredCitySelectBBoxDialog()
 
@@ -385,7 +452,13 @@ class InfraredCityGIS:
 
             logger.info("BBox selected successfully")
         else:
-            logger.error("BBox selection cancelled")
+            logger.info("BBox selection cancelled")
+
+        # The dialog stores the tile itself, so the outcome is read back from
+        # the selection rather than from `result`: a dialog closed after an
+        # empty-tile rejection also returns falsy, and both cases must leave
+        # the toggle released.
+        self._sync_single_tile_action()
 
         # When the modal dialog closes, Qt hands keyboard focus back to the
         # toolbar button that opened it, which macOS draws as a lingering
@@ -427,6 +500,10 @@ class InfraredCityGIS:
             # server AND saved — unlock the rest of the toolbar.
             self._saved_key_rejected = False
             self._set_authed_actions_enabled(True)
+            # The tile was picked against the previous account's data; carrying
+            # it into a new one would run a simulation on a selection the user
+            # made in a different context.
+            self._disarm_single_tile()
             logger.info("API key save dialog closed successfully (verified)")
         else:
             logger.info("API key save dialog cancelled")

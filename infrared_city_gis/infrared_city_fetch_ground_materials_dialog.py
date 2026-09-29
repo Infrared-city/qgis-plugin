@@ -50,6 +50,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
 
         self.polygon = None
         self.tile_count = None
+        self.is_single_tile = False
         self.created_layers = {}
         self._init_ok = False
 
@@ -89,10 +90,11 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             )
             return
 
-        # A pending "Select tile" pick takes precedence — peek (don't
-        # consume) so a Run Simulation opened afterwards still enters
-        # single-tile mode. It's exactly one tile, mirroring the sim dialog.
+        # An armed "Select tile" toggle takes precedence — peek (don't
+        # consume) so the mode survives until the user releases the toolbar
+        # button. It's exactly one tile, mirroring the sim dialog.
         _tile_sel = single_tile_selection.peek()
+        self.is_single_tile = _tile_sel is not None
         if _tile_sel is not None:
             self.polygon = _tile_sel.polygon
             self.tile_count = 1
@@ -129,9 +131,26 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             self._init_ok = True
             return
 
+        # Name the SOURCE of the area, not just its size. A forgotten tile
+        # pick used to show a bare "Selected area: 1 tile" while the user was
+        # looking at a far larger building selection, and nothing on screen
+        # explained the gap.
+        if self.is_single_tile:
+            area_line = (
+                "Selected area: the single 512 x 512 m tile you picked "
+                "('Select tile' is pressed in the toolbar).\n"
+                "Release that button to use your QGIS feature selection "
+                "instead."
+            )
+        else:
+            area_line = (
+                f"Selected area: {self.tile_count} tile"
+                f"{'s' if self.tile_count != 1 else ''}, from your QGIS "
+                f"feature selection."
+            )
+
         self.info_label.setText(
-            f"Selected area: {self.tile_count} tile"
-            f"{'s' if self.tile_count != 1 else ''}.\n\n"
+            f"{area_line}\n\n"
             f"Fetching adds one editable 'ground-<material>' layer per "
             f"surface type (asphalt, concrete, vegetation, soil, water, "
             f"building). Note: 'ground-vegetation' is green surfaces (grass, "

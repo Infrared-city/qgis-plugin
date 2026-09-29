@@ -25,7 +25,7 @@ infrared_city_gis/
 │   ├── key_check.py         # Verifies an API key (GET /v2/webhooks)
 │   ├── sdk_runner.py        # Area simulation via SDK run_area_and_wait
 │   ├── sdk_single_tile.py   # Single-tile simulation via SDK analyses.execute
-│   ├── single_tile_selection.py # One-shot "Select tile" pick shared across dialogs
+│   ├── single_tile_selection.py # The armed "Select tile" pick; the toolbar toggle mirrors it
 │   ├── area_poller.py       # Long-poll job status
 │   ├── qgis_area_buildings.py   # Collect buildings from a QGIS layer selection
 │   ├── qgis_area_vegetation.py  # Collect trees (OSM species/genus → registry modelId or archetype)
