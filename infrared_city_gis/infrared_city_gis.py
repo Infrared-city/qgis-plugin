@@ -23,7 +23,7 @@
 """
 import os.path
 
-from qgis.core import Qgis
+from qgis.core import Qgis, QgsApplication
 from qgis.PyQt.QtCore import QCoreApplication, QSettings, QTranslator
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
@@ -286,6 +286,14 @@ class InfraredCityGIS:
         single_tile_selection.subscribe(self._sync_single_tile_action)
         self._sync_single_tile_action()
 
+        # See _finalize_arrow_s3: pyarrow's own atexit hook never runs under
+        # QGIS, so the one chance to shut its S3 stack down cleanly is this
+        # signal.
+        try:
+            QgsApplication.instance().aboutToQuit.connect(self._finalize_arrow_s3)
+        except Exception as e:  # noqa: BLE001 - never block initGui
+            logger.warning("could not hook Arrow S3 finalization: %s", e)
+
         self.add_action(
             tree_icon_path,
             text=self.tr(u'Tree catalog'),
@@ -341,6 +349,33 @@ class InfraredCityGIS:
             # QAction's default tooltip is its text; restore that on enable.
             action.setToolTip(action.text() if enabled else why_disabled)
 
+    def _finalize_arrow_s3(self):
+        """Shut Arrow's S3 subsystem down before the process tears itself down.
+
+        pyarrow reads Overture from S3 for ground materials, and its AWS event
+        loop must be finalized before static destructors run. It registers its
+        own ``atexit`` hook for exactly this, but QGIS's embedded interpreter
+        never runs it: the app exits without finalizing Python, so the AWS
+        event-loop cleanup thread ends up calling a logger the C++ side has
+        already destroyed — SIGSEGV in ``s_aws_logger_redirect_get_log_level``,
+        on quit, after a fetch. Same family as the Qt SSL crash below.
+
+        Bound to ``aboutToQuit`` rather than done in :meth:`unload`, because
+        S3 CANNOT be re-initialised once finalized ("Attempt to initialize S3
+        after it has been finalized"). ``unload`` also runs on a plugin reload,
+        which would leave ground materials broken for the rest of the session;
+        ``aboutToQuit`` fires only on a real exit.
+        """
+        try:
+            from pyarrow.fs import ensure_s3_finalized
+        except Exception:  # noqa: BLE001 - no pyarrow, nothing to finalize
+            return
+        try:
+            ensure_s3_finalized()
+            logger.debug("Arrow S3 finalized before quit")
+        except Exception as e:  # noqa: BLE001 - teardown must not raise
+            logger.warning("could not finalize Arrow S3: %s", e)
+
     def unload(self):
         """Remove the plugin's menu items and toolbar icons, and stop polling.
 
@@ -363,6 +398,13 @@ class InfraredCityGIS:
 
         # Module-level state outlives the plugin object on a reload.
         single_tile_selection.clear()
+
+        # A reload would otherwise connect a second time, and the old plugin
+        # object would be kept alive by the connection.
+        try:
+            QgsApplication.instance().aboutToQuit.disconnect(self._finalize_arrow_s3)
+        except Exception:  # noqa: BLE001 - not connected, or already gone
+            pass
 
         for action in self.actions:
             self.iface.removePluginMenu(
