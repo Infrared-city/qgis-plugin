@@ -282,6 +282,7 @@ def render_area_result(
         min_legend_value=leg_min,
         max_legend_value=leg_max,
         tile_id=None,
+        label=render_state.label,
     )
     # Drop the selection highlight now the result raster is on the canvas.
     clear_layer_selections()

@@ -153,6 +153,9 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 ## 7. Results
 
 - ☐ Each completed simulation loads a **result raster** styled for its analysis type.
+- ☐ **The layer name says what the run was** — `IC result - <analysis> · <inputs>`, e.g. `IC result - thermal-comfort-index · July, Afternoon`. Run the same analysis twice with different inputs and expect two distinguishable names. Sky-view-factors has no inputs, so it keeps the bare name.
+- ☐ **Nothing falls off the top of the legend** — on a UTCI run, check the hottest areas (open sun, water) are coloured rather than white/transparent. The backend legend can be narrower than the data.
+- ☐ **The same scenario legends the same in both modes** — run one tile, then the same ground as an area, and expect comparable colour scales.
 - ☐ Area runs merge tiles into one coherent raster (no gaps/seams beyond expected tile edges).
 - ☐ Re-running overwrites/adds results without corrupting existing layers.
 

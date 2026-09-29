@@ -138,6 +138,7 @@ def render_single_tile_result(
         min_legend_value=leg_min,
         max_legend_value=leg_max,
         tile_id=None,
+        label=render_state.label,
     )
     # Drop the picked-tile selection highlight now the result raster is shown.
     clear_layer_selections()

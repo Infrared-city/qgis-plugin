@@ -27,7 +27,8 @@ def add_geojson_then_raster(
     raster_opacity=0.7,
     min_legend_value=None,
     max_legend_value=None,
-    tile_id=None
+    tile_id=None,
+    label="",
 ):
     logger.info("Adding GeoJSON layer: %s", geojson_path)
     logger.info("Adding GeoTIFF layer: %s", geotiff_path)
@@ -55,10 +56,16 @@ def add_geojson_then_raster(
     QgsProject.instance().addMapLayer(vlayer)
 
     # --- GeoTIFF layer ---
+    # The name has to say what the result came FROM. Two UTCI runs a month
+    # apart were both "IC result - thermal-comfort-index", so the layer panel
+    # could not tell them apart and the user had to remember which was which.
+    # `label` carries the run's own inputs (month, hours, season, criteria,
+    # wind); it is empty for analyses that have none to show, like SVF.
+    layer_name = f"IC result - {analysis_type}"
     if tile_id is not None:
-        layer_name = f"IC result - {analysis_type}{tile_id}"
-    else:
-        layer_name = f"IC result - {analysis_type}"
+        layer_name = f"{layer_name}{tile_id}"
+    if label:
+        layer_name = f"{layer_name} · {label}"
 
     rlayer = QgsRasterLayer(geotiff_path, layer_name, "gdal")
 
