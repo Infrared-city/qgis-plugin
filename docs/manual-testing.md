@@ -27,7 +27,7 @@ The plugin adds these actions (left to right):
 | 1 | Save API Key | Auth dialog |
 | 2 | Fetch building geometry | Fetch-geometry dialog |
 | 3 | Fetch ground materials | Ground-materials fetch dialog |
-| 4 | Select tile | Toggle — arms single-tile mode via a map pick |
+| 4 | Select tile | Makes a 512 m selection on the map (no mode, no state) |
 | 5 | Tree catalog | Tree-catalog dialog |
 | 6 | Run simulation | Run-simulation dialog |
 
@@ -51,15 +51,20 @@ The plugin adds these actions (left to right):
 
 ## 3. Select tile (single-tile mode)
 
-- ☐ **Pick a tile** — Select tile → click on the map. Expect a single 512×512 m tile to be stored **and the toolbar button to stay pressed**.
-- ☐ **Empty tile is refused** — pick a tile with no buildings. Expect a warning, no stored tile, and the button **not** pressed.
+The toolbar button is a **toggle**. Pressed means a 512×512 m box is armed and
+the next run is ONE job (~10 tokens) instead of the four the area tiler would
+charge. Submitting a simulation ends the mode; a ground-material fetch does not.
+
+- ☐ **Pick a tile** — Select tile → click on the map. Expect the buildings in the box highlighted **and the toolbar button pressed**.
+- ☐ **Empty tile is refused** — pick a tile with no buildings. Expect a warning, nothing armed, and the button **not** pressed.
 - ☐ **Cancelling leaves it off** — press Select tile, close the dialog without picking. Expect the button released.
-- ☐ **Feeds Run Simulation** — with the button pressed, Run Simulation runs in **single-tile mode** (see §5).
-- ☐ **Feeds Fetch ground materials** — with the button pressed, Fetch ground materials covers that one tile, and the dialog says so *and* tells you how to switch back.
-- ☐ **Survives a run** — submit a single-tile simulation, then reopen Run Simulation. Expect it **still** in single-tile mode: the mode ends only when you release the button, so a second analysis on the same tile needs no re-pick.
-- ☐ **Release returns to area mode** — click the pressed button. Expect a message-bar confirmation, the button released, and both Run Simulation and Fetch ground materials back on your QGIS feature selection.
-- ☐ **Release does not re-open the pick dialog** — clicking a pressed button only releases; it must not start a new pick.
-- ☐ **Saving an API key releases it** — with the button pressed, save an API key. Expect the button released (a tile picked under one account must not carry into another).
+- ☐ **Run Simulation reads 1 tile** — with the button pressed, expect the title **1 tile · ~10 tokens**. This is the regression to watch: it must not say 4 or 9. The run is the picked BOX, not the hull of the highlighted buildings, which extends past it.
+- ☐ **Fetch ground materials keeps the mode** — fetch with the button pressed, then reopen Run Simulation. Expect it **still** armed, so you can run on the materials you just fetched without re-picking.
+- ☐ **A run ends the mode** — submit a simulation. Expect the highlight gone **and** the button released, together. Reopening Run Simulation is back to area mode.
+- ☐ **Release returns to area mode** — click the pressed button. Expect a message-bar confirmation, the highlight cleared, and the button released.
+- ☐ **Release does not re-open the pick dialog** — clicking a pressed button only releases.
+- ☐ **A hand-cleared selection is reconciled** — with the button pressed, clear the QGIS selection yourself, then open Run Simulation. Expect it to have dropped back to area mode rather than running an invisible tile.
+- ☐ **Saving an API key releases it** — a tile picked under one account must not carry into another.
 
 ## 4. Fetch ground materials
 
@@ -72,7 +77,7 @@ The plugin adds these actions (left to right):
 - ☐ **No data** — fetch over an area with no ground-material data. Expect *"No ground material data was found"*, not a crash.
 - ☐ **Editable** — the `ground-*` layers are memory layers you can edit before a run.
 
-- ☐ **QGIS stays responsive during the read** — start a fetch and pan/zoom the canvas while it runs. The read happens on a worker thread; a frozen window is a regression.
+- ☐ **The dialog stays alive during the read** — start a fetch and watch: the clock keeps ticking and the window repaints. It must be possible to close the dialog mid-read. (The dialog is modal, so QGIS itself is out of reach until it closes — what is being checked is that nothing is frozen, not that you can work meanwhile.)
 - ☐ **The status line counts up** — expect `Reading ground materials from Overture… m:ss`, ticking once a second, with a note that it can take minutes on a slow connection.
 - ☐ **A timeout says what to do** — if the read times out, expect a "Fetch Timed Out" dialog naming the connection, NOT the API key (this read sends no key).
 - ☐ **Closing mid-read is safe** — close the dialog while a read is running. Expect no crash and no result appearing later; the download finishes in the background and its result is dropped (it cannot be cancelled).
@@ -81,7 +86,7 @@ The plugin adds these actions (left to right):
 
 ### 5a. Single tile
 
-- ☐ Make a **Select tile** pick, then Run Simulation. Expect the title to indicate single-tile mode (**1 tile · ~10 tokens**), no area tiling.
+- ☐ Arm a tile with **Select tile**, then Run Simulation. Expect the title to read **1 tile · ~10 tokens**, and no area tiling.
 - ☐ Run it through: expect a result raster loaded and styled.
 
 - ☐ **A failed auto-fetch is not silent** — tick *Use Infrared ground materials*, run with the network blocked or a very slow connection. Expect a message-bar warning that STAYS (no auto-hide) saying the simulation is running WITHOUT them, and naming the connection when it timed out. The run itself should still complete. Check both single-tile and area.

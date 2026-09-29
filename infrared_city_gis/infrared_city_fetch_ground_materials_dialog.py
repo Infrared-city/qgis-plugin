@@ -97,24 +97,26 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             )
             return
 
-        # An armed "Select tile" toggle takes precedence — peek (don't
-        # consume) so the mode survives until the user releases the toolbar
-        # button. It's exactly one tile, mirroring the sim dialog.
-        _tile_sel = single_tile_selection.peek()
-        self.is_single_tile = _tile_sel is not None
-        if _tile_sel is not None:
-            self.polygon = _tile_sel.polygon
+        # An armed tile takes precedence, and the fetch reads its BOX — the
+        # same polygon the simulation will run on, so the materials cover
+        # exactly that ground. A fetch never disarms: it is preparation for a
+        # run on this tile, and ending the mode here would make the user
+        # re-pick to use what they just fetched.
+        _armed = single_tile_selection.peek()
+        self.is_single_tile = _armed is not None
+        if self.is_single_tile:
+            self.polygon = _armed.polygon
             self.tile_count = 1
         else:
-            self.polygon = create_wgs84_geojson_polygon_from_selection()
-            if self.polygon is None:
+            selection = create_wgs84_geojson_polygon_from_selection()
+            if selection is None:
                 QMessageBox.warning(
                     self, "No selection",
                     "Please select a building area first — select features on "
                     "your building layer, then reopen this dialog.",
                 )
                 return
-
+            self.polygon = selection
             try:
                 client = make_client(self.api_key)
                 preview = client.preview_area(self.polygon)
@@ -144,7 +146,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
         # explained the gap.
         if self.is_single_tile:
             area_line = (
-                "Selected area: the single 512 x 512 m tile you picked "
+                "Selected area: the 512 x 512 m tile you picked "
                 "('Select tile' is pressed in the toolbar).\n"
                 "Release that button to use your QGIS feature selection "
                 "instead."
@@ -171,9 +173,11 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
         """Start the read on a worker thread and keep the dialog responsive.
 
         The read is one blocking SDK call that moves far more data than it
-        returns, so it used to freeze QGIS for as long as it ran — minutes on a
-        slow link, with nothing on screen moving. It now runs off the UI thread
-        and the dialog reports elapsed time until it lands.
+        returns, so it used to lock the whole application for as long as it ran
+        — minutes on a slow link, with nothing on screen moving and no way to
+        close the dialog. It now runs off the UI thread, so the dialog stays
+        alive, reports elapsed time and can be closed. This dialog is modal,
+        though, so QGIS itself is still out of reach until it is closed.
         """
         if self.polygon is None or self.tile_count is None:
             return
@@ -211,7 +215,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             f"Reading ground materials from Overture… "
             f"{seconds // 60}:{seconds % 60:02d}{chunks}\n"
             f"This moves a lot of data and can take a few minutes on a slow "
-            f"connection. You can keep using QGIS."
+            f"connection."
         )
 
     def _on_chunk_done(self, completed, total):

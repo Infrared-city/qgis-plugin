@@ -73,6 +73,26 @@ FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'infrared_city_run_simulation_dialog.ui'))
 
 
+def _has_map_selection() -> bool:
+    """Is anything still selected on any vector layer?
+
+    A tile pick highlights the buildings inside its box, so the highlight is
+    what the user sees the armed mode AS. If they clear it by hand, the mode
+    would otherwise stay armed with nothing on the canvas showing it — the
+    invisible state this design exists to avoid. Never raises: failing to
+    answer must not stop a dialog opening.
+    """
+    try:
+        from qgis.core import QgsProject, QgsVectorLayer
+        return any(
+            isinstance(lyr, QgsVectorLayer) and lyr.selectedFeatureCount() > 0
+            for lyr in QgsProject.instance().mapLayers().values()
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("could not check the map selection: %s", e)
+        return True
+
+
 class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -99,45 +119,32 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         # "Upload EPW…" controls and read by build_sdk_payload.
         self._epw_paths = {}
 
-        # Mode detection: if the "Select tile" toggle is pressed, a tile is
-        # armed — run that single 512×512 m tile via analyses.execute
-        # (1 tile ≈ 10 tokens). Otherwise fall back to area mode, driven by
-        # the current QGIS feature selection.
-        #
-        # We *peek*: this dialog never ends the mode. Neither closing it nor
-        # running a simulation clears the tile, so a second analysis on the
-        # same tile needs no re-pick. Only the toolbar toggle does.
+        # An armed "Select tile" box runs as ONE job. Reconcile first: if the
+        # user cleared the map selection by hand, the pick they made is gone
+        # from the canvas and keeping the mode armed would be the same
+        # invisible state this design exists to avoid.
+        if single_tile_selection.is_armed() and not _has_map_selection():
+            logger.info("Armed tile dropped — the map selection was cleared")
+            single_tile_selection.clear()
+
         self.is_single_tile = False
-        _sel = single_tile_selection.peek()
-        if _sel is not None:
-            self.is_single_tile = True
-            self.polygon = _sel.polygon
-            self.bbox = list(_sel.bbox)
-            self.crs = _sel.crs
-            self.tile_count = 1
-            logger.info(
-                "Single-tile mode: 1 tile (512×512 m), center=(%.6f, %.6f), "
-                "%d buildings highlighted at pick time",
-                _sel.center_lon, _sel.center_lat, _sel.building_count,
+        try:
+            w, s, e, n = get_selected_bbox()
+            self.bbox = [w, s, e, n]
+            self.crs = get_selected_crs()
+
+            iface.messageBar().pushMessage(
+                "InfraredCity",
+                f"Layer CRS is the following: {self.crs}",
+                level=Qgis.Info,
+                duration=7
             )
-        else:
-            try:
-                w, s, e, n = get_selected_bbox()
-                self.bbox = [w, s, e, n]
-                self.crs = get_selected_crs()
 
-                iface.messageBar().pushMessage(
-                    "InfraredCity",
-                    f"Layer CRS is the following: {self.crs}",
-                    level=Qgis.Info,
-                    duration=7
-                )
-
-            except Exception as e:
-                logger.error(f"Failed to get selected bbox: {e}")
-                QMessageBox.warning(self, "Invalid selection", "Invalid selection please select geometry.")
-                self.reject()
-                return
+        except Exception as e:
+            logger.error(f"Failed to get selected bbox: {e}")
+            QMessageBox.warning(self, "Invalid selection", "Invalid selection please select geometry.")
+            self.reject()
+            return
 
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
@@ -209,18 +216,41 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.reject()
             return
 
+        _armed = single_tile_selection.peek()
+        self.is_single_tile = _armed is not None
         if self.is_single_tile:
-            # Polygon already set from the tile selection; skip preview_area /
-            # tiling entirely — the single tile is submitted via
-            # analyses.execute so the 512 m box is never split into overlapping
-            # 256 m-step tiles (which would multiply the token cost).
+            # The stored BOX, not the hull of the buildings it selected: whole
+            # features are selected, so one straddling an edge pulls the hull
+            # past the box — measured at 617 x 586 m for a 512 m pick, which
+            # the tiler charges NINE jobs for. Skipping preview_area() is the
+            # same point: it asks the tiler, which answers 4 for a box this
+            # path submits as one job.
+            self.polygon = _armed.polygon
+            self.bbox = list(_armed.bbox)
+            self.crs = _armed.crs
+            self.tile_count = 1
             self.setWindowTitle("Run Simulation — single tile (512×512 m) · 1 tile · ~10 tokens")
-            logger.info("Dialog loaded in single-tile mode")
+            logger.info(
+                "Single tile armed: centre=(%.6f, %.6f), %d buildings at pick time",
+                _armed.center_lon, _armed.center_lat, _armed.building_count,
+            )
         else:
+            try:
+                selection = create_wgs84_geojson_polygon_from_selection()
+            except Exception as e:
+                logger.exception("Error computing the selection polygon: %s", e)
+                QMessageBox.warning(
+                    self, "Error",
+                    f"An error occurred while computing the selection polygon. "
+                    f"Please try again. Message: {e}"
+                )
+                self.reject()
+                return
+        if not self.is_single_tile:
             try:
 
                 client = make_client(self.api_key)
-                self.polygon = create_wgs84_geojson_polygon_from_selection()
+                self.polygon = selection
                 preview = client.preview_area(self.polygon)
                 logger.info("Preview area: %s", preview.tile_count)
                 self.tile_count = preview.tile_count
@@ -817,10 +847,13 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 # showed a QMessageBox. Keep the dialog open.
                 return
 
-            # The selection deliberately SURVIVES the run. Single-tile mode is
-            # a toolbar toggle the user holds down, so running one analysis on
-            # a tile and then another on the same tile must not need a re-pick.
-            # The toggle is the only thing that ends the mode.
+            # Submitting ENDS single-tile mode: the armed box and the map
+            # highlight go together, and the toolbar toggle follows through
+            # subscribe(). Clearing one without the other is what left an armed
+            # tile invisible. A fetch does not end it — only a run does.
+            if self.is_single_tile:
+                single_tile_selection.clear()
+
             super().accept()
 
         except InfraredAPIError as e:

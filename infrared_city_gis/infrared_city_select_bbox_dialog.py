@@ -47,7 +47,6 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
         except Exception:
             self.btn_select.clicked.connect(self.on_select_clicked)
 
-        # 🔹 Ezek lesznek az adatok, amiket a plugin olvas majd
         self.geojson_path = None
         self.dotbim_path = None
         self.bbox = None
@@ -196,12 +195,13 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 )
                 return
 
-            # --- Arm single-tile mode with this 512×512 m tile. No dotbim or
-            # geojson export here — the Run Simulation dialog reads the armed
-            # selection, collects buildings from the active QGIS layer at run
-            # time, and submits ONE tile via analyses.execute (≈10 tokens)
-            # instead of the area tiler. The toolbar toggle stays pressed
-            # until the user releases it.
+            # --- Arm single-tile mode with this 512×512 m box.
+            #
+            # The BOX is what is stored, not the buildings it highlighted.
+            # `selectByRect` takes whole features, so a building straddling an
+            # edge pulls the selection's convex hull past the box — measured at
+            # 617 × 586 m for a 512 m pick, which the area tiler charges NINE
+            # jobs for. The run needs the box itself to submit ONE.
             w = bbox_rect_wgs84.xMinimum()
             s = bbox_rect_wgs84.yMinimum()
             e = bbox_rect_wgs84.xMaximum()
