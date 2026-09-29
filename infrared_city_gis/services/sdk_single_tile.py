@@ -24,7 +24,7 @@ import json
 import os
 import tempfile
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
 from infrared_sdk.analyses.jobs import JobsServiceClient, JobStatus
@@ -63,14 +63,17 @@ _JOB_TIMEOUT_S = 300
 
 def render_single_tile_result(
     render_state: AreaRenderState, polygon: dict, area, grid,
+    api_legend: Tuple[Optional[float], Optional[float]] = (None, None),
 ) -> None:
     """Render a single-tile result grid as a GeoTIFF + raster layer in QGIS.
 
     Mirrors :func:`sdk_runner.render_area_result` but for a raw 512×512 grid
     straight from ``_extract_grid`` (no merge/clip — the tile *is* the
-    polygon). Legend bounds come from the grid itself (the single-job path
-    has no API-supplied ``min_legend``/``max_legend``), overridden by the
-    dialog's manual legend values when set.
+    polygon), including its legend precedence: the backend's recommendation
+    first, the grid's own range where it sent none, and the dialog's manual
+    values over both. This path used to skip the first tier entirely, so the
+    same scenario run as one tile and as an area produced two different colour
+    scales and could not be compared.
     """
     if grid is None or getattr(grid, "size", 0) == 0:
         _status("InfraredCity: empty single-tile result grid",
@@ -110,19 +113,19 @@ def render_single_tile_result(
                 }],
             }, f)
 
+    api_min, api_max = api_legend
     grid_min = float(np.nanmin(grid)) if np.any(~np.isnan(grid)) else None
     grid_max = float(np.nanmax(grid)) if np.any(~np.isnan(grid)) else None
-    leg_min: Optional[float] = (
-        render_state.legend_min_override
-        if render_state.legend_min_override is not None else grid_min
-    )
-    leg_max: Optional[float] = (
-        render_state.legend_max_override
-        if render_state.legend_max_override is not None else grid_max
-    )
+    leg_min: Optional[float] = api_min if api_min is not None else grid_min
+    leg_max: Optional[float] = api_max if api_max is not None else grid_max
+    if render_state.legend_min_override is not None:
+        leg_min = render_state.legend_min_override
+    if render_state.legend_max_override is not None:
+        leg_max = render_state.legend_max_override
     logger.info(
-        "Single-tile legend: grid=(%s, %s) override=(%s, %s) -> applied=(%s, %s)",
-        grid_min, grid_max,
+        "Single-tile legend: api=(%s, %s) grid=(%s, %s) override=(%s, %s) -> "
+        "applied=(%s, %s)",
+        api_min, api_max, grid_min, grid_max,
         render_state.legend_min_override, render_state.legend_max_override,
         leg_min, leg_max,
     )
@@ -168,7 +171,8 @@ class SingleTilePoller(QObject):
         polygon: dict,
         area,
         render_state: AreaRenderState,
-        on_render: Callable[[AreaRenderState, dict, Any, Any], None],
+        # (render_state, polygon, area, grid, *, api_legend)
+        on_render: Callable[..., None],
         poll_interval_ms: int = _POLL_INTERVAL_MS,
         timeout_s: int = _JOB_TIMEOUT_S,
         parent: Optional[QObject] = None,
@@ -239,6 +243,7 @@ class SingleTilePoller(QObject):
                 self._render_state.analysis_type,
                 self._render_state.sub_analysis_type,
             )
+            api_legend = legend_from_result(result)
         except Exception as e:
             self._fail(f"download/extract failed: {e}", exc=e)
             return
@@ -246,7 +251,10 @@ class SingleTilePoller(QObject):
         logger.info("SingleTilePoller: job %s succeeded, grid shape=%s",
                     job.job_id, grid.shape)
         try:
-            self._on_render(self._render_state, self._polygon, self._area, grid)
+            self._on_render(
+                self._render_state, self._polygon, self._area, grid,
+                api_legend=api_legend,
+            )
         except Exception as e:
             logger.error("SingleTilePoller: render failed: %s", e, exc_info=True)
             _status(f"InfraredCity: render failed — {str(e)[:120]}",
@@ -265,6 +273,34 @@ class SingleTilePoller(QObject):
         self._timer.stop()
         self.failed.emit(msg)
         self.deleteLater()
+
+
+def legend_from_result(result: dict) -> Tuple[Optional[float], Optional[float]]:
+    """The display legend the backend recommends for this tile, if it sent one.
+
+    The area path gets this for free — the SDK aggregates it across tiles onto
+    ``AreaResult.min_legend`` / ``max_legend``. A single job is downloaded and
+    extracted here instead, so the same keys have to be read by hand or the two
+    paths legend the same data differently and stop being comparable.
+
+    Wire keys are KEBAB (``min-legend`` / ``max-legend``); camelCase is accepted
+    as the same defensive fallback the SDK keeps in
+    ``_area/_merge_common.append_legends``. A legend that silently goes missing
+    is the failure this guards, so a spare spelling is cheap insurance.
+
+    Note this is a DISPLAY recommendation, not the data range: it can be
+    narrower than the grid, which is why the ramp opens its top band upwards
+    (see visualization/color_ramp).
+    """
+    def _read(*keys):
+        for key in keys:
+            if key in result:
+                value = result[key]
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    return float(value)
+        return None
+
+    return _read("min-legend", "minLegend"), _read("max-legend", "maxLegend")
 
 
 def grid_from_result(

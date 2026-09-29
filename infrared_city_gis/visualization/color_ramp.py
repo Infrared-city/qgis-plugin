@@ -96,8 +96,12 @@ def get_visual_config(analysis_type, sub_analysis_type=None):
 
 def _build_color_ramp_items(visual_config, analysis_type, vmin=None, vmax=None):
     colors = visual_config.get("colors", [])
-    steps = visual_config.get("steps", [])
-    steps_names = visual_config.get("stepsNames", [])
+    # `or []`, not a `.get` default: the registry carries these as explicit
+    # JSON nulls for several analysis types (thermal-comfort-index has both),
+    # and a default only fires when the KEY is absent. Reading them as None
+    # reaches `len(None)` further down.
+    steps = visual_config.get("steps") or []
+    steps_names = visual_config.get("stepsNames") or []
     interpolation = visual_config.get("colorInterpolation", "linear")
 
     shader = QgsColorRampShader()
@@ -143,7 +147,26 @@ def _build_color_ramp_items(visual_config, analysis_type, vmin=None, vmax=None):
 
     if interpolation == "binned":
         shader.setColorRampType(QgsColorRampShader.Discrete)
+        # A Discrete ramp colours a pixel with the FIRST item whose value is
+        # >= the pixel's. Nothing matches above the last item, so QGIS draws
+        # those pixels as nothing at all — transparent, which reads as white
+        # over the canvas. That is not a rounding artefact: the legend the
+        # backend recommends is a display range, not the data range, so a UTCI
+        # run legended 21-30 over a grid reaching 31 silently dropped 15% of
+        # its valid pixels, and they were the hottest ones — open sun and the
+        # river, exactly what the map is read for.
+        #
+        # Open the top band upwards so everything above it takes the top
+        # colour. The label is computed before the substitution, so the legend
+        # still reads the real bound rather than "inf".
+        if color_items:
+            top = color_items[-1]
+            color_items[-1] = QgsColorRampShader.ColorRampItem(
+                float("inf"), top.color, top.label,
+            )
     else:
+        # Interpolated already clamps to the end colours; only Discrete drops
+        # what falls off the top.
         shader.setColorRampType(QgsColorRampShader.Interpolated)
 
     shader.setColorRampItemList(color_items)
