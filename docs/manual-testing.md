@@ -72,12 +72,19 @@ The plugin adds these actions (left to right):
 - ☐ **No data** — fetch over an area with no ground-material data. Expect *"No ground material data was found"*, not a crash.
 - ☐ **Editable** — the `ground-*` layers are memory layers you can edit before a run.
 
+- ☐ **QGIS stays responsive during the read** — start a fetch and pan/zoom the canvas while it runs. The read happens on a worker thread; a frozen window is a regression.
+- ☐ **The status line counts up** — expect `Reading ground materials from Overture… m:ss`, ticking once a second, with a note that it can take minutes on a slow connection.
+- ☐ **A timeout says what to do** — if the read times out, expect a "Fetch Timed Out" dialog naming the connection, NOT the API key (this read sends no key).
+- ☐ **Closing mid-read is safe** — close the dialog while a read is running. Expect no crash and no result appearing later; the download finishes in the background and its result is dropped (it cannot be cancelled).
+
 ## 5. Run simulation
 
 ### 5a. Single tile
 
 - ☐ Make a **Select tile** pick, then Run Simulation. Expect the title to indicate single-tile mode (**1 tile · ~10 tokens**), no area tiling.
 - ☐ Run it through: expect a result raster loaded and styled.
+
+- ☐ **A failed auto-fetch is not silent** — tick *Use Infrared ground materials*, run with the network blocked or a very slow connection. Expect a message-bar warning that STAYS (no auto-hide) saying the simulation is running WITHOUT them, and naming the connection when it timed out. The run itself should still complete. Check both single-tile and area.
 
 ### 5b. Area (multiple tiles)
 

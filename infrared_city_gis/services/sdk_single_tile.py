@@ -39,6 +39,7 @@ from ..utils.client_identity import make_client
 from ..visualization.display import add_geojson_then_raster
 from .area_poller import AreaRenderState
 from .geotiff import generate_geotiff, map_categories
+from .ground_material_reader import timed_out
 from .ground_materials import (
     collect_ground_materials,
     has_ground_material_support,
@@ -427,7 +428,11 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
     ground_materials: Optional[dict] = None
     if has_ground_material_support(dlg.analysis_type):
         if getattr(dlg, "use_infrared_ground_materials", False):
-            _status("InfraredCity: fetching ground materials for the tile…")
+            _status(
+                "InfraredCity: reading ground materials from Overture — this "
+                "moves a lot of data and can take a few minutes on a slow "
+                "connection…"
+            )
             try:
                 with make_client(dlg.api_key) as gm_client:
                     # Narrower read margin for wind/PWC (363 m vs the widest
@@ -443,9 +448,28 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
                     ground_materials = stamp_material_properties(area_gm.layers)
             except Exception as e:
                 logger.warning(
-                    "Single-tile: ground materials auto-fetch failed — "
-                    "running without: %s", e, exc_info=True,
+                    "Single-tile: ground materials auto-fetch failed — running without: %s",
+                    e, exc_info=True,
                 )
+                # The user ASKED for Infrared ground materials, and the run is
+                # about to proceed without them — a materially different
+                # result, not a cosmetic degradation. duration=0 so the warning
+                # stays until dismissed: a 10-second toast during a long submit
+                # is trivially missed, and then the result looks like the one
+                # that was asked for.
+                if timed_out(e):
+                    _status(
+                        "InfraredCity: ground materials timed out — this "
+                        "simulation is running WITHOUT them. Please check your "
+                        "internet connection; a smaller area downloads less.",
+                        level=Qgis.Warning, duration=0,
+                    )
+                else:
+                    _status(
+                        "InfraredCity: ground materials could not be fetched — "
+                        "this simulation is running WITHOUT them.",
+                        level=Qgis.Warning, duration=0,
+                    )
         else:
             try:
                 gm_layers = dlg.selected_ground_material_layers()

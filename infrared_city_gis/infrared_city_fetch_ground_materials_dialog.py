@@ -20,8 +20,8 @@
 """
 
 from qgis.PyQt import QtWidgets
+from qgis.PyQt.QtCore import QElapsedTimer, QTimer
 from qgis.PyQt.QtWidgets import (
-    QApplication,
     QDialogButtonBox,
     QLabel,
     QMessageBox,
@@ -30,6 +30,7 @@ from qgis.PyQt.QtWidgets import (
 
 from .infrared_logger import logger
 from .services import single_tile_selection
+from .services.ground_material_reader import GroundMaterialReader
 from .services.polygon_from_selection import (
     create_wgs84_geojson_polygon_from_selection,
 )
@@ -51,6 +52,12 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
         self.polygon = None
         self.tile_count = None
         self.is_single_tile = False
+        # Live read state. `_reader` doubles as "a read is in flight".
+        self._reader = None
+        self._chunks = None
+        self._elapsed = QElapsedTimer()
+        self._ticker = QTimer(self)
+        self._ticker.timeout.connect(self._tick)
         self.created_layers = {}
         self._init_ok = False
 
@@ -161,44 +168,90 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
     # ------------------------------------------------------------------
 
     def accept(self):
-        """Fetch ground materials for the selection polygon and display them."""
+        """Start the read on a worker thread and keep the dialog responsive.
+
+        The read is one blocking SDK call that moves far more data than it
+        returns, so it used to freeze QGIS for as long as it ran — minutes on a
+        slow link, with nothing on screen moving. It now runs off the UI thread
+        and the dialog reports elapsed time until it lands.
+        """
         if self.polygon is None or self.tile_count is None:
             return
+        if self._reader is not None:
+            return  # already running; the button is disabled, but be certain
 
         self._set_fetch_enabled(False)
-        self.status_label.setText("Fetching ground materials…")
-        QApplication.processEvents()
+        self._elapsed.start()
+        self._chunks = None
+        self._tick()
+        self._ticker.start(1000)
 
-        def on_progress(progress):
-            try:
-                self.status_label.setText(
-                    f"Fetching ground materials… "
-                    f"{progress.completed_count}/{progress.total_count} tiles"
-                )
-                QApplication.processEvents()
-            except Exception as e:
-                # The dialog may already be closing — a progress tick is never
-                # worth interrupting the fetch for.
-                logger.debug("progress label update skipped: %s", e)
+        # Deliberately UNPARENTED. Qt deletes a child with its parent, and the
+        # worker thread outlives this dialog whenever the user closes it
+        # mid-read — a deleted QObject with a running QThread behind it takes
+        # QGIS down. `_ACTIVE_READERS` owns it instead, until it retires itself.
+        self._reader = GroundMaterialReader(self.api_key, self.polygon)
+        self._reader.chunk_done.connect(self._on_chunk_done)
+        self._reader.finished.connect(self._on_read_finished)
+        self._reader.failed.connect(self._on_read_failed)
+        self._reader.start()
 
-        try:
-            with make_client(self.api_key) as client:
-                area_gm = client.ground_materials.get_area(
-                    self.polygon, on_progress=on_progress,
-                )
-        except Exception as e:
-            logger.error("Ground materials fetch failed: %s", e, exc_info=True)
-            self.status_label.setText("")
-            self._set_fetch_enabled(True)
+    # -- progress -------------------------------------------------------
+
+    def _tick(self):
+        """Elapsed time, once a second.
+
+        The honest progress signal here: the SDK reports once per read CHUNK,
+        and a site this size is ONE chunk, so a percentage would sit at zero
+        for the whole run. A clock at least shows the plugin is alive.
+        """
+        seconds = int(self._elapsed.elapsed() / 1000)
+        chunks = f" · chunk {self._chunks[0]}/{self._chunks[1]}" if self._chunks else ""
+        self.status_label.setText(
+            f"Reading ground materials from Overture… "
+            f"{seconds // 60}:{seconds % 60:02d}{chunks}\n"
+            f"This moves a lot of data and can take a few minutes on a slow "
+            f"connection. You can keep using QGIS."
+        )
+
+    def _on_chunk_done(self, completed, total):
+        self._chunks = (completed, total)
+        self._tick()
+
+    def _stop_progress(self):
+        self._ticker.stop()
+        self._reader = None
+        self.status_label.setText("")
+
+    # -- outcomes -------------------------------------------------------
+
+    def _on_read_failed(self, message, was_timeout):
+        self._stop_progress()
+        self._set_fetch_enabled(True)
+        if was_timeout:
+            # No API key is sent on this read at all — it goes to a public
+            # Overture bucket — so the generic "check your key" would point at
+            # the wrong thing entirely. A timeout here is about throughput.
             QMessageBox.critical(
-                self, "Fetch Failed",
-                f"Failed to fetch ground materials.\n\n{e}\n\n"
-                "Check your API key/subscription and network, then try again.",
+                self, "Fetch Timed Out",
+                "Reading ground materials took longer than allowed.\n\n"
+                f"{message}\n\n"
+                "This read downloads a large amount of map data. Please check "
+                "your internet connection and try again — on a slow or "
+                "congested connection it can take longer than the read allows. "
+                "A smaller area downloads less.",
             )
             return
+        QMessageBox.critical(
+            self, "Fetch Failed",
+            f"Failed to fetch ground materials.\n\n{message}\n\n"
+            "Check your API key/subscription and network, then try again.",
+        )
+
+    def _on_read_finished(self, area_gm):
+        self._stop_progress()
 
         if not area_gm.layers:
-            self.status_label.setText("")
             self._set_fetch_enabled(True)
             QMessageBox.information(
                 self, "No Ground Materials",
@@ -221,3 +274,16 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             "You can edit these layers before running a simulation.",
         )
         super().accept()
+
+    def reject(self):
+        """Closing mid-read gives up on the result, not on the download.
+
+        The SDK cannot interrupt a read in flight, so the thread runs itself
+        out in the background rather than being abandoned — dropping a live
+        QThread takes QGIS with it.
+        """
+        if self._reader is not None:
+            self._reader.detach()
+            self._ticker.stop()
+            self._reader = None
+        super().reject()
