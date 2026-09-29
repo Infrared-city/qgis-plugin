@@ -393,7 +393,15 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
             _status("InfraredCity: fetching ground materials for the tile…")
             try:
                 with make_client(dlg.api_key) as gm_client:
-                    area_gm = gm_client.ground_materials.get_area(polygon)
+                    # Narrower read margin for wind/PWC (363 m vs the widest
+                    # 544 m). `.layers` rather than the acquired object here:
+                    # this path embeds the materials in the payload and submits
+                    # through analyses.execute, which has no margin check to
+                    # feed — and cannot drift, since the read and the run take
+                    # their analysis from the same payload.
+                    area_gm = gm_client.ground_materials.get_area(
+                        polygon, analysis_type=payload.analysis_type,
+                    )
                 if area_gm.layers:
                     ground_materials = stamp_material_properties(area_gm.layers)
             except Exception as e:

@@ -95,6 +95,9 @@ a **Ground materials** section with two ways to provide them:
 - **Use Infrared ground materials (auto-fetch)** — tick this to skip the
   layer workflow entirely: the plugin fetches Infrared's own surface layers
   for your selected area at submit time and ignores any `ground-*` layers.
+  The fetch is told which analysis it is for, so a wind or PWC run reads a
+  363 m margin around each tile instead of the 544 m every other analysis
+  needs — less data over the wire for the same result.
 - **Layer list** — when the project contains `ground-*` layers, one
   checkable row per layer (`asphalt — ground-asphalt`). Nothing is ticked by
   default: tick the layers you want to include. **One layer per material** —

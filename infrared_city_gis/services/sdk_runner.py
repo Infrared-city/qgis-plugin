@@ -417,17 +417,35 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
     # run_area stamps it per feature from the dict key while assigning
     # tiles (SDK assign_ground_materials_to_tiles) — only the single-tile
     # path, which bypasses that orchestration, stamps in the plugin.
-    ground_materials: Optional[dict] = None
+    # Either the SDK's own AreaGroundMaterials (auto-fetch) or a plain
+    # {material: FeatureCollection} map (the user's ground-* layers). run_area
+    # accepts both; the difference is that the acquired OBJECT records the read
+    # margin it was read with, and a bare map "records nothing, makes no claim
+    # and is never refused" (SDK _area/_layers.unwrap_acquired_layers).
+    ground_materials: Optional[Any] = None
     if has_ground_material_support(dlg.analysis_type):
         if getattr(dlg, "use_infrared_ground_materials", False):
             _status("InfraredCity: fetching ground materials for the area…")
             try:
                 with make_client(dlg.api_key) as gm_client:
-                    area_gm = gm_client.ground_materials.get_area(polygon)
-                ground_materials = area_gm.layers or None
+                    # analysis_type narrows the read margin: 363 m for wind and
+                    # PWC against the 544 m the widest (default) read uses, so a
+                    # wind run stops paying for context it cannot use. Every
+                    # analysis tiles at the same 512 m inference size, so only
+                    # the margin moves.
+                    area_gm = gm_client.ground_materials.get_area(
+                        polygon, analysis_type=payload.analysis_type,
+                    )
+                # The OBJECT, not `.layers`: it carries the margin it was read
+                # with, which is what lets run_area refuse a mismatch up front
+                # instead of running with the outer context band missing — at
+                # full charge, and casting no shadow from it.
+                ground_materials = area_gm if area_gm.layers else None
                 logger.info(
-                    "Auto-fetched ground materials: %d features, %d layer(s)",
-                    area_gm.total_features, len(area_gm.layers),
+                    "Auto-fetched ground materials for %s: %d features, "
+                    "%d layer(s), read margin %s m",
+                    payload.analysis_type, area_gm.total_features,
+                    len(area_gm.layers), getattr(area_gm, "read_margin_m", "?"),
                 )
             except Exception as e:
                 logger.warning(

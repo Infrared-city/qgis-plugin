@@ -142,7 +142,7 @@ class AreaPoller(QObject):
         render_state: AreaRenderState,
         on_render: Callable[[AreaRenderState, dict, Any, Any], None],
         vegetation: Optional[dict] = None,
-        ground_materials: Optional[dict] = None,
+        ground_materials: Optional[Any] = None,   # AreaGroundMaterials or a bare map
         poll_interval_ms: int = _DEFAULT_POLL_INTERVAL_MS,
         area_timeout_s: int = _DEFAULT_AREA_TIMEOUT_S,
         parent: Optional[QObject] = None,
