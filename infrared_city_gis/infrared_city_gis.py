@@ -403,8 +403,11 @@ class InfraredCityGIS:
         # object would be kept alive by the connection.
         try:
             QgsApplication.instance().aboutToQuit.disconnect(self._finalize_arrow_s3)
-        except Exception:  # noqa: BLE001 - not connected, or already gone
-            pass
+        except Exception as e:  # noqa: BLE001 - not connected, or already gone
+            # Expected on a first unload or a torn-down application; logged
+            # rather than swallowed, so a teardown that fails for some OTHER
+            # reason leaves a trace instead of vanishing.
+            logger.debug("aboutToQuit was not connected: %s", e)
 
         for action in self.actions:
             self.iface.removePluginMenu(

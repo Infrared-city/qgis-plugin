@@ -29,6 +29,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
+from ..infrared_logger import logger
+
 
 @dataclass(frozen=True)
 class SingleTileSelection:
@@ -61,8 +63,12 @@ def _notify() -> None:
     for listener in list(_LISTENERS):
         try:
             listener()
-        except Exception:  # noqa: BLE001 - a stale listener must not break a pick
-            pass
+        except Exception as e:  # noqa: BLE001 - a stale listener must not break a pick
+            # Typically a QAction whose C++ half is already gone. Logged
+            # rather than swallowed: a listener failing for any other reason
+            # means the toolbar has stopped mirroring this state, and that is
+            # exactly the drift this module exists to prevent.
+            logger.debug("single-tile listener failed: %s", e)
 
 
 def set_selection(

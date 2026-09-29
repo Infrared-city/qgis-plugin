@@ -40,6 +40,7 @@ The plugin **must** ship as a single folder (`infrared_city_gis/`) zipped at the
 # stays clean for plugins.qgis.org (no hidden-file warnings).
 zip -r infrared-city-qgis.zip infrared_city_gis/ \
   -x "*__pycache__*" "*.pyc" "*.pyo" "*.DS_Store" "*/.*" \
+     "infrared_city_gis/venv/*" \
      "infrared_city_gis/tests/*" "infrared_city_gis/test/*"
 
 # Lint — these two are the CI gates (NOT pylint; pylintrc is a leftover)
@@ -50,7 +51,13 @@ flake8 infrared_city_gis/
 # Run bandit with NO config: it auto-discovers any .bandit inside the tree it
 # scans and silently applies its skips. The upload waiver is kept outside the
 # scanned tree for exactly that reason.
-bandit -r infrared_city_gis/ -x infrared_city_gis/tests,infrared_city_gis/test
+#
+# The exclusions must be GLOBS, and must name both virtualenvs. bandit walks
+# the filesystem, not git, so a local `venv/` or `.venv/` inside the plugin
+# folder (both gitignored, ~140 MB together) drowns the scan: 771k lines and
+# thousands of findings from third-party code, none of it ours. Plain paths in
+# `-x` do not match — with the globs below the real figure is ~9k lines.
+bandit -r infrared_city_gis/ -x '*/venv/*,*/.venv/*,*/test/*,*/tests/*'
 git ls-files 'infrared_city_gis/*' | xargs detect-secrets-hook
 
 # Tests — real QGIS runtime; see the marker gates in infrared_city_gis/tests/
