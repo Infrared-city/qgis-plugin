@@ -43,6 +43,11 @@ zip -r infrared-city-qgis.zip infrared_city_gis/ \
      "infrared_city_gis/venv/*" \
      "infrared_city_gis/tests/*" "infrared_city_gis/test/*"
 
+# Everything below in one pass, plus the QGIS suite and the merge gate.
+# Run this before a PR; see docs/development-setup.md.
+scripts/preflight.sh
+scripts/preflight.sh --e2e        # also the paid prod round (needs a key)
+
 # Lint — these two are the CI gates (NOT pylint; pylintrc is a leftover)
 ruff check infrared_city_gis/
 flake8 infrared_city_gis/
@@ -112,6 +117,7 @@ either — both are load-bearing.
 
 - [`README.md`](README.md) — user-facing overview, install, and usage.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contributing guide (canonical filename; there is no `CONTRIBUTION.md`).
+- [`docs/development-setup.md`](docs/development-setup.md) — what a new machine needs: the plugin install is a COPY not a symlink, seeding the deps dir by hand, the two cost gates, the pre-PR checklist.
 - [`docs/architecture.md`](docs/architecture.md) — component overview, dialog flow, API contract.
 - [`docs/vegetation-input.md`](docs/vegetation-input.md) — tree-layer input contract (OSM-native: `species`/`genus`/`leaf_type`, optional size; two-tier resolution — precise registry species or archetype; catalog override). Only the point geometry is mandatory.
 - [`docs/ground-materials.md`](docs/ground-materials.md) — ground-material (surface) layers: fetch dialog, `ground-*` layer convention, simulation usage.
