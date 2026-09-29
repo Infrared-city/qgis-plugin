@@ -52,12 +52,13 @@ flake8 infrared_city_gis/
 # scans and silently applies its skips. The upload waiver is kept outside the
 # scanned tree for exactly that reason.
 #
-# The exclusions must be GLOBS, and must name both virtualenvs. bandit walks
-# the filesystem, not git, so a local `venv/` or `.venv/` inside the plugin
-# folder (both gitignored, ~140 MB together) drowns the scan: 771k lines and
-# thousands of findings from third-party code, none of it ours. Plain paths in
-# `-x` do not match — with the globs below the real figure is ~9k lines.
-bandit -r infrared_city_gis/ -x '*/venv/*,*/.venv/*,*/test/*,*/tests/*'
+# Keep this list identical to .github/workflows/lint.yml. It must name BOTH
+# virtualenvs: bandit walks the filesystem rather than git, so a local `venv/`
+# or `.venv/` inside the plugin folder (both gitignored, ~140 MB together)
+# drowns the scan — 771k lines and thousands of third-party findings against
+# our ~9k. A runner never has them; a developer running this by hand does.
+bandit -r infrared_city_gis/ \
+  -x infrared_city_gis/tests,infrared_city_gis/test,infrared_city_gis/thirdparty,infrared_city_gis/venv,infrared_city_gis/.venv
 git ls-files 'infrared_city_gis/*' | xargs detect-secrets-hook
 
 # Tests — real QGIS runtime; see the marker gates in infrared_city_gis/tests/
