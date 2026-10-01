@@ -3,4 +3,4 @@ mapbox_earcut>=1.0.0
 structlog>=24.0.0
 # [geodata] (pyarrow + shapely) is required from 0.9.0 on: ground_materials.get_area
 # reads Overture parquet in-process instead of calling the utilities service.
-infrared-sdk[geodata]>=0.9.5
+infrared-sdk[geodata]>=0.9.6

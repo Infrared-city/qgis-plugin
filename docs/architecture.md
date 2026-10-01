@@ -63,7 +63,7 @@ infrared_city_gis/
 - **Infrared City API** (`api.infrared.city/v2`) — simulation backend and building geometry source (`/v2/buildings`, Mapbox-backed core-geometries-service; subscription required)
 - **Registry mirror** (`registry.infrared.city`) — the public models / vegetation / materials documents, served without credentials. Read on startup; these used to come from the utilities service (`/v2/utils/registry/*`), which is being retired.
 - **QGIS / PyQGIS** — host application
-- **`infrared-sdk`** (≥0.9.5, `[geodata]` extra) — Python SDK; pinned in `requirements.txt`. The extra brings pyarrow + shapely, which `ground_materials.get_area` needs to read Overture parquet in-process.
+- **`infrared-sdk`** (≥0.9.6, `[geodata]` extra) — Python SDK; pinned in `requirements.txt`. The extra brings pyarrow + shapely, which `ground_materials.get_area` needs to read Overture parquet in-process.
 - **shapely**, **pyproj**, **mapbox_earcut**, **numpy**, **structlog**, **requests**
 
 ## Data Flow
