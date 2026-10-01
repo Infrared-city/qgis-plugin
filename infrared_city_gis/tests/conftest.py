@@ -1,13 +1,8 @@
 """Shared pytest configuration and fixtures for the infrared_city_gis test suite.
 
-These tests run outside QGIS (no qgis.* imports) so they can be executed in
-a plain Python environment or CI pipeline:
-
-    pip install pytest numpy requests
-    INFRARED_API_KEY=<your-key> pytest tests/
-
-Integration tests (those marked with @pytest.mark.integration) call the live
-Infrared API and are skipped automatically when INFRARED_API_KEY is not set.
+Run through ``scripts/run_qgis_tests.sh`` — most tests need a real QGIS
+runtime (the ``qgis`` marker). ``e2e`` tests hit prod and cost tokens; they
+skip unless ``INFRARED_API_KEY`` is set (see docs/development-setup.md).
 """
 
 import os
@@ -18,12 +13,11 @@ from pathlib import Path
 import pytest
 
 # ---------------------------------------------------------------------------
-# sys.path: make the plugin root and test/ helper folder importable.
+# sys.path: make this folder's helpers importable.
 # ---------------------------------------------------------------------------
 
 PLUGIN_ROOT = Path(__file__).parent.parent
 TESTS_DIR = Path(__file__).parent
-TEST_HELPERS = PLUGIN_ROOT / "test"   # existing test/ folder with _dotbim_writer.py
 
 # Importing the plugin package runs ``_ensure_deps()``, which pip-installs over
 # the network. Set the bootstrap's own re-entry guard here — at conftest import
@@ -33,14 +27,10 @@ TEST_HELPERS = PLUGIN_ROOT / "test"   # existing test/ folder with _dotbim_write
 # variable; this covers a bare ``pytest`` invocation.
 os.environ.setdefault("INFRARED_BOOTSTRAP_RUNNING", "1")
 
-# Only add the test/ helper folder — NOT the plugin root, because the plugin
-# root contains a thirdparty/ directory with numpy built for a specific Python
-# version that would shadow the system numpy in a plain pytest environment.
-if str(TEST_HELPERS) not in sys.path:
-    sys.path.insert(0, str(TEST_HELPERS))
-
-# This directory too, so test modules can `from _baseline import ...` —
-# pytest does not put conftest.py itself on the import path.
+# Not the plugin root: it can hold a legacy thirdparty/ directory with numpy
+# built for a specific Python version (see the removal below). This directory
+# only, so test modules can `from _baseline import ...` — pytest does not put
+# conftest.py itself on the import path.
 if str(TESTS_DIR) not in sys.path:
     sys.path.insert(0, str(TESTS_DIR))
 
@@ -64,10 +54,6 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 # ---------------------------------------------------------------------------
 
 def pytest_configure(config):
-    config.addinivalue_line(
-        "markers",
-        "integration: calls the live Infrared API — requires INFRARED_API_KEY env var",
-    )
     config.addinivalue_line(
         "markers",
         "qgis: needs a real QGIS runtime (qgis.core) but no network — see the qgis_app fixture",
@@ -177,15 +163,6 @@ def qgis_app():
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="session")
-def api_key():
-    """Return the Infrared API key, or skip the test if it is not set."""
-    key = os.environ.get("INFRARED_API_KEY", "").strip()
-    if not key:
-        pytest.skip("INFRARED_API_KEY environment variable is not set — skipping integration test")
-    return key
-
 
 @pytest.fixture(scope="session")
 def fixtures_dir() -> Path:
