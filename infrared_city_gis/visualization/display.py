@@ -40,7 +40,7 @@ def add_geojson_then_raster(
             f"sub analysis type: {sub_analysis_type}"
         )
 
-    logger.info(f"Visual configuration: {visual_config}")
+    logger.info("Visual configuration: %s", visual_config)
 
     # --- GeoJSON layer ---
     vlayer = QgsVectorLayer(geojson_path, "Infrared Buildings", "ogr")

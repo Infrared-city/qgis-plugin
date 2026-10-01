@@ -32,16 +32,17 @@ def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str
     }
 
     logger.info(
-        f"Fetching ground materials from {base_url} with params={params} "
-        f"and api-key provided={bool(api_key)}"
+        "Fetching ground materials from %s with params=%s and api-key provided=%s",
+        base_url, params, bool(api_key),
     )
 
     headers = {**client_headers(), **({"x-api-key": api_key} if api_key else {})}
 
     try:
         response = requests.get(base_url, params=params, headers=headers, timeout=20)
-        logger.info(f"Weather API status: {response.status_code}")
-        logger.info(f"Weather API response text: {response.text}")
+        logger.info("Ground materials API status: %s", response.status_code)
+        # The body is the whole response (KBs of JSON): DEBUG, truncated.
+        logger.debug("Ground materials API response: %.500s", response.text)
 
         # Raise if non-2xx
         response.raise_for_status()
@@ -61,20 +62,21 @@ def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str
             try:
                 with open(ground_file, "w", encoding="utf-8") as fh:
                     json.dump(data, fh, ensure_ascii=False, indent=2)
-                logger.info(f"Ground materials saved to {ground_file}")
+                logger.info("Ground materials saved to %s", ground_file)
             except Exception as write_err:
                 logger.warning(
-                    f"Failed to save ground materials JSON to {ground_file}: {write_err}"
+                    "Failed to save ground materials JSON to %s: %s",
+                    ground_file, write_err,
                 )
 
             return data
 
         except ValueError as e:
-            logger.warning("Weather API response is not valid JSON ")
+            logger.warning("Ground materials API response is not valid JSON")
             raise e
 
     except requests.RequestException as e:
-        logger.error(f"Weather API request failed: {e}")
+        logger.error("Ground materials API request failed: %s", e, exc_info=True)
         status = e.response.status_code if e.response is not None else None
         parsed_message = None
         if e.response is not None:
@@ -104,14 +106,15 @@ def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str
     headers = {**client_headers(), **({"x-api-key": api_key} if api_key else {})}
 
     logger.info(
-        f"Fetching weather file names from {base_url} with params={params} "
-        f"and api-key provided={bool(api_key)}"
+        "Fetching weather file names from %s with params=%s and api-key provided=%s",
+        base_url, params, bool(api_key),
     )
 
     try:
         response = requests.get(base_url, params=params, headers=headers, timeout=20)
-        logger.info(f"Weather API status: {response.status_code}")
-        logger.info(f"Weather API response text: {response.text}")
+        logger.info("Weather API status: %s", response.status_code)
+        # The body is the whole response (KBs of JSON): DEBUG, truncated.
+        logger.debug("Weather API response: %.500s", response.text)
 
         # Raise if non-2xx
         response.raise_for_status()
@@ -122,11 +125,11 @@ def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str
 
             # Extract locations list
             locations = data.get("data", {}).get("locations", [])
-            logger.info(f"Weather API returned {len(locations)} locations")
+            logger.info("Weather API returned %d locations", len(locations))
 
             # Collect only fileName values into a simple list
             file_names = [loc.get("fileName") for loc in locations if isinstance(loc, dict) and loc.get("fileName")]
-            logger.info(f"Collected {len(file_names)} fileName entries from locations")
+            logger.info("Collected %d fileName entries from locations", len(file_names))
             return file_names
 
         except ValueError as e:
@@ -134,7 +137,7 @@ def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str
             raise e
 
     except requests.RequestException as e:
-        logger.error(f"Weather API request failed: {e}")
+        logger.error("Weather API request failed: %s", e, exc_info=True)
         status = e.response.status_code if e.response is not None else None
         parsed_message = None
         if e.response is not None:

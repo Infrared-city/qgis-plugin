@@ -96,7 +96,7 @@ def create_building_extrusion(polygon_coords_local: List[List[float]], height: f
 
         return vertices, indices
     except Exception as e:
-        logger.error(f"[create_building_extrusion] error: {e}")
+        logger.error("[create_building_extrusion] error: %s", e)
         return None, None
 
 
@@ -193,7 +193,7 @@ def triangulate_volume(rings: List[List[Tuple[float, float]]], height: float):
     try:
         triangle_indices = earcut.triangulate_float32(verts_2d, hole_starts)
     except Exception as e:
-        logger.error(f"[triangulate_volume] Earcut failed: {e}")
+        logger.error("[triangulate_volume] Earcut failed: %s", e)
         return None, None
 
     triangle_indices = np.array(triangle_indices, dtype=np.int32).reshape(-1, 3)
@@ -303,7 +303,7 @@ def convert_tree_to_dotbim(geojson, center_x: float, center_y: float, crs: str):
         with open(vegetation_file, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        logger.warning(f"Could not read vegetation_registry.json: {e}")
+        logger.warning("Could not read vegetation_registry.json: %s", e)
         return None
 
     client_models = data.get("clientModels") or {}
@@ -317,7 +317,7 @@ def convert_tree_to_dotbim(geojson, center_x: float, center_y: float, crs: str):
         for model in client_models.values():
 
             if model.get("displayName") == tree_type:
-                logger.info(f"Selected tree model: {model.get('displayName')}")
+                logger.info("Selected tree model: %s", model.get("displayName"))
                 selected = model
                 break
 
@@ -325,7 +325,7 @@ def convert_tree_to_dotbim(geojson, center_x: float, center_y: float, crs: str):
     if selected is None:
         for model in client_models.values():
             selected = model
-            logger.info(f"Firsttree model was selected: {model.get('displayName')}")
+            logger.info("First tree model was selected: %s", model.get("displayName"))
             break
 
     if selected is None:

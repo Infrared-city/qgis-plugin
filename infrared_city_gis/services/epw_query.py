@@ -134,7 +134,7 @@ def query_infrared_epw(file_name: str, time_frame: dict, api_key: str) -> Dict[s
                     )
                 )
     except WeatherServiceError as e:
-        logger.error(f"Epw query request failed: {e}")
+        logger.error("EPW query request failed: %s", e, exc_info=True)
         raise InfraredAPIError(
             status_code=e.status_code or None,
             server_message=_server_message_from(e),

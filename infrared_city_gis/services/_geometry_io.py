@@ -67,7 +67,7 @@ def bbox_512_in_ref_crs(center_x, center_y, ref_crs):
         transform_to_wgs84 = QgsCoordinateTransform(ref_crs, wgs84, project)
         pt_wgs84 = transform_to_wgs84.transform(QgsPointXY(center_x, center_y))
     except Exception as e:
-        logger.error("Transform tile center to WGS84 failed: %s", e)
+        logger.error("Transform tile center to WGS84 failed: %s", e, exc_info=True)
         return None
 
     center_lon, center_lat = pt_wgs84.x(), pt_wgs84.y()
@@ -76,7 +76,7 @@ def bbox_512_in_ref_crs(center_x, center_y, ref_crs):
         xmin, ymin, xmax, ymax = get_bbox(center_lon, center_lat, 512)
         bbox_rect_wgs84 = QgsRectangle(xmin, ymin, xmax, ymax)
     except Exception as e:
-        logger.error("get_bbox failed: %s", e)
+        logger.error("get_bbox failed: %s", e, exc_info=True)
         return None
 
     if ref_crs.authid() != "EPSG:4326":
@@ -104,7 +104,7 @@ def select_features_in_bbox(layer, bbox_rect_wgs84):
             transform_bbox = QgsCoordinateTransform(wgs84, layer_crs, project)
             bbox_rect_layer = transform_bbox.transformBoundingBox(bbox_rect_wgs84)
         except Exception as e:
-            logger.error("BBox transform failed for layer %s: %s", layer.name(), e)
+            logger.error("BBox transform failed for layer %s: %s", layer.name(), e, exc_info=True)
             return []
     else:
         bbox_rect_layer = bbox_rect_wgs84
@@ -128,7 +128,7 @@ def select_features_in_bbox(layer, bbox_rect_wgs84):
         )
         return selected
     except Exception as e:
-        logger.error("Selection failed for layer %s: %s", layer.name(), e)
+        logger.error("Selection failed for layer %s: %s", layer.name(), e, exc_info=True)
         return []
 
 

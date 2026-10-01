@@ -23,9 +23,9 @@ def _clean_up(folder_name):
                 mtime = datetime.datetime.fromtimestamp(os.path.getmtime(file_path))
                 if mtime < cutoff:
                     os.remove(file_path)
-                    logger.info(f"Deleted old file: {file_path}")
+                    logger.info("Deleted old file: %s", file_path)
         except Exception as e:
-            logger.warning(f"Failed to remove old file {file_path}: {e}")
+            logger.warning("Failed to remove old file %s: %s", file_path, e)
 
 
 def cleanup_old_data():
