@@ -77,8 +77,8 @@ def _run(reader, timeout_ms=10_000):
     outcome = {}
     reader.finished.connect(lambda area: (outcome.update(area=area), loop.quit()))
     reader.failed.connect(
-        lambda msg, timeout: (
-            outcome.update(error=msg, timed_out=timeout), loop.quit(),
+        lambda msg, user_error: (
+            outcome.update(error=msg, user_error=user_error), loop.quit(),
         )
     )
     guard = QTimer()
@@ -122,7 +122,8 @@ def test_a_failure_arrives_as_a_message_not_an_exception(qgis_app, fake_client):
 
     assert "error" in outcome
     assert "something went wrong" in outcome["error"]
-    assert outcome["timed_out"] is False
+    assert outcome["user_error"].title != "Fetch Timed Out"
+    assert "something went wrong" in outcome["user_error"].detail
 
 
 def test_a_timeout_is_reported_as_one(qgis_app, fake_client):
@@ -135,7 +136,7 @@ def test_a_timeout_is_reported_as_one(qgis_app, fake_client):
 
     outcome = _run(gmr.GroundMaterialReader("key", {"type": "Polygon"}))
 
-    assert outcome["timed_out"] is True
+    assert outcome["user_error"].title == "Fetch Timed Out"
 
 
 def test_chunk_progress_is_forwarded(qgis_app, fake_client):
@@ -192,16 +193,47 @@ class AreaOvertureReadError(Exception):
     """
 
 
+class SiteReadTimeout(Exception):
+    """Named exactly like the SDK's private site-deadline class."""
+
+
 def test_a_timeout_is_recognised_by_the_sdk_class_name():
     """The SDK's own type, which lives in a private module we do not import."""
-    assert gmr.timed_out(AreaOvertureReadError("out of time"))
+    assert gmr.timed_out(SiteReadTimeout("deadline"))
+
+
+def test_the_overture_read_class_alone_is_not_a_timeout():
+    """The SDK raises it for EVERY failed read, not only a slow one.
+
+    Seen on Windows QGIS 3.44.12, whose bundled pyarrow has no S3 support: the
+    read failed in under ten seconds and the dialog said the connection was
+    too slow. The real cause is the ImportError underneath.
+    """
+    try:
+        try:
+            try:
+                raise ImportError(
+                    "The pyarrow installation is not built with support for "
+                    "'S3FileSystem'"
+                )
+            except ImportError as missing:
+                raise AreaOvertureReadError(
+                    f"the area Overture read failed: {missing}"
+                ) from missing
+        except AreaOvertureReadError as cause:
+            raise RuntimeError("1 of 1 site read chunks failed") from cause
+    except RuntimeError as wrapped:
+        assert not gmr.timed_out(wrapped)
+        assert gmr.describe_read_failure(wrapped).title == "Plugin Component Missing"
 
 
 def test_a_timeout_is_recognised_through_the_wrapper():
     """The SDK raises TiledRunError `from` the real cause."""
     try:
         try:
-            raise AreaOvertureReadError("the area Overture read did not finish")
+            raise AreaOvertureReadError(
+                "the area Overture read did not finish within 60.0s"
+            )
         except AreaOvertureReadError as cause:
             raise RuntimeError("1 of 1 site read chunks failed") from cause
     except RuntimeError as wrapped:

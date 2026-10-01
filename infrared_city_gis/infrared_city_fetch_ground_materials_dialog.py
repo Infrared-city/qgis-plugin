@@ -35,6 +35,7 @@ from .services.polygon_from_selection import (
     create_wgs84_geojson_polygon_from_selection,
 )
 from .services.secret_manager import get_api_key
+from .services.user_errors import show_error_dialog
 from .utils.client_identity import make_client
 from .visualization.layers import display_ground_materials
 
@@ -90,6 +91,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
         """Validate API key + selection and preview the tile count."""
         self.api_key = get_api_key()
         if not self.api_key:
+            logger.warning("Ground materials fetch refused: no API key saved")
             QMessageBox.warning(
                 self, "No API Key",
                 "Fetching ground materials requires an Infrared City API key.\n"
@@ -110,6 +112,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
         else:
             selection = create_wgs84_geojson_polygon_from_selection()
             if selection is None:
+                logger.info("Ground materials fetch refused: no selection")
                 QMessageBox.warning(
                     self, "No selection",
                     "Please select a building area first — select features on "
@@ -123,10 +126,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
                 self.tile_count = preview.tile_count
             except Exception as e:
                 logger.exception("Ground materials: preview_area failed: %s", e)
-                QMessageBox.warning(
-                    self, "Error",
-                    f"Could not compute the selection area.\n\n{e}",
-                )
+                show_error_dialog(self, "Computing the selection area", e)
                 return
 
         logger.info("Ground materials fetch: selection = %d tile(s)", self.tile_count)
@@ -229,27 +229,14 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
 
     # -- outcomes -------------------------------------------------------
 
-    def _on_read_failed(self, message, was_timeout):
+    def _on_read_failed(self, message, user_error):
+        # The reader already logged the traceback and classified the failure:
+        # a timeout is about the connection (this read sends no API key at
+        # all), a missing component is about the install, not the network.
         self._stop_progress()
         self._set_fetch_enabled(True)
-        if was_timeout:
-            # No API key is sent on this read at all — it goes to a public
-            # Overture bucket — so the generic "check your key" would point at
-            # the wrong thing entirely. A timeout here is about throughput.
-            QMessageBox.critical(
-                self, "Fetch Timed Out",
-                "Reading ground materials took longer than allowed.\n\n"
-                f"{message}\n\n"
-                "This read downloads a large amount of map data. Please check "
-                "your internet connection and try again — on a slow or "
-                "congested connection it can take longer than the read allows. "
-                "A smaller area downloads less.",
-            )
-            return
         QMessageBox.critical(
-            self, "Fetch Failed",
-            f"Failed to fetch ground materials.\n\n{message}\n\n"
-            "Check your API key/subscription and network, then try again.",
+            self, user_error.title, user_error.message("Fetching ground materials"),
         )
 
     def _on_read_finished(self, area_gm):

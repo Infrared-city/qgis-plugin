@@ -31,11 +31,25 @@ from qgis.PyQt.QtCore import QObject, QThread, pyqtSignal
 
 from ..infrared_logger import logger
 from ..utils.client_identity import make_client
+from .user_errors import UserError, describe_error
 
 #: Readers still running. A QThread that is garbage collected while running
 #: takes QGIS down with it, so a reader whose caller has gone away stays here
 #: until it finishes. Mirrors ``sdk_runner._ACTIVE_POLLERS``.
 _ACTIVE_READERS: List["GroundMaterialReader"] = []
+
+
+#: Class names that only ever mean "ran out of time". NOT
+#: ``AreaOvertureReadError``: the SDK raises that for EVERY failed Overture
+#: read — a timeout ("did not finish within …") and any other failure ("the
+#: area Overture read failed: …") alike. Matching it by name reported a pyarrow
+#: build without S3 support as a slow connection.
+_TIMEOUT_CLASSES = frozenset({
+    "SiteReadTimeout", "TimeoutError", "Timeout", "ReadTimeout", "ConnectTimeout",
+})
+#: The SDK's own wording for its two read deadlines (overture_area.py,
+#: ground_materials/_site_chunks.py).
+_TIMEOUT_TEXT = ("did not finish within", "passed its total_timeout")
 
 
 def timed_out(exc: BaseException) -> bool:
@@ -46,28 +60,43 @@ def timed_out(exc: BaseException) -> bool:
     is not merely unhelpful there, it points at the wrong thing. A timeout is
     about the connection.
 
-    Matched by class NAME rather than an import — ``AreaOvertureReadError``
-    lives in ``infrared_sdk._internal``, and pinning a private path here would
-    make the message quality depend on an SDK layout that is free to move. The
-    message text is a second chance at the same answer. Walks the whole chain
-    because the SDK wraps it in a ``TiledRunError``.
+    Matched by class NAME and the SDK's message text rather than an import —
+    the classes live in ``infrared_sdk._internal``, and pinning a private path
+    here would make the message quality depend on an SDK layout that is free to
+    move. Walks the whole chain because the SDK wraps the cause in a
+    ``TiledRunError``.
     """
     seen = set()
     while exc is not None and id(exc) not in seen:
         seen.add(id(exc))
-        if type(exc).__name__ == "AreaOvertureReadError":
+        if type(exc).__name__ in _TIMEOUT_CLASSES:
             return True
-        if "did not finish within" in str(exc):
+        if any(text in str(exc) for text in _TIMEOUT_TEXT):
             return True
         exc = exc.__cause__ or exc.__context__
     return False
+
+
+def describe_read_failure(exc: BaseException) -> UserError:
+    """What a failed ground-material read means to the user."""
+    if timed_out(exc):
+        return UserError(
+            "Fetch Timed Out",
+            "Reading ground materials took longer than allowed.",
+            "This read downloads a large amount of map data. Please check "
+            "your internet connection and try again — on a slow or congested "
+            "connection it can take longer than the read allows. A smaller "
+            "area downloads less.",
+            detail=str(exc),
+        )
+    return describe_error(exc)
 
 
 class _Worker(QObject):
     """The blocking call, on the worker thread. Touches no widgets."""
 
     finished = pyqtSignal(object)
-    failed = pyqtSignal(str, bool)
+    failed = pyqtSignal(str, object)
     chunk_done = pyqtSignal(int, int)
 
     def __init__(self, api_key: str, polygon: dict, analysis_type=None):
@@ -95,7 +124,7 @@ class _Worker(QObject):
                 area = client.ground_materials.get_area(self._polygon, **kwargs)
         except Exception as e:
             logger.error("Ground materials read failed: %s", e, exc_info=True)
-            self.failed.emit(str(e), timed_out(e))
+            self.failed.emit(str(e), describe_read_failure(e))
             return
         self.finished.emit(area)
 
@@ -103,13 +132,14 @@ class _Worker(QObject):
 class GroundMaterialReader(QObject):
     """Owns the worker thread and re-emits its outcome on the main thread.
 
-    ``finished`` carries the SDK's ``AreaGroundMaterials``; ``failed`` carries a
-    message already logged with its traceback.
+    ``finished`` carries the SDK's ``AreaGroundMaterials``; ``failed`` carries
+    the raw message (already logged with its traceback) and the
+    :class:`~.user_errors.UserError` to show for it.
     """
 
     finished = pyqtSignal(object)
-    #: ``(message, timed_out)`` — see :func:`timed_out`.
-    failed = pyqtSignal(str, bool)
+    #: ``(message, user_error)`` — see :func:`describe_read_failure`.
+    failed = pyqtSignal(str, object)
     chunk_done = pyqtSignal(int, int)
 
     def __init__(self, api_key: str, polygon: dict, analysis_type=None,
@@ -151,7 +181,7 @@ class GroundMaterialReader(QObject):
             self.finished.emit(area)
         self._retire()
 
-    def _on_failed(self, message: str, was_timeout: bool) -> None:
+    def _on_failed(self, message: str, user_error: UserError) -> None:
         if not self._detached:
-            self.failed.emit(message, was_timeout)
+            self.failed.emit(message, user_error)
         self._retire()
