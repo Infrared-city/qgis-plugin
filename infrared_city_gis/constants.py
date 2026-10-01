@@ -5,6 +5,10 @@ Constants for the Infrared City GIS plugin.
 INFRARED_API_BASE_URL = "https://api.infrared.city"
 INFRARED_API_V2_URL = f"{INFRARED_API_BASE_URL}/v2"
 
+# Where user-facing error messages send people. The same address as
+# metadata.txt, so the plugin page and the error dialogs agree.
+SUPPORT_EMAIL = "connectors@infrared.city"
+
 
 # Fetch
 FETCH_GROUND_MATERIAL_URL = f"{INFRARED_API_V2_URL}/utils/ground-material/collect"

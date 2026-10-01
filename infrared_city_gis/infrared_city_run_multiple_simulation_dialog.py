@@ -66,6 +66,7 @@ from .services.tree_layer_picker import (
     update_tree_layer_enabled,
 )
 from .services.tree_validation import validate_tree_layer
+from .services.user_errors import show_error_dialog
 from .utils.client_identity import make_client
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
@@ -141,8 +142,13 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             )
 
         except Exception as e:
-            logger.error(f"Failed to get selected bbox: {e}")
-            QMessageBox.warning(self, "Invalid selection", "Invalid selection please select geometry.")
+            logger.error("Failed to get selected bbox: %s", e, exc_info=True)
+            QMessageBox.warning(
+                self, "Invalid Selection",
+                "The current selection cannot be used for a simulation.\n\n"
+                "Select one or more building features on your buildings "
+                "layer, then open 'Run simulation' again.",
+            )
             self.reject()
             return
 
@@ -572,7 +578,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 return
             except Exception as e:
                 logger.error("Unexpected error fetching weather file names: %s", e, exc_info=True)
-                QMessageBox.critical(self, "Error", f"Failed to fetch weather file names.\n\n{e}")
+                show_error_dialog(self, "Fetching the weather files", e)
                 return
 
         # Switch stacked pages by widget name — robust against page reordering
@@ -778,8 +784,14 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     from .services.epw_parser import validate_file
                     validate_file(path)
                 except Exception as e:
+                    logger.warning(
+                        "Rejected uploaded EPW %s: %s", os.path.basename(path), e,
+                    )
                     QMessageBox.warning(
-                        self, "Invalid EPW", f"Not a usable EPW file:\n\n{e}",
+                        self, "Invalid EPW",
+                        "The selected file is not a usable EPW weather file. "
+                        "Pick a valid EnergyPlus .epw file, or use one of the "
+                        f"listed weather files.\n\nDetails: {e}",
                     )
                     btn.setChecked(False)
                     return
@@ -803,6 +815,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
 
             if not self.api_key:
+                logger.warning("Run simulation refused: no API key saved")
                 QMessageBox.warning(
                     self, "Missing API Key",
                     "No API key found. Please save your API key first via the 'Save API Key' menu."
@@ -843,8 +856,9 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             else:
                 poller = run_sdk_area_async(self, self.polygon, area)
             if poller is None:
-                # Payload validation failed; build_sdk_payload already
-                # showed a QMessageBox. Keep the dialog open.
+                # Validation or submission failed and a QMessageBox was
+                # already shown. Keep the dialog open so the user can fix
+                # the input or retry — never close it as if a run started.
                 return
 
             # Submitting ENDS single-tile mode: the armed box and the map
@@ -861,11 +875,4 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             QMessageBox.critical(self, e.title, e.detail)
         except Exception as e:
             logger.error("Unhandled exception in accept(): %s", e, exc_info=True)
-            msg = str(e)
-            short_msg = msg if len(msg) < 200 else msg[:200] + "…"
-            QMessageBox.critical(
-                self,
-                "Error",
-                "An error occurred during the simulation.\n"
-                f"Details: {short_msg}\n\nCheck the plugin log for more information."
-            )
+            show_error_dialog(self, "Starting the simulation", e)

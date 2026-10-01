@@ -28,6 +28,7 @@ from qgis.PyQt.QtCore import QCoreApplication, QSettings, QTranslator
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
+from .constants import SUPPORT_EMAIL
 from .exceptions import InfraredAPIError
 
 # Import the code for the dialog
@@ -325,9 +326,9 @@ class InfraredCityGIS:
             self._set_authed_actions_enabled(False)
             self.iface.messageBar().pushWarning(
                 "InfraredCity",
-                "Your saved API key was rejected by the Infrared server. "
+                "Your saved API key was rejected by the Infrared City server. "
                 "Update it via 'Save API Key'. If you believe the key is "
-                "correct, please contact us at connectors@infrared.city.",
+                f"correct, please contact us at {SUPPORT_EMAIL}.",
             )
 
     def _set_authed_actions_enabled(self, enabled):
@@ -582,7 +583,8 @@ class InfraredCityGIS:
                     duration=5
                 )
             else:
+                logger.warning("Fetch geometry dialog accepted without a file or bbox")
                 self.iface.messageBar().pushWarning(
                     "InfraredCity",
-                    "No file path returned from fetch dialog."
+                    "No building geometry was loaded. Please try the fetch again."
                 )

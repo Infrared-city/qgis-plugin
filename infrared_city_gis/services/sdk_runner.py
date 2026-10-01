@@ -24,7 +24,7 @@ from typing import Any, Optional, Tuple
 
 import numpy as np
 from qgis.core import Qgis
-from qgis.PyQt.QtWidgets import QApplication, QMessageBox
+from qgis.PyQt.QtWidgets import QApplication
 from qgis.utils import iface
 
 from ..infrared_logger import logger
@@ -38,6 +38,7 @@ from ..services.ground_materials import (
 from ..services.qgis_area_vegetation import collect_qgis_area_vegetation
 from ..services.sdk_payloads import build_sdk_payload
 from ..services.tree_layer_picker import has_tree_support, selected_tree_layer
+from ..services.user_errors import show_error_dialog
 from ..utils.client_identity import make_client
 from ..visualization.display import add_geojson_then_raster
 
@@ -207,7 +208,9 @@ def render_area_result(
     """
     grid = result.merged_grid
     if grid is None or grid.size == 0:
-        _status("InfraredCity: empty result grid", level=Qgis.Warning, duration=10)
+        logger.warning("render_area_result: merged grid is empty — nothing to render")
+        _status("InfraredCity: the simulation returned an empty result — "
+                "nothing to display", level=Qgis.Warning, duration=10)
         return
     if not isinstance(grid, np.ndarray):
         grid = np.asarray(grid, dtype=np.float32)
@@ -322,12 +325,9 @@ def run_sdk_area(dlg, polygon: dict, area) -> None:
         )
     except Exception as e:
         logger.error("run_area_and_wait failed: %s", e, exc_info=True)
-        _status(f"InfraredCity: area run failed — {str(e)[:120]}",
+        _status("InfraredCity: area run failed",
                 level=Qgis.Critical, duration=15)
-        QMessageBox.critical(
-            dlg, "Simulation Error",
-            f"Area run failed.\n\n{e}\n\nCheck the plugin log for details.",
-        )
+        show_error_dialog(dlg, "Area simulation", e)
         return
 
     logger.info(
@@ -373,9 +373,10 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
     :data:`_ACTIVE_POLLERS` so neither Qt nor Python's GC can prematurely
     drop it.
 
-    Returns ``None`` if payload validation failed (a QMessageBox was
-    already shown). On submission failure the poller's ``failed`` signal
-    fires; the caller doesn't need to handle that synchronously.
+    Returns ``None`` if payload validation or submission failed (a
+    QMessageBox was already shown), so the caller keeps the dialog open.
+    Later failures (polling, merge, render) arrive on the poller's
+    ``failed`` signal and are shown in the message bar.
     """
     payload = _prepare_run(dlg)
     if payload is None:
@@ -509,5 +510,16 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
     # Use partial-style closures so the lambda captures `poller` by value.
     poller.finished.connect(lambda _result, p=poller: _retire_poller(p))
     poller.failed.connect(lambda _msg, p=poller: _retire_poller(p))
-    poller.start()
+    try:
+        poller.start()
+    except Exception as e:
+        # The dialog is still open: show the error there and keep it open
+        # (None tells the caller so), exactly like the single-tile path.
+        logger.error("AreaPoller: submit failed: %s", e, exc_info=True)
+        _retire_poller(poller)
+        poller.deleteLater()
+        _status("InfraredCity: area submission failed",
+                level=Qgis.Critical, duration=15)
+        show_error_dialog(dlg, "Area submission", e)
+        return None
     return poller

@@ -2,6 +2,21 @@
 Custom exceptions for the Infrared City GIS plugin.
 """
 
+from .constants import SUPPORT_EMAIL
+
+
+class NothingToRunError(Exception):
+    """An area submission that scheduled no jobs: nothing ran, nothing was charged."""
+
+    title = "Nothing to Simulate"
+    detail = (
+        "The selected area produced no simulation tiles.\n\n"
+        "Check that the area contains buildings and that the buildings layer "
+        "is active, then try again."
+    )
+    #: Read by ``services.user_errors``: no request reached the paid step.
+    pre_accept = True
+
 
 class InfraredAPIError(Exception):
     """Raised when the Infrared API returns a non-2xx HTTP response or is unreachable.
@@ -21,7 +36,7 @@ class InfraredAPIError(Exception):
     _STATUS_MAP = {
         401: (
             "Authentication Failed (401)",
-            "Your API key was not recognised by the Infrared server.\n\n"
+            "Your API key was not recognised by the Infrared City server.\n\n"
             "Please check that the key is entered correctly in the plugin settings.",
         ),
         403: (
@@ -29,7 +44,7 @@ class InfraredAPIError(Exception):
             "Your API key does not have permission to perform this action.\n\n"
             "Your subscription plan may not include this analysis type. "
             "Visit infrared.city to review your plan or contact "
-            "support@infrared.city for help.",
+            f"{SUPPORT_EMAIL} for help.",
         ),
         429: (
             "Too Many Requests (429)",
@@ -38,23 +53,23 @@ class InfraredAPIError(Exception):
         ),
         500: (
             "Server Error (500)",
-            "The Infrared server encountered an unexpected error.\n\n"
+            "The Infrared City server encountered an unexpected error.\n\n"
             "Please try again in a few minutes. If the problem persists, "
-            "contact support@infrared.city.",
+            f"contact {SUPPORT_EMAIL}.",
         ),
         502: (
             "Server Unavailable (502)",
-            "The Infrared server is temporarily unavailable.\n\n"
+            "The Infrared City server is temporarily unavailable.\n\n"
             "Please try again in a few minutes.",
         ),
         503: (
             "Service Unavailable (503)",
-            "The Infrared service is temporarily unavailable.\n\n"
+            "The Infrared City service is temporarily unavailable.\n\n"
             "Please try again in a few minutes.",
         ),
         504: (
             "Gateway Timeout (504)",
-            "The request timed out waiting for the Infrared server.\n\n"
+            "The request timed out waiting for the Infrared City server.\n\n"
             "Please try again in a few minutes.",
         ),
     }
@@ -68,9 +83,9 @@ class InfraredAPIError(Exception):
         elif status_code is not None and status_code >= 500:
             self.title = f"Server Error ({status_code})"
             self.detail = (
-                f"The Infrared server returned an unexpected error (HTTP {status_code}).\n\n"
+                f"The Infrared City server returned an unexpected error (HTTP {status_code}).\n\n"
                 "Please try again in a few minutes. If the problem persists, "
-                "contact support@infrared.city."
+                f"contact {SUPPORT_EMAIL}."
             )
         elif status_code is not None:
             self.title = f"Request Failed ({status_code})"
@@ -81,7 +96,7 @@ class InfraredAPIError(Exception):
         else:
             self.title = "Connection Error"
             self.detail = (
-                "Could not reach the Infrared server.\n\n"
+                "Could not reach the Infrared City server.\n\n"
                 "Please check your internet connection and try again."
             )
 

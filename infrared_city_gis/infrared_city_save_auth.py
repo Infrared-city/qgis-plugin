@@ -4,12 +4,11 @@ from qgis.PyQt import uic
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QApplication, QDialog, QLineEdit, QMessageBox
 
+from .constants import SUPPORT_EMAIL
 from .exceptions import InfraredAPIError
 from .infrared_logger import logger
 from .services.key_check import verify_api_key
 from .services.secret_manager import get_api_key, set_api_key
-
-CONTACT_EMAIL = "connectors@infrared.city"
 
 # This loads your .ui file so that PyQt can populate your plugin with the
 # elements from Qt Designer.
@@ -70,7 +69,7 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         try:
             existing = get_api_key()
         except Exception as e:
-            logger.error("Error loading existing API key: %s", e)
+            logger.error("Error loading existing API key: %s", e, exc_info=True)
             self.status_label.setText("Error loading existing API key")
             self.status_label.setStyleSheet("color: red;")
             return
@@ -114,7 +113,7 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
             self.status_label.setText(
                 f"Your API key ({self._mask_key(api_key)}) is not valid "
                 f"anymore. Please save a new valid API key, or contact us "
-                f"at {CONTACT_EMAIL}."
+                f"at {SUPPORT_EMAIL}."
             )
             self.status_label.setStyleSheet("color: red;")
         elif not api_key:
@@ -135,6 +134,7 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         api_key = self.get_api_key_from_input()
 
         if not api_key:
+            logger.info("Save API key refused: empty input")
             QMessageBox.warning(self, "Invalid Input", "Please enter an API key.")
             return
 
@@ -173,7 +173,7 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
                 f"{e.detail}\n\n"
                 f"The key ({self._mask_key(api_key)}) was NOT saved. "
                 f"If you believe the key is correct, please contact us "
-                f"at {CONTACT_EMAIL}.",
+                f"at {SUPPORT_EMAIL}.",
             )
             return
         except Exception as e:
@@ -185,19 +185,22 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
             self.update_status()
             QMessageBox.warning(
                 self, "Could Not Verify API Key",
-                f"The Infrared server could not be reached, so the API key "
+                f"The Infrared City server could not be reached, so the API key "
                 f"could not be verified.\n\n"
                 f"The key was NOT saved. Please check your internet "
                 f"connection and try again. If the problem persists, "
-                f"please contact us at {CONTACT_EMAIL}.",
+                f"please contact us at {SUPPORT_EMAIL}.",
             )
             return
 
         if not set_api_key(api_key):
+            logger.error("Verified API key could not be saved to QSettings")
             self.update_status()
             QMessageBox.critical(
-                self, "Error",
-                "Failed to save API key. Please check the logs.",
+                self, "Could Not Save API Key",
+                "The API key was verified but could not be saved.\n\n"
+                "Please try again. If it keeps happening, restart QGIS or "
+                f"contact {SUPPORT_EMAIL}.\n\nSee the plugin log for more.",
             )
             return
 

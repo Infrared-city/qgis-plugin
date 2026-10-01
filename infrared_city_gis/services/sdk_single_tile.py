@@ -56,6 +56,14 @@ from .sdk_runner import (
     clear_layer_selections,
 )
 from .tree_layer_picker import has_tree_support, selected_tree_layer
+from .user_errors import (
+    UserError,
+    describe_error,
+    failed_on_server,
+    push_error,
+    run_timed_out,
+    show_error_dialog,
+)
 
 # Single-tile jobs are quick; poll every 2 s with a 5-minute wall-clock cap.
 _POLL_INTERVAL_MS = 2000
@@ -77,8 +85,9 @@ def render_single_tile_result(
     scales and could not be compared.
     """
     if grid is None or getattr(grid, "size", 0) == 0:
-        _status("InfraredCity: empty single-tile result grid",
-                level=Qgis.Warning, duration=10)
+        logger.warning("render_single_tile_result: grid is empty — nothing to render")
+        _status("InfraredCity: the simulation returned an empty result — "
+                "nothing to display", level=Qgis.Warning, duration=10)
         return
     grid = np.asarray(grid, dtype=np.float32)
 
@@ -227,14 +236,17 @@ class SingleTilePoller(QObject):
             return
         if job.status == JobStatus.failed:
             self._timer.stop()
-            self._fail(f"job failed: {job.error or '(no error message)'}")
+            server_says = job.error or "(no error message)"
+            self._fail(f"job failed: {server_says}",
+                       user=failed_on_server(server_says))
             return
 
         _status(f"InfraredCity: single tile {job.status}…", level=Qgis.Info)
 
         if self._deadline is not None and time.monotonic() > self._deadline:
             self._timer.stop()
-            self._fail(f"timed out after {self._timeout_s}s (last status={job.status})")
+            msg = f"timed out after {self._timeout_s}s (last status={job.status})"
+            self._fail(msg, user=run_timed_out(msg))
 
     def _finalize(self, job) -> None:
         try:
@@ -259,19 +271,23 @@ class SingleTilePoller(QObject):
             )
         except Exception as e:
             logger.error("SingleTilePoller: render failed: %s", e, exc_info=True)
-            _status(f"InfraredCity: render failed — {str(e)[:120]}",
-                    level=Qgis.Critical, duration=15)
+            push_error("Displaying the single-tile result", describe_error(e))
 
         self.finished.emit(grid)
         self.deleteLater()
 
-    def _fail(self, msg: str, *, exc: Optional[Exception] = None) -> None:
+    def _fail(
+        self, msg: str, *, exc: Optional[Exception] = None,
+        user: Optional[UserError] = None,
+    ) -> None:
+        """Log *msg* (developer text); show *user*, or *exc* translated."""
         if exc is not None:
             logger.error("SingleTilePoller: %s", msg, exc_info=True)
         else:
             logger.error("SingleTilePoller: %s", msg)
-        _status(f"InfraredCity: single-tile run failed — {msg[:120]}",
-                level=Qgis.Critical, duration=15)
+        if user is None:
+            user = describe_error(exc) if exc is not None else failed_on_server(msg)
+        push_error("Single-tile simulation", user)
         self._timer.stop()
         self.failed.emit(msg)
         self.deleteLater()
@@ -507,13 +523,9 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
         job = client.analyses.execute(payload=payload)
     except Exception as e:
         logger.error("Single-tile execute() failed: %s", e, exc_info=True)
-        _status(f"InfraredCity: single-tile submit failed — {str(e)[:120]}",
+        _status("InfraredCity: single-tile submission failed",
                 level=Qgis.Critical, duration=15)
-        QMessageBox.critical(
-            dlg, "Simulation Error",
-            f"Single-tile submission failed.\n\n{e}\n\n"
-            "Check the plugin log for details.",
-        )
+        show_error_dialog(dlg, "Single-tile submission", e)
         return None
 
     logger.info("Single-tile job submitted: %s", job.job_id)

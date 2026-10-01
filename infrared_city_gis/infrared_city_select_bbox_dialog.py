@@ -98,8 +98,14 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
             try:
                 lonlat = transform_to_wgs84.transform(point)
             except Exception as e:
-                iface.messageBar().pushMessage("InfraredCity", f"Transform failed: {e}", level=Qgis.Critical)
-                logger.error("Transform to WGS84 failed: %s", e)
+                logger.error("Transform to WGS84 failed: %s", e, exc_info=True)
+                iface.messageBar().pushMessage(
+                    "InfraredCity",
+                    "Could not convert the clicked point to WGS84 — check that "
+                    "the project has a valid coordinate reference system.",
+                    f"Details: {e}",
+                    level=Qgis.Critical,
+                )
                 return
 
             center_lon, center_lat = lonlat.x(), lonlat.y()
@@ -110,8 +116,13 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 xmin, ymin, xmax, ymax = get_bbox(center_lon, center_lat, 512)
                 bbox_rect_wgs84 = QgsRectangle(xmin, ymin, xmax, ymax)
             except Exception as e:
-                iface.messageBar().pushMessage("InfraredCity", f"get_bbox failed: {e}", level=Qgis.Critical)
-                logger.error("get_bbox failed: %s", e)
+                logger.error("get_bbox failed: %s", e, exc_info=True)
+                iface.messageBar().pushMessage(
+                    "InfraredCity",
+                    "Could not build a 512×512 m tile around the clicked point.",
+                    f"Details: {e}",
+                    level=Qgis.Critical,
+                )
                 return
 
             # --- Pick a buildings reference layer.
@@ -229,7 +240,14 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
             )
 
         except Exception as e:
-            logger.error("Failed to select features: %s", e)
+            logger.error("Failed to select features: %s", e, exc_info=True)
+            # Without a notice the click just does nothing visible.
+            iface.messageBar().pushMessage(
+                "InfraredCity",
+                "Selecting the tile failed — please click on the map again.",
+                f"Details: {e}",
+                level=Qgis.Critical,
+            )
             return
 
         self.accept()
@@ -245,7 +263,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
             if self.prev_map_tool:
                 iface.mapCanvas().setMapTool(self.prev_map_tool)
         except Exception as e:
-            logger.error("Failed to restore map tool: %s", e)
+            logger.error("Failed to restore map tool: %s", e, exc_info=True)
 
         self._clear_rubber()
         super().closeEvent(event)

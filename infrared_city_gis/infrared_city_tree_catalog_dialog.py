@@ -35,6 +35,7 @@ from qgis.PyQt.QtWidgets import (
 
 from .infrared_logger import logger
 from .models.vegetation_types import TreeType
+from .services.user_errors import show_error_dialog
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'infrared_city_tree_catalog_dialog.ui'))
@@ -224,6 +225,7 @@ class InfraredCityTreeCatalogDialog(QtWidgets.QDialog, FORM_CLASS):
             self.selected_tree_type = self.species_combo.currentText()
             self.selected_tree_size = self._current_size()
             if not self.selected_tree_type:
+                logger.info("Tree catalog: save refused, no species selected")
                 QMessageBox.warning(self, "No selection", "Please select a tree species.")
                 return
 
@@ -242,7 +244,7 @@ class InfraredCityTreeCatalogDialog(QtWidgets.QDialog, FORM_CLASS):
             )
         except Exception as e:
             logger.error("Error saving tree catalog selection: %s", e, exc_info=True)
-            QMessageBox.critical(self, "Error", str(e))
+            show_error_dialog(self, "Saving the tree selection", e)
             return
 
         super().accept()
