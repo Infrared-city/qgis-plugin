@@ -17,7 +17,7 @@ Fetch building geometry with the help of Infrared City platform, run microclimat
 
 ## Requirements
 
-- QGIS 3.44 – 3.x (QGIS 4 is not yet supported — the plugin is PyQt5-based)
+- QGIS 3.44 – 3.x and QGIS 4.x (one package serves both Qt5 and Qt6)
 - An Infrared City API key
 
 ## Installation

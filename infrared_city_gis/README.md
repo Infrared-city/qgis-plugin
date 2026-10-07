@@ -21,7 +21,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
 
 ## Requirements
 
-- QGIS 3.44 – 3.x (QGIS 4 is not yet supported)
+- QGIS 3.44 – 3.x and QGIS 4.x
 - An Infrared City API key ([infrared.city](https://infrared.city))
 
 ## Installation

@@ -11,7 +11,7 @@ key is set and building geometry exists.
 
 ## Prerequisites
 
-- QGIS 3.44 – 3.x with the plugin installed (from ZIP or the repo folder). QGIS 4 is not supported (`qgisMaximumVersion=3.99`).
+- QGIS 3.44 – 3.x **and** QGIS 4.x with the plugin installed (from ZIP or the repo folder). `metadata.txt` declares `qgisMaximumVersion=4.99`, and the Plugin Manager offers the plugin on that promise alone, so run the full round on **both** a QGIS 3 and a QGIS 4 install before every release.
 - An Infrared City API key with an active subscription.
 - Test data:
   - A **building** layer or coordinates to fetch one.

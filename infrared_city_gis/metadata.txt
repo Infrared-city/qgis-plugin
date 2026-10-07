@@ -5,9 +5,11 @@
 [general]
 name=Infrared City GIS
 qgisMinimumVersion=3.44
-# Qt5/PyQt5-based plugin — not yet ported to QGIS 4 (Qt6). 3.99 is the
-# conventional cap that admits every 3.x release while excluding 4.0.
-qgisMaximumVersion=3.99
+# One package for QGIS 3 (Qt5) and QGIS 4 (Qt6): every Qt import goes through
+# qgis.PyQt with scoped enums. 4.99 admits every 4.x release. The Plugin Manager
+# trusts this line before loading any code, so raise it again only after the
+# docs/manual-testing.md round has passed on that QGIS version.
+qgisMaximumVersion=4.99
 description=Run urban climate simulations (wind, thermal comfort, solar) directly from QGIS using the infrared.city platform.
 version=1.1.4
 author=infrared.city
