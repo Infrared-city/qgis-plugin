@@ -47,6 +47,10 @@ from _sim_runner import (
     run_single_tile,
 )
 
+from infrared_city_gis.constants import (
+    GROUND_FETCH_TIMEOUT_S,
+    GROUND_FETCH_TOTAL_TIMEOUT_S,
+)
 from infrared_city_gis.models.analysis import AnalysisType
 
 pytestmark = pytest.mark.e2e
@@ -169,8 +173,10 @@ def live_ground_materials(key, qgis_app):
     """
     from infrared_sdk import InfraredClient
 
-    with InfraredClient(api_key=key) as client:
-        area_gm = client.ground_materials.get_area(polygon(LON, LAT, AREA_SIZE_M))
+    with InfraredClient(api_key=key) as client:  # the dialog's budgets (#47)
+        area_gm = client.ground_materials.get_area(
+            polygon(LON, LAT, AREA_SIZE_M), timeout=GROUND_FETCH_TIMEOUT_S,
+            total_timeout=GROUND_FETCH_TOTAL_TIMEOUT_S)
 
     assert area_gm.layers, "ground-material fetch returned no layers"
 
