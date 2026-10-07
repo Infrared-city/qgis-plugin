@@ -92,8 +92,8 @@ jobs:
           bandit -r infrared_city_gis/ \
             -x infrared_city_gis/tests,infrared_city_gis/test,infrared_city_gis/thirdparty,infrared_city_gis/venv,infrared_city_gis/.venv
 
-      # Honours `# pragma: allowlist secret` for false positives such as the
-      # X-Api-Key HEADER NAME in client.py.
+      # Honours `# pragma: allowlist secret` for a false positive. None is
+      # needed today: the `x-api-key` header NAME alone is not flagged.
       - name: detect-secrets
         run: |
           git ls-files -z 'infrared_city_gis/*' \

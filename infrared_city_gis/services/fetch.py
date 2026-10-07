@@ -159,8 +159,10 @@ def _fetch_buildings_request(lat, lon, size_x, size_y, api_key):
         response.raise_for_status()
     except requests.RequestException as e:
         status = e.response.status_code if e.response is not None else None
-        body_text = e.response.text if e.response is not None else ""
-        logger.error("Buildings request failed (status=%s): %s", status, body_text or e)
+        logger.error("Buildings request failed (status=%s): %s", status, e)
+        if e.response is not None:
+            # The body is never logged at ERROR (logging conventions): DEBUG, truncated.
+            logger.debug("Buildings error response: %.500s", e.response.text)
         return None
 
     try:

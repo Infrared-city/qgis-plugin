@@ -116,7 +116,8 @@ rules, is documented in `epw_query._time_periods_from_time_frame`.
 The area path goes through `services/sdk_runner.py`, the single-tile path
 through `services/sdk_single_tile.py`. The legacy raw-REST simulation path
 (`client.py` and its `RUN_ANALYSIS_ENDPOINT`) lost its last caller when both
-moved to the SDK, and was removed in 1.2.0.
+moved to the SDK, and was removed on `feat/qgis4-qt6-compat` (after
+v1.1.4).
 Trees and ground materials are documented in
 [`vegetation-input.md`](vegetation-input.md) and
 [`ground-materials.md`](ground-materials.md).

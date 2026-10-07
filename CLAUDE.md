@@ -84,14 +84,9 @@ Plugin uploads to `plugins.qgis.org` are **manual via the web UI** — see [`doc
 
 ## Release Process
 
-Triggered by pushing a `v*` tag (see `.github/workflows/release.yml`):
+Release Please (see [`docs/release-process.md`](docs/release-process.md)): a `fix:`/`feat:` merge of `staging` into `main` opens `chore(main): release X.Y.Z`. On that PR's branch, bump `version=` and `changelog=` in `infrared_city_gis/metadata.txt` **by hand** (Release Please does not touch it), then merge — that creates the `vX.Y.Z` tag, and `.github/workflows/release.yml` builds the ZIP into a GitHub Release. Before that: `scripts/preflight.sh` green and the `docs/manual-testing.md` round passed on **QGIS 3 and QGIS 4**.
 
-```bash
-# Bump version in infrared_city_gis/metadata.txt first, commit, then:
-git tag v0.2.2 && git push --tags
-```
-
-CI builds the ZIP and creates a GitHub Release. Upload to `plugins.qgis.org` is still **manual** — review the release on plugins.qgis.org before promoting to non-experimental.
+Upload to `plugins.qgis.org` is still **manual** — review the release on plugins.qgis.org before promoting to non-experimental. Afterwards merge `main` back into `staging`.
 
 See [`docs/deployment.md`](docs/deployment.md) for full deploy details.
 
