@@ -129,8 +129,23 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             single_tile_selection.clear()
 
         self.is_single_tile = False
+        selected_bbox = get_selected_bbox()
+        if selected_bbox is None:
+            # The ordinary case of opening the dialog before selecting
+            # anything — not an error. It used to unpack None and log a
+            # TypeError traceback for it.
+            logger.info("Run simulation refused: nothing selected")
+            QMessageBox.information(
+                self, "No Selection",
+                "Nothing is selected.\n\n"
+                "Select one or more building features on your buildings "
+                "layer (or pick a tile with 'Select tile'), then open "
+                "'Run simulation' again.",
+            )
+            self.reject()
+            return
         try:
-            w, s, e, n = get_selected_bbox()
+            w, s, e, n = selected_bbox
             self.bbox = [w, s, e, n]
             self.crs = get_selected_crs()
 
