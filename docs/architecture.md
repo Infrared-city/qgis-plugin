@@ -28,6 +28,7 @@ infrared_city_gis/
 │   ├── sdk_single_tile.py   # Single-tile simulation via SDK analyses.execute
 │   ├── single_tile_selection.py # The armed 512 m box; the toolbar toggle mirrors it
 │   ├── area_poller.py       # Long-poll job status
+│   ├── render_state.py      # Run label + render snapshot taken from the dialog (both pollers)
 │   ├── qgis_area_buildings.py   # Collect buildings from a QGIS layer selection
 │   ├── qgis_area_vegetation.py  # Collect trees (OSM species/genus → registry modelId or archetype)
 │   ├── tree_validation.py   # Tree-layer validation against the registry

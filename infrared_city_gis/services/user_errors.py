@@ -121,6 +121,19 @@ def run_timed_out(detail: str) -> UserError:
     )
 
 
+def _rejected(status: int, charged: Optional[bool], detail: str) -> UserError:
+    """An HTTP error status from the SDK, in the plugin's own wording for it."""
+    if status in InfraredAPIError._STATUS_MAP or status >= 500:
+        # Same wording the plugin's direct HTTP calls use for that status.
+        api = InfraredAPIError(status_code=status)
+        return UserError(api.title, api.detail, charged=charged, detail=detail)
+    return UserError(
+        f"Request Rejected ({status})",
+        "The Infrared City server rejected the request.",
+        _RETRY_OR_SUPPORT, charged=charged, detail=detail,
+    )
+
+
 def describe_error(exc: BaseException) -> UserError:
     """Translate *exc* into a :class:`UserError`. Never raises."""
     detail = str(exc) or type(exc).__name__
@@ -193,15 +206,7 @@ def describe_error(exc: BaseException) -> UserError:
 
     status = getattr(exc, "status_code", None)
     if isinstance(status, int) and status >= 400:
-        if status in InfraredAPIError._STATUS_MAP or status >= 500:
-            # Same wording the plugin's direct HTTP calls use for that status.
-            api = InfraredAPIError(status_code=status)
-            return UserError(api.title, api.detail, charged=charged, detail=detail)
-        return UserError(
-            f"Request Rejected ({status})",
-            "The Infrared City server rejected the request.",
-            _RETRY_OR_SUPPORT, charged=charged, detail=detail,
-        )
+        return _rejected(status, charged, detail)
 
     if "JobFailedError" in names:
         return failed_on_server(getattr(exc, "error_message", None) or detail)

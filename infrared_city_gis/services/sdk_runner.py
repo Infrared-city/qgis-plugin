@@ -29,7 +29,7 @@ from qgis.utils import iface
 
 from ..constants import GROUND_AUTO_FETCH_TIMEOUT_S
 from ..infrared_logger import logger
-from ..services.area_poller import AreaPoller, AreaRenderState
+from ..services.area_poller import AreaPoller
 from ..services.geotiff import generate_geotiff
 from ..services.ground_material_reader import timed_out
 from ..services.ground_materials import (
@@ -37,6 +37,7 @@ from ..services.ground_materials import (
     has_ground_material_support,
 )
 from ..services.qgis_area_vegetation import collect_qgis_area_vegetation
+from ..services.render_state import AreaRenderState
 from ..services.sdk_payloads import build_sdk_payload
 from ..services.tree_layer_picker import has_tree_support, selected_tree_layer
 from ..services.user_errors import show_error_dialog

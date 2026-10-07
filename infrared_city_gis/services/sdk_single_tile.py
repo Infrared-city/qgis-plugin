@@ -36,7 +36,6 @@ from ..constants import GROUND_AUTO_FETCH_TIMEOUT_S
 from ..infrared_logger import logger
 from ..utils.client_identity import make_client
 from ..visualization.display import add_result_raster
-from .area_poller import AreaRenderState
 from .geotiff import generate_geotiff, map_categories
 from .ground_material_reader import timed_out
 from .ground_materials import (
@@ -45,6 +44,7 @@ from .ground_materials import (
     stamp_material_properties,
 )
 from .qgis_area_vegetation import collect_qgis_area_vegetation
+from .render_state import AreaRenderState
 from .sdk_runner import (
     _ACTIVE_POLLERS,
     _merged_grid_wgs84_bbox,

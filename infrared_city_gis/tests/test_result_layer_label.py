@@ -20,7 +20,7 @@ from infrared_city_gis.models.timeframes_parser import (
     MonthConfig,
     SeasonalTimeFrameConfig,
 )
-from infrared_city_gis.services.area_poller import _pretty, describe_run
+from infrared_city_gis.services.render_state import _pretty, describe_run
 from infrared_city_gis.tests._fake_dialog import FakeRunDialog
 
 
