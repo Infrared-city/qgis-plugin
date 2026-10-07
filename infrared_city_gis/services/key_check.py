@@ -1,4 +1,4 @@
-"""Verify an Infrared API key against the server.
+"""Verify an Infrared City API key against the server.
 
 This used to be a side effect of the registry refresh: the registries were read
 from the utilities service with the key attached, so a 401 there meant a bad

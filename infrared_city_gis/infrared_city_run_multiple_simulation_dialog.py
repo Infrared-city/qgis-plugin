@@ -194,7 +194,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # Ground materials: one checkable row per ground-* layer in the
         # project (created by the Fetch Ground Materials dialog or drawn by
-        # hand), plus an auto-fetch option that pulls Infrared's own ground
+        # hand), plus an auto-fetch option that pulls Infrared City's own ground
         # materials at submit time and ignores the layers. The whole section
         # hides for analyses that don't use surface materials (wind, PWC,
         # SVF).
@@ -510,7 +510,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         lst.setEnabled(not self.use_infrared_ground_materials)
         if self.use_infrared_ground_materials:
             label.setText(
-                "Infrared ground materials will be fetched automatically for "
+                "Infrared City ground materials will be fetched automatically for "
                 "the selected area at submit; ground-* layers are ignored."
             )
             return

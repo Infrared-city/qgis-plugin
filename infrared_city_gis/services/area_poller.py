@@ -1,4 +1,4 @@
-"""Non-blocking poller for an Infrared SDK area analysis run.
+"""Non-blocking poller for an Infrared City SDK area analysis run.
 
 The synchronous ``client.run_area_and_wait`` blocks the QGIS UI thread for
 the entire duration of a simulation (submission, polling and merge).  This

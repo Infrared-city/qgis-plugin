@@ -2,7 +2,7 @@
 
 This module is private (underscore prefix). The public API lives in
 ``geometry.py``. Splitting these helpers out keeps each file under the 400-line
-Infrared convention while letting both collectors share the same CRS / bbox /
+Infrared City convention while letting both collectors share the same CRS / bbox /
 feature-selection / file-writing primitives.
 """
 

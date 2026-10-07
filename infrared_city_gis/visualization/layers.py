@@ -116,7 +116,7 @@ def display_route_and_points(route, points):
 
 
 def display_geojson(geojson_path):
-    layer = QgsVectorLayer(geojson_path, "Infrared Buildings", "ogr")
+    layer = QgsVectorLayer(geojson_path, "Infrared City Buildings", "ogr")
     if layer.isValid():
         symbol = layer.renderer().symbol()
         symbol.setColor(QColor("#555555"))

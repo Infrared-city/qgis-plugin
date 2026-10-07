@@ -93,7 +93,7 @@ charge. Submitting a simulation ends the mode; a ground-material fetch does not.
 - ☐ Arm a tile with **Select tile**, then Run Simulation. Expect the title to read **1 tile · ~10 tokens**, and no area tiling.
 - ☐ Run it through: expect a result raster loaded and styled.
 
-- ☐ **A failed auto-fetch is not silent** — tick *Use Infrared ground materials*, run with the network blocked or a very slow connection. Expect the status line to warn that QGIS may not respond for up to 2 minutes, then a message-bar warning that STAYS (no auto-hide) saying the simulation is running WITHOUT them and, after a timeout, pointing to the Ground Materials dialog. QGIS must respond again within ~2 minutes, and the run itself should still complete. Check both single-tile and area.
+- ☐ **A failed auto-fetch is not silent** — tick *Use Infrared City ground materials*, run with the network blocked or a very slow connection. Expect the status line to warn that QGIS may not respond for up to 2 minutes, then a message-bar warning that STAYS (no auto-hide) saying the simulation is running WITHOUT them and, after a timeout, pointing to the Ground Materials dialog. QGIS must respond again within ~2 minutes, and the run itself should still complete. Check both single-tile and area.
 
 ### 5b. Area (multiple tiles)
 
@@ -150,7 +150,7 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 - ☐ **Opt-in list** — the Ground materials list opens with **nothing ticked**; one row per `ground-*` layer (`material — layer name`).
 - ☐ **One per material** — ticking a second `asphalt` layer unticks the first (radio-like).
 - ☐ **Validation (ticked only)** — a ticked layer with no features in the selection is reported (*"Not found on the selected area: …"*); silence otherwise.
-- ☐ **Auto-fetch** — tick *"Use Infrared ground materials"*: the list disables; Infrared's own layers are fetched at submit.
+- ☐ **Auto-fetch** — tick *"Use Infrared City ground materials"*: the list disables; Infrared City's own layers are fetched at submit.
 - ☐ **No layers** — with no `ground-*` layers, the list is hidden but the auto-fetch option remains.
 
 ### 5g. Combined / negative runs
@@ -170,7 +170,7 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 
 - ☐ Each completed simulation loads a **result raster** styled for its analysis type.
 - ☐ **The layer name says what the run was** — `IC result - <analysis> · <inputs>`, e.g. `IC result - thermal-comfort-index · July, Afternoon`. Run the same analysis twice with different inputs and expect two distinguishable names. Sky-view-factors has no inputs, so it keeps the bare name.
-- ☐ **A run adds only its raster** — no extra `Infrared Buildings` outline layer appears after a single-tile or area run; the only buildings layer is the one the Fetch Geometry dialog created.
+- ☐ **A run adds only its raster** — no extra building-outline layer appears after a single-tile or area run; the only buildings layer is the one the Fetch Geometry dialog created.
 - ☐ **Nothing falls off the top of the legend** — on a UTCI run, check the hottest areas (open sun, water) are coloured rather than white/transparent. The backend legend can be narrower than the data.
 - ☐ **The legend follows the run, not the full scale** — a UTCI run is coloured over the backend's legend range (e.g. 21–30 °C), not the registry's full −40…46 °C scale, and each band is labelled with its own value. Set a manual min/max in the dialog and expect it to win over both.
 - ☐ **The same scenario legends the same in both modes** — run one tile, then the same ground as an area, and expect comparable colour scales.

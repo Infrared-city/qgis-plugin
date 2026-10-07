@@ -1,4 +1,4 @@
-"""Query weather-file data through the Infrared SDK's weather client.
+"""Query weather-file data through the Infrared City SDK's weather client.
 
 Historically this POSTed to the legacy public endpoint on
 ``app.infrared.city`` (``/api/public/weatherfiles/{fileName}/data``). That

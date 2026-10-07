@@ -60,7 +60,7 @@ changelog=1.1.4
     - Repository moved to https://github.com/Infrared-city/qgis-plugin
     - Documentation cleanup
     0.2.1
-    - Infrared API SDK integration with async analysis support
+    - Infrared City API SDK integration with async analysis support
     - Tiling improvements for large area simulations
 
 # Tags are comma separated with spaces allowed

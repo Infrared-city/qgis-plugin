@@ -88,7 +88,7 @@ def _summary_lines(exitstatus) -> list:
     width = max(len(step) for step, _, _ in _SUMMARY)
     lines = [
         "=" * 72,
-        "Infrared workflow summary",
+        "Infrared City workflow summary",
         f"{stamp}   {flags}   exit={exitstatus}",
         "=" * 72,
     ]

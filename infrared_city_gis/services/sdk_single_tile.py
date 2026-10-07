@@ -461,7 +461,7 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
                     "Single-tile: ground materials auto-fetch failed — running without: %s",
                     e, exc_info=True,
                 )
-                # The user ASKED for Infrared ground materials, and the run is
+                # The user ASKED for Infrared City ground materials, and the run is
                 # about to proceed without them — a materially different
                 # result, not a cosmetic degradation. duration=0 so the warning
                 # stays until dismissed: a 10-second toast during a long submit

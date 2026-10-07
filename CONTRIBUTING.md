@@ -87,7 +87,7 @@ See [`docs/release-process.md`](docs/release-process.md) and
 
 ## Project Conventions
 
-This repo follows Infrared coding conventions, loaded via the `ir-dev` plugin. Highlights:
+This repo follows Infrared City coding conventions, loaded via the `ir-dev` plugin. Highlights:
 
 - Files ≤ 400 lines (split into modules above that)
 - Functions ≤ 100 lines

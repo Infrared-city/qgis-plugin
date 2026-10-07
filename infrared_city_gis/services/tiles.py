@@ -199,7 +199,7 @@ def plot_tile_centers(tile_centers):
 
 # Polygon-from-selection helpers were extracted into
 # ``services/polygon_from_selection.py`` to keep this module under the
-# 400-line Infrared convention. Re-exported here so callers that import
+# 400-line Infrared City convention. Re-exported here so callers that import
 # from ``services.tiles`` (and ``services.geometry``, which wildcards
 # from this file) keep working without changes.
 from .polygon_from_selection import (  # noqa: F401, E402

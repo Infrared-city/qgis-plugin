@@ -1,4 +1,4 @@
-"""Build typed Infrared SDK analysis payloads from the dialog's UI state.
+"""Build typed Infrared City SDK analysis payloads from the dialog's UI state.
 
 All helpers read fields directly from the dialog (``dlg``) so this stays
 de-coupled from the dialog class itself. Each ``build_sdk_payload`` exit

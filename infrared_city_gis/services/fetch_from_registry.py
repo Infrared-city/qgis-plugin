@@ -1,4 +1,4 @@
-"""Fetch and load the Infrared model, vegetation and material registries.
+"""Fetch and load the Infrared City model, vegetation and material registries.
 
 The three documents are PUBLIC — they are mirrored to ``registry.infrared.city``
 and served without credentials. The plugin used to read them from the utilities

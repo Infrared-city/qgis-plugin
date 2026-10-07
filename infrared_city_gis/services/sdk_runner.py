@@ -1,4 +1,4 @@
-"""End-to-end orchestration of an Infrared SDK area analysis from QGIS.
+"""End-to-end orchestration of an Infrared City SDK area analysis from QGIS.
 
 Two run flavours, sharing the same payload-build + result-render code:
 
@@ -364,7 +364,7 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
             vegetation = None
 
     # Ground materials — only for analyses that use surface materials.
-    # Auto-fetch mode pulls Infrared's own layers for the polygon at submit
+    # Auto-fetch mode pulls Infrared City's own layers for the polygon at submit
     # time (ignoring ground-* layers); otherwise the ticked ground-* layers
     # are collected into the SDK's {material_name: FeatureCollection}
     # mapping. Empty/failed → None → the run carries no ground materials
@@ -416,7 +416,7 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
                     "Ground materials auto-fetch failed — running without: %s",
                     e, exc_info=True,
                 )
-                # The user ASKED for Infrared ground materials, and the run is
+                # The user ASKED for Infrared City ground materials, and the run is
                 # about to proceed without them — a materially different
                 # result, not a cosmetic degradation. duration=0 so the warning
                 # stays until dismissed: a 10-second toast during a long submit

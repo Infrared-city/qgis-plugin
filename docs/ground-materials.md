@@ -56,7 +56,7 @@ Use the **Fetch ground materials** toolbar action:
    **100 tiles** are rejected — select a smaller area.
 3. **Fetch** reads the surface layers straight from **Overture Maps**
    (land cover/use + a road-surface FlatGeobuf) on your own computer, through
-   the Infrared SDK, and cleans them the way the platform does: streets and
+   the Infrared City SDK, and cleans them the way the platform does: streets and
    water are carved out of vegetation/soil and gaps are filled with asphalt.
    This download sends **no API key and costs no tokens**, but it moves a lot
    of data — tens of seconds on a good connection, a few minutes on a slow
@@ -118,8 +118,8 @@ support.
 For the analyses that use surface materials, the Run Simulation dialog shows
 a **Ground materials** section with two ways to provide them:
 
-- **Use Infrared ground materials (auto-fetch)** — tick this to skip the
-  layer workflow entirely: the plugin fetches Infrared's own surface layers
+- **Use Infrared City ground materials (auto-fetch)** — tick this to skip the
+  layer workflow entirely: the plugin fetches Infrared City's own surface layers
   for your selected area at submit time and ignores any `ground-*` layers.
   The fetch is told which analysis it is for, so a wind or PWC run reads a
   363 m margin around each tile instead of the 544 m every other analysis

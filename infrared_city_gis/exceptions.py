@@ -19,7 +19,7 @@ class NothingToRunError(Exception):
 
 
 class InfraredAPIError(Exception):
-    """Raised when the Infrared API returns a non-2xx HTTP response or is unreachable.
+    """Raised when the Infrared City API returns a non-2xx HTTP response or is unreachable.
 
     Attributes
     ----------

@@ -29,9 +29,9 @@ def add_result_raster(
 ):
     """Add a simulation result GeoTIFF as a colourised raster layer.
 
-    Only the raster: a run used to add a second, "Infrared Buildings" outline
-    layer as well, which duplicated the user's own building layer (fetched in
-    its own dialog) under the same name.
+    Only the raster: a run used to add a building-outline layer as well, under
+    the same name as the user's own building layer (fetched in its own
+    dialog), which made the two indistinguishable.
     """
     logger.info("Adding GeoTIFF layer: %s", geotiff_path)
 

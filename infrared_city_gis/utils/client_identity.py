@@ -1,9 +1,9 @@
-"""Headers that identify this plugin to the Infrared API.
+"""Headers that identify this plugin to the Infrared City API.
 
-Infrared's analytics cannot attribute a call without them: the gateway's
+Infrared City's analytics cannot attribute a call without them: the gateway's
 ``detectClient()`` knows a fixed set of surface names and otherwise guesses from
 the auth method, so an API-key call from QGIS was indistinguishable from a
-generic script. Two headers fix that, and every Infrared client sends the same
+generic script. Two headers fix that, and every Infrared City client sends the same
 pair (see Infrared-city/qgis-plugin#43)::
 
     x-infrared-application: qgis

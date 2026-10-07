@@ -2,7 +2,7 @@
 greedy matching and visual diff layer construction.
 
 Split out of ``buildings_compare.py`` to keep each module under the 400-line
-Infrared convention. Public callers should import from
+Infrared City convention. Public callers should import from
 ``buildings_compare`` only.
 """
 

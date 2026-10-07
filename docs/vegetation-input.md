@@ -44,7 +44,7 @@ the full scheme. Any other attributes (ids, notes, `taxon`, `leaf_cycle`,
 `circumference`, …) are passed through untouched and don't affect the
 simulation.
 
-> There is no Infrared-specific attribute to add — the plugin reads the trees'
+> There is no Infrared City-specific attribute to add — the plugin reads the trees'
 > own OSM tags.
 
 ## How a tree's type is resolved
