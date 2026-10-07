@@ -1,4 +1,7 @@
 numpy>=1.23.0
 mapbox_earcut>=1.0.0
 structlog>=24.0.0
-infrared-sdk>=0.4.11
+# EXACT pin: the bootstrap installs the newest match on a fresh install, and
+# infrared-sdk 1.0.0 removed tiling.orchestrator._extract_grid, which this
+# release imports at load time.
+infrared-sdk==0.5.3
