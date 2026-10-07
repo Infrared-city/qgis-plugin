@@ -23,7 +23,8 @@ infrared_city_gis/
 │   ├── fetch.py             # Building fetch (Infrared City /v2/buildings)
 │   ├── fetch_from_registry.py # Registry fetch on startup (models, vegetation, materials)
 │   ├── key_check.py         # Verifies an API key (GET /v2/webhooks)
-│   ├── sdk_runner.py        # Area simulation via SDK run_area_and_wait
+│   ├── sdk_runner.py        # Area simulation via SDK run_area (+ area_poller, merge_area_jobs)
+│   ├── sdk_payloads.py      # Builds the typed SDK payload from the dialog state
 │   ├── sdk_single_tile.py   # Single-tile simulation via SDK analyses.execute
 │   ├── single_tile_selection.py # The armed 512 m box; the toolbar toggle mirrors it
 │   ├── area_poller.py       # Long-poll job status
@@ -31,6 +32,10 @@ infrared_city_gis/
 │   ├── qgis_area_vegetation.py  # Collect trees (OSM species/genus → registry modelId or archetype)
 │   ├── tree_validation.py   # Tree-layer validation against the registry
 │   ├── ground_materials.py  # Ground-material catalog, ground-* discovery/collect/validate
+│   ├── ground_material_reader.py # Overture read on a worker thread, with a time budget
+│   ├── user_errors.py       # Failure → title / summary / advice / tokens charged
+│   ├── qgis_http.py         # Direct HTTP through QGIS's network stack (proxy settings apply)
+│   ├── secret_manager.py    # API key storage (QSettings, env override)
 │   ├── converter.py         # Geometry conversion
 │   ├── feature_height.py    # Building height heuristics
 │   ├── epw_query.py         # Weather data via SDK weather client (+ epw_parser.py for local EPW upload)
@@ -51,10 +56,12 @@ infrared_city_gis/
 | `infrared_city_gis.py` | QGIS plugin lifecycle — registers menu/toolbar entries, opens dialogs |
 | `services/qgis_http.py` | Every direct HTTP call the plugin makes, routed through QGIS's network stack so the user's QGIS proxy settings apply |
 | `services/fetch.py` | Pulls building footprints from the Infrared City buildings API (`POST /v2/buildings`, GeoJson), single request with a 512 m-tile fallback |
-| `services/sdk_runner.py` | Submits area simulations through the SDK (`client.run_area_and_wait`), passing buildings + trees + ground materials |
+| `services/sdk_runner.py` | Submits area simulations through the SDK (`client.run_area`; `area_poller` then polls `check_area_state` and merges with `merge_area_jobs`), passing buildings + trees + ground materials |
 | `services/sdk_single_tile.py` | Single-tile simulation (`analyses.execute`) with the same inputs embedded in the payload |
 | `services/ground_materials.py` | Material catalog (registry-driven, hardcoded fallback), `ground-*` layer discovery, collect + validate for simulation |
 | `services/area_poller.py` | Polls long-running simulation job status until done |
+| `services/ground_material_reader.py` | Runs the Overture ground-material read (`ground_materials.get_area`) on a worker thread, with an explicit time budget; refuses a second read while one still runs |
+| `services/user_errors.py` | Turns any failure into what the user sees: title, plain summary, advice, and whether tokens were charged |
 | `models/analysis.py` | Request/response shapes for each simulation type |
 | `visualization/` | Converts raw simulation arrays → QGIS-styled raster layers; renders fetched `ground-*` layers with registry colors |
 
@@ -62,6 +69,7 @@ infrared_city_gis/
 
 - **Infrared City API** (`api.infrared.city/v2`) — simulation backend and building geometry source (`/v2/buildings`, Mapbox-backed core-geometries-service; subscription required)
 - **Registry mirror** (`registry.infrared.city`) — the public models / vegetation / materials documents, served without credentials. Read on startup; these used to come from the utilities service (`/v2/utils/registry/*`), which is being retired.
+- **Overture Maps** (public bucket `overturemaps-us-west-2`) — ground-material source, read in-process by the SDK with no API key; over S3, or over plain HTTPS where QGIS's Arrow has no S3 support (Windows). See [`ground-materials.md`](ground-materials.md).
 - **QGIS / PyQGIS** — host application
 - **`infrared-sdk`** (==1.0.0, `[geodata]` extra) — Python SDK; pinned EXACTLY in `requirements.txt`, so a new SDK reaches users only through a new plugin release (a `>=` floor let fresh installs of v1.1.3 pull 1.0.0, which it cannot load). `scripts/preflight.sh` refuses a non-exact pin. The extra brings pyarrow + shapely, which `ground_materials.get_area` needs to read Overture parquet in-process.
 - **shapely**, **pyproj**, **mapbox_earcut**, **numpy**, **structlog**, **requests**
@@ -81,7 +89,7 @@ User → Auth Dialog → key VERIFIED against the API before saving
        (optional) Fetch ground materials → editable ground-* layers
      → Configure simulation (analysis, time frame, EPW, tree-* layer,
        ground-* layers or auto-fetch)
-     → SDK run_area_and_wait (area) / analyses.execute (single tile)
+     → SDK run_area + poll + merge_area_jobs (area) / analyses.execute (single tile)
        → poll job status → download result → render as raster layer
 ```
 

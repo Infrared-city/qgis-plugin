@@ -74,14 +74,16 @@ Adding pytest-based unit tests for non-PyQGIS code (`models/`, `services/timefra
 
 ## Releasing
 
-See [`docs/deployment.md`](docs/deployment.md). Short version:
+See [`docs/release-process.md`](docs/release-process.md) and
+[`docs/deployment.md`](docs/deployment.md). Short version:
 
-1. Bump `version=` in `infrared_city_gis/metadata.txt`
-2. Update `changelog=` in `metadata.txt`
-3. Commit on `main`
-4. `git tag v0.X.Y && git push --tags`
-5. CI builds the ZIP and creates a GitHub Release
-6. **Manually** upload the ZIP to `plugins.qgis.org` via the web UI
+1. Merge `staging` → `main` with a `fix:`/`feat:` PR title
+2. Release Please opens `chore(main): release X.Y.Z`
+3. On that PR's branch, bump `version=` and `changelog=` in
+   `infrared_city_gis/metadata.txt` by hand, then merge it — this tags `vX.Y.Z`
+4. CI builds the ZIP and creates a GitHub Release
+5. **Manually** upload the ZIP to `plugins.qgis.org` via the web UI
+6. Merge `main` back into `staging`
 
 ## Project Conventions
 

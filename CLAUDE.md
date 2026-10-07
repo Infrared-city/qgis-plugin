@@ -9,6 +9,7 @@ QGIS plugin that connects to the [Infrared City](https://infrared.city) simulati
 - QGIS 4 (Qt6, released 2026-03) is served by the **same package** — `qgisMaximumVersion=4.99`, no separate branch, ZIP or `supportsQt6` flag (that one was removed from QGIS core). The Plugin Manager reads `metadata.txt` before loading any code, so the cap is a promise to the user, not a capability check: never ship a raised cap that the `docs/manual-testing.md` round has not actually passed on QGIS 4. See `docs/battle-scars.md` for what a grep cannot catch.
 - `pb_tool` for plugin packaging (`infrared_city_gis/pb_tool.cfg`)
 - Internal services: `infrared-sdk`, REST calls to `api.infrared.city`
+- `infrared-sdk` is pinned **exactly** (`==`) in `requirements.txt`, never `>=`: the runtime bootstrap installs the newest match on a fresh install, so a floor ships an SDK nobody tested (v1.1.3, `>=0.4.11`, stopped loading the day 1.0.0 reached PyPI). A new SDK reaches users only through a plugin release; `scripts/preflight.sh` refuses a non-exact pin
 
 ## Repository Layout
 

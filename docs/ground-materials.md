@@ -54,10 +54,13 @@ Use the **Fetch ground materials** toolbar action:
    the button, so you can run on the materials you just fetched.
 2. The dialog shows the selection size in tiles (512×512 m each). Areas over
    **100 tiles** are rejected — select a smaller area.
-3. **Fetch** pulls the surface layers from the Infrared City platform
-   (Overture land cover/use + road-surface FlatGeobuf, cleaned server-side:
-   streets and water are carved out of vegetation/soil and gaps are filled
-   with asphalt).
+3. **Fetch** reads the surface layers straight from **Overture Maps**
+   (land cover/use + a road-surface FlatGeobuf) on your own computer, through
+   the Infrared SDK, and cleans them the way the platform does: streets and
+   water are carved out of vegetation/soil and gaps are filled with asphalt.
+   This download sends **no API key and costs no tokens**, but it moves a lot
+   of data — tens of seconds on a good connection, a few minutes on a slow
+   one. See *How long it takes, and what a failure means* below.
 
 The result is added as one **editable vector layer per material**, named by
 convention:
@@ -79,6 +82,28 @@ tick exactly the ones you want.
 > It's intentional and needed by the simulation — don't delete it. The
 > layers are drawn semi-transparent so it doesn't hide the map.
 
+### How long it takes, and what a failure means
+
+- The read runs in the background: the dialog keeps repainting, shows the
+  elapsed time, and can be closed mid-read. Closing does **not** stop the
+  download — the SDK has no way to interrupt it — so it finishes in the
+  background and its result is dropped. Until it does, a new fetch is refused
+  with *Previous Fetch Still Running*, so retries never stack up downloads on
+  the same connection.
+- Time limit: **5 minutes per read, 10 minutes in total** (large selections
+  are read in chunks). The values are `GROUND_FETCH_TIMEOUT_S` and
+  `GROUND_FETCH_TOTAL_TIMEOUT_S` in `constants.py`.
+- *Fetch Timed Out* — the read did not finish in time: a slow or congested
+  connection. A smaller area downloads less; your own `ground-*` layers need
+  no download at all.
+- *Ground Materials Could Not Be Read* — the download failed. Behind a
+  company proxy or firewall, `overturemaps-us-west-2.s3.us-west-2.amazonaws.com`
+  must be reachable.
+- Neither message is about your API key: this read never sends one.
+- **Windows:** QGIS's own Arrow library is built without S3 support, so the
+  SDK (1.0 and later) reads the same public files over plain HTTPS instead —
+  same result, one warning line in the log (infrared-core #645).
+
 ## Editing / drawing your own
 
 The `ground-*` layers are ordinary QGIS memory layers — edit them freely
@@ -99,6 +124,13 @@ a **Ground materials** section with two ways to provide them:
   The fetch is told which analysis it is for, so a wind or PWC run reads a
   363 m margin around each tile instead of the 544 m every other analysis
   needs — less data over the wire for the same result.
+  The read runs just before submission, on QGIS's main thread, so **QGIS does
+  not respond while it runs — for at most 2 minutes**
+  (`GROUND_AUTO_FETCH_TIMEOUT_S`). If it does not finish in time, or fails,
+  the simulation runs **without** ground materials and a warning stays on the
+  message bar until you close it. On a slow connection or for a large area,
+  fetch with the dialog instead (no freeze, a longer limit) and tick the
+  `ground-*` layers.
 - **Layer list** — when the project contains `ground-*` layers, one
   checkable row per layer (`asphalt — ground-asphalt`). Nothing is ticked by
   default: tick the layers you want to include. **One layer per material** —

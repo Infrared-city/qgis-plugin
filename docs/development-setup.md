@@ -49,10 +49,13 @@ rm -rf "$P" && ln -s "$PWD/infrared_city_gis" "$P"
 where `<hash>` is a short SHA-1 of the sorted requirement specs — so **changing
 `requirements.txt` moves the folder**, and the new one starts empty.
 
-While the pinned `infrared-sdk` is not on PyPI, that install fails and the
-plugin does not load at all. Seed the folder by hand instead. `_find_missing`
-only checks importability, so a seeded folder is never touched by the
-bootstrap.
+`infrared-sdk` is pinned **exactly** (`==`), and normally the bootstrap
+installs it from PyPI on the first start — nothing to do by hand. Seed the
+folder yourself only to test an SDK build that is **not** on PyPI yet (a
+TestPyPI candidate): `deps_bootstrap` has no index-URL support, so that
+install fails and the plugin does not load at all. `_find_missing` only checks
+importability, so a seeded folder is never touched by the bootstrap — which
+also means nothing notices that the seeded version differs from the pin.
 
 ```bash
 # The interpreter matters. QGIS links the python.org framework build; the
@@ -91,6 +94,31 @@ QGIS's own numpy, and QGIS's scipy 1.15.3 requires `numpy<2.5`.
 **A dependency swap needs a QGIS restart** — the SDK ships a compiled
 `infrared_core.abi3.so` and native extensions cannot be hot-swapped.
 
+### Windows
+
+The same steps, different places and one trap per step:
+
+- Profiles: `%APPDATA%\QGIS\QGIS3\profiles\default` and
+  `%APPDATA%\QGIS\QGIS4\profiles\default`; the deps folder, the plugin log
+  (`infrared_city_gis\logs`) and the saved key (`QGIS\QGIS3.ini`, section
+  `[infrared_city]`) live under them.
+- The QGIS Python only runs through its wrapper:
+  `C:\Program Files\QGIS 3.44.x\bin\python-qgis-ltr.bat` (QGIS 3) or
+  `C:\Program Files\QGIS 4.x\bin\python-qgis.bat` (QGIS 4). A bare
+  `python.exe` fails with "no encodings"; `-I` drops the wrapper's
+  `PYTHONHOME` the same way; and never pass a `>=` spec through the `.bat` —
+  `cmd` reads `>` as a redirect. Call it from PowerShell with `&`.
+- The SDK wheel is `cp39-abi3-win_amd64`, so `pip install --target` works from
+  the wrapper or from any 64-bit CPython.
+- A headless check of the ground read must `from osgeo import gdal` **before**
+  anything pyarrow, because that is the order QGIS loads them in — see
+  battle-scars (2026-10-07).
+- A headless `QgsApplication` does not use your profile: its settings
+  directory is `%APPDATA%\python\profiles\default`, so the bootstrap there
+  installs into a fresh, empty deps folder (a handy fresh-install test).
+  Delete only `%APPDATA%\python\profiles` afterwards — `%APPDATA%\python` is
+  the same folder as `%APPDATA%\Python`, which holds your user-site packages.
+
 Verify the way the bootstrap does, by importability:
 
 ```bash
@@ -117,12 +145,13 @@ folder it finds, which is why the loop above seeds both.
 
 ### The two cost gates
 
-17 tests are skipped by default, deliberately:
+13 tests are skipped by default, deliberately — all of them in
+`tests/test_e2e_workflow.py`:
 
 | gate | tests | what they would do |
 |---|---|---|
-| `INFRARED_API_KEY` | 7 | real prod reads — consume tokens |
-| `INFRARED_RUN_SIMULATIONS=1` | 10 | **submit paid runs** |
+| `INFRARED_API_KEY` | 3 | real prod reads: buildings, ground materials, weather stations |
+| `INFRARED_RUN_SIMULATIONS=1` | 10 | **submit paid runs** — one single tile per analysis (8), plus two UTCI ground-material checks |
 
 ```bash
 INFRARED_API_KEY=… INFRARED_RUN_SIMULATIONS=1 ./scripts/run_qgis_tests.sh -m e2e -s
@@ -134,9 +163,10 @@ INFRARED_API_KEY=… INFRARED_RUN_SIMULATIONS=1 ./scripts/run_qgis_tests.sh -m e
 2. `/ir-dev:audit-branch` — conventions, reinvention, doc sync on the diff.
 3. The manual round in [`manual-testing.md`](manual-testing.md). The suite
    covers logic, not what a dialog looks like.
-4. Check the merge gate the script reports: the pinned `infrared-sdk` must be
-   installable **from PyPI**. TestPyPI does not count — `deps_bootstrap` has no
-   index-URL support, so a fresh install cannot bootstrap without it.
+4. Check the merge gate the script reports: `infrared-sdk` must be pinned
+   **exactly** (`==X.Y.Z`), and that version must be installable **from PyPI**
+   and not yanked. TestPyPI does not count — `deps_bootstrap` has no index-URL
+   support, so a fresh install cannot bootstrap without it.
 
 [`battle-scars.md`](battle-scars.md) is worth skimming before touching
 packaging, the legend, or anything that runs at QGIS shutdown.

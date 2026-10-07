@@ -1,5 +1,5 @@
 # Deployment
-_Last updated: 2026-05-07_
+_Last updated: 2026-10-07_
 
 ## Distribution Channels
 
@@ -14,41 +14,41 @@ Cut every release to GitHub first, then promote to plugins.qgis.org after smoke-
 
 ## Release Steps
 
-### 1. Bump version
+### 0. Before the release
 
-Edit `infrared_city_gis/metadata.txt`:
+- `scripts/preflight.sh` is green — including the merge gate: `infrared-sdk`
+  pinned **exactly** (`==`) and that version on PyPI.
+- The [`manual-testing.md`](manual-testing.md) round has passed on **QGIS 3
+  and QGIS 4**. `qgisMaximumVersion=4.99` is a promise the Plugin Manager
+  acts on before it loads any code.
 
-```ini
-version=0.2.2
-changelog=0.2.2
-    - <bullet 1>
-    - <bullet 2>
-```
+### 1. Version and tag (Release Please)
 
-Commit on `main`:
+Releases go through Release Please — see
+[`release-process.md`](release-process.md): a `fix:`/`feat:` merge to `main`
+opens `chore(main): release X.Y.Z`. Before merging that PR, bump
+`version=` and `changelog=` in `infrared_city_gis/metadata.txt` **by hand on
+its branch** (Release Please does not touch that file). Merging creates the
+`vX.Y.Z` tag.
 
-```bash
-git commit -am "chore: bump version to 0.2.2"
-git push origin main
-```
+### 2. The release build
 
-### 2. Tag and push
-
-```bash
-git tag v0.2.2
-git push --tags
-```
-
-This triggers `.github/workflows/release.yml` which:
+The tag triggers `.github/workflows/release.yml`, which:
 - Zips `infrared_city_gis/`, excluding caches (`*__pycache__*`, `*.pyc`, `*.pyo`, `*.DS_Store`), all hidden files (`*/.*`), the dev-only test dirs (`infrared_city_gis/tests/*`, `infrared_city_gis/test/*`), and packaging helpers (`plugin_upload.py`, `pb_tool.cfg`, `pylintrc`, `Makefile`) — keeps the uploaded package free of hidden-file warnings on plugins.qgis.org
 - Creates a GitHub Release with the ZIP attached and auto-generated release notes
+
+Check the ZIP before uploading it: one top-level folder `infrared_city_gis/`,
+`version=` in its `metadata.txt`, the `infrared-sdk==` line in its
+`requirements.txt`. (A `.bandit` file inside is expected: the uploader's
+waiver, copied in only at build time.)
 
 ### 3. Upload to plugins.qgis.org (manual, ~2 minutes)
 
 Web UI:
 1. Go to https://plugins.qgis.org/plugins/
 2. Log in, navigate to **Infrared City GIS** plugin page
-3. Click **New version**, upload the ZIP from the GitHub Release
+3. Click **New version**, upload the ZIP from the GitHub Release as it is — the
+   file name does not matter; the version comes from `metadata.txt` inside
 
 ### 4. Promote out of `experimental` (when ready)
 

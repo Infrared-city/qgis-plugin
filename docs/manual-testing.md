@@ -79,17 +79,21 @@ charge. Submitting a simulation ends the mode; a ground-material fetch does not.
 
 - ☐ **The dialog stays alive during the read** — start a fetch and watch: the clock keeps ticking and the window repaints. It must be possible to close the dialog mid-read. (The dialog is modal, so QGIS itself is out of reach until it closes — what is being checked is that nothing is frozen, not that you can work meanwhile.)
 - ☐ **The status line counts up** — expect `Reading ground materials from Overture… m:ss`, ticking once a second, with a note that it can take minutes on a slow connection.
-- ☐ **A timeout says what to do** — if the read times out, expect a "Fetch Timed Out" dialog naming the connection, NOT the API key (this read sends no key).
+- ☐ **A timeout says what to do** — if the read times out (limit: 5 min per read, 10 min in total), expect a "Fetch Timed Out" dialog naming the connection, NOT the API key (this read sends no key).
+- ☐ **A failed download is named** — block `overturemaps-us-west-2.s3.us-west-2.amazonaws.com` (hosts file or firewall) and fetch. Expect *Ground Materials Could Not Be Read* with "No tokens were charged" and a proxy/firewall hint — NOT *Unexpected Error*, and NOT an API-key message.
 - ☐ **Closing mid-read is safe** — close the dialog while a read is running. Expect no crash and no result appearing later; the download finishes in the background and its result is dropped (it cannot be cancelled).
+- ☐ **A second fetch waits for the first** — close the dialog mid-read, reopen it and press Fetch straight away. Expect *Previous Fetch Still Running* and no second download. Once the first read has finished, a fetch works again.
 
 ## 5. Run simulation
+
+- ☐ **No selection** — with nothing selected and no tile picked, open Run Simulation. Expect a *No Selection* notice saying what to select, and no error traceback in the plugin log.
 
 ### 5a. Single tile
 
 - ☐ Arm a tile with **Select tile**, then Run Simulation. Expect the title to read **1 tile · ~10 tokens**, and no area tiling.
 - ☐ Run it through: expect a result raster loaded and styled.
 
-- ☐ **A failed auto-fetch is not silent** — tick *Use Infrared ground materials*, run with the network blocked or a very slow connection. Expect a message-bar warning that STAYS (no auto-hide) saying the simulation is running WITHOUT them, and naming the connection when it timed out. The run itself should still complete. Check both single-tile and area.
+- ☐ **A failed auto-fetch is not silent** — tick *Use Infrared ground materials*, run with the network blocked or a very slow connection. Expect the status line to warn that QGIS may not respond for up to 2 minutes, then a message-bar warning that STAYS (no auto-hide) saying the simulation is running WITHOUT them and, after a timeout, pointing to the Ground Materials dialog. QGIS must respond again within ~2 minutes, and the run itself should still complete. Check both single-tile and area.
 
 ### 5b. Area (multiple tiles)
 
@@ -168,6 +172,7 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 - ☐ **The layer name says what the run was** — `IC result - <analysis> · <inputs>`, e.g. `IC result - thermal-comfort-index · July, Afternoon`. Run the same analysis twice with different inputs and expect two distinguishable names. Sky-view-factors has no inputs, so it keeps the bare name.
 - ☐ **A run adds only its raster** — no extra `Infrared Buildings` outline layer appears after a single-tile or area run; the only buildings layer is the one the Fetch Geometry dialog created.
 - ☐ **Nothing falls off the top of the legend** — on a UTCI run, check the hottest areas (open sun, water) are coloured rather than white/transparent. The backend legend can be narrower than the data.
+- ☐ **The legend follows the run, not the full scale** — a UTCI run is coloured over the backend's legend range (e.g. 21–30 °C), not the registry's full −40…46 °C scale, and each band is labelled with its own value. Set a manual min/max in the dialog and expect it to win over both.
 - ☐ **The same scenario legends the same in both modes** — run one tile, then the same ground as an area, and expect comparable colour scales.
 - ☐ Area runs merge tiles into one coherent raster (no gaps/seams beyond expected tile edges).
 - ☐ Re-running overwrites/adds results without corrupting existing layers.
