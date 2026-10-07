@@ -112,3 +112,27 @@ def test_a_categorical_ramp_is_left_alone(qgis_app):
 
     assert [i.value for i in items] == [1, 2, 3]
     assert (vmin, vmax) == (1.0, 3.0)
+
+
+#: Registry 1.6 gives thermal-comfort-index the full UTCI scale as `steps`.
+UTCI_FULL_SCALE_CONFIG = dict(UTCI_CONFIG, steps=[-40, 46], stepsNames=[])
+
+
+def test_the_registry_scale_does_not_override_the_legend(qgis_app):
+    """A 23-31 C grid legended 21-30 was drawn on -40..46 — one colour band."""
+    _shader, items, vmin, vmax = _build_color_ramp_items(
+        UTCI_FULL_SCALE_CONFIG, "thermal-comfort-index", vmin=21.0, vmax=30.0,
+    )
+
+    assert (vmin, vmax) == (21.0, 30.0)
+    assert items[0].value == 21.0
+    # A [min, max] pair is not one label per colour: no band is called "46".
+    assert [i.label for i in items[:2]] == ["21.00", "22.50"]
+
+
+def test_the_registry_scale_is_the_fallback_without_a_legend(qgis_app):
+    _shader, _items, vmin, vmax = _build_color_ramp_items(
+        UTCI_FULL_SCALE_CONFIG, "thermal-comfort-index",
+    )
+
+    assert (vmin, vmax) == (-40.0, 46.0)

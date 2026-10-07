@@ -1,13 +1,11 @@
 import math
 
 from qgis.core import (
-    QgsFillSymbol,
     QgsProject,
     QgsRasterLayer,
     QgsRasterRange,
     QgsRasterShader,
     QgsSingleBandPseudoColorRenderer,
-    QgsVectorLayer,
 )
 
 from ..infrared_logger import logger
@@ -19,8 +17,7 @@ from .layers import (  # noqa: F401 re-exported
 )
 
 
-def add_geojson_then_raster(
-    geojson_path,
+def add_result_raster(
     geotiff_path,
     analysis_type,
     sub_analysis_type,
@@ -30,7 +27,12 @@ def add_geojson_then_raster(
     tile_id=None,
     label="",
 ):
-    logger.info("Adding GeoJSON layer: %s", geojson_path)
+    """Add a simulation result GeoTIFF as a colourised raster layer.
+
+    Only the raster: a run used to add a second, "Infrared Buildings" outline
+    layer as well, which duplicated the user's own building layer (fetched in
+    its own dialog) under the same name.
+    """
     logger.info("Adding GeoTIFF layer: %s", geotiff_path)
 
     visual_config = get_visual_config(analysis_type, sub_analysis_type)
@@ -41,19 +43,6 @@ def add_geojson_then_raster(
         )
 
     logger.info("Visual configuration: %s", visual_config)
-
-    # --- GeoJSON layer ---
-    vlayer = QgsVectorLayer(geojson_path, "Infrared Buildings", "ogr")
-    if not vlayer.isValid():
-        raise RuntimeError(f"GeoJSON layer loading failed: {geojson_path}")
-
-    fill_sym = QgsFillSymbol.createSimple({
-        "color": "0,0,0,0",
-        "outline_color": "0,0,0",
-        "outline_width": "0.8",
-    })
-    vlayer.renderer().setSymbol(fill_sym)
-    QgsProject.instance().addMapLayer(vlayer)
 
     # --- GeoTIFF layer ---
     # The name has to say what the result came FROM. Two UTCI runs a month
@@ -118,17 +107,6 @@ def add_geojson_then_raster(
 
     QgsProject.instance().addMapLayer(rlayer)
 
-    # --- Vector on top of raster ---
-    try:
-        root = QgsProject.instance().layerTreeRoot()
-        v_node = root.findLayer(vlayer.id())
-        if v_node is not None:
-            parent = v_node.parent()
-            parent.removeChildNode(v_node)
-            root.insertChildNode(0, v_node)
-    except Exception as e:
-        logger.warning("Could not reorder layers automatically: %s", e)
-
     # --- PWC mapping debug ---
     # if analysis_type == "pedestrian-wind-comfort":
     #     try:
@@ -166,4 +144,4 @@ def add_geojson_then_raster(
     #     except Exception as e:
     #         logger.warning("PWC mapping debug failed: %s", e)
 
-    logger.info("✅ GeoJSON and colorized GeoTIFF added. Raster opacity=%s", raster_opacity)
+    logger.info("✅ Colourised GeoTIFF added. Raster opacity=%s", raster_opacity)

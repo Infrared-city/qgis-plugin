@@ -40,7 +40,7 @@ from ..services.sdk_payloads import build_sdk_payload
 from ..services.tree_layer_picker import has_tree_support, selected_tree_layer
 from ..services.user_errors import show_error_dialog
 from ..utils.client_identity import make_client
-from ..visualization.display import add_geojson_then_raster
+from ..visualization.display import add_result_raster
 
 
 def _status(msg: str, level=Qgis.Info, duration: int = 0) -> None:
@@ -113,46 +113,6 @@ def _make_progress_cb(total_hint: Optional[int] = None):
     return _cb
 
 
-def _write_buildings_outline_geojson(area_buildings, out_path: str) -> Optional[str]:
-    """Write a minimal GeoJSON FeatureCollection with one polygon per building.
-
-    The visualization helper ``add_geojson_then_raster`` always overlays a
-    GeoJSON outline on top of the raster. For the SDK area path we don't
-    have per-tile outlines but we do have the merged ``AreaBuildings`` from
-    ``client.buildings.get_area``. We project each building's footprint
-    (xy of every vertex, ignoring z) to a flat polygon for display.
-    Returns ``out_path`` if it managed to write at least one feature, else None.
-    """
-    import json
-
-    features = []
-    for bid, mesh in (area_buildings.buildings or {}).items():
-        coords = list(getattr(mesh, "coordinates", []) or [])
-        if len(coords) < 9:  # need >= 3 vertices (x,y,z each)
-            continue
-        # Project vertices to ground plane and take the convex hull-ish ring
-        # via simple xy dedup. For visualisation only, so this can be coarse.
-        xy = []
-        for i in range(0, len(coords), 3):
-            xy.append((float(coords[i]), float(coords[i + 1])))
-        if len(xy) < 3:
-            continue
-        # Close the ring
-        if xy[0] != xy[-1]:
-            xy.append(xy[0])
-        features.append({
-            "type": "Feature",
-            "geometry": {"type": "Polygon", "coordinates": [[[x, y] for (x, y) in xy]]},
-            "properties": {"building_id": str(bid)},
-        })
-    if not features:
-        return None
-    fc = {"type": "FeatureCollection", "features": features}
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(fc, f)
-    return out_path
-
-
 def _prepare_run(dlg) -> "Optional[Any]":
     """Snapshot dialog state and build the SDK payload.
 
@@ -206,7 +166,13 @@ def render_area_result(
     dialog has been destroyed, so ``render_state`` carries primitive
     Python values only (no QWidget references).
     """
-    grid = result.merged_grid
+    # From SDK 1.0 merged_grid keeps the wire type (UTCI is int16 ×10 with a
+    # validity bitmap), so render the physical values; older SDKs have no
+    # physical_grid and their float64 merged_grid already is physical.
+    if result.merged_grid is not None and hasattr(result, "physical_grid"):
+        grid = result.physical_grid(np.float32)
+    else:
+        grid = result.merged_grid
     if grid is None or grid.size == 0:
         logger.warning("render_area_result: merged grid is empty — nothing to render")
         _status("InfraredCity: the simulation returned an empty result — "
@@ -241,21 +207,6 @@ def render_area_result(
         simulation_type=str(render_state.analysis_type), criteria=sub,
     )
 
-    geojson_path = os.path.join(tmp_dir, "buildings_outline.geojson")
-    if _write_buildings_outline_geojson(area, geojson_path) is None:
-        # add_geojson_then_raster requires a vector layer; fall back to a
-        # one-feature collection holding the polygon itself.
-        import json
-        with open(geojson_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "type": "FeatureCollection",
-                "features": [{
-                    "type": "Feature",
-                    "geometry": polygon,
-                    "properties": {"role": "area"},
-                }],
-            }, f)
-
     # Legend bounds — per SDK README: prefer result.min_legend / max_legend
     # when the API supplies them; otherwise fall back to np.nanmin/nanmax.
     grid_min = float(np.nanmin(grid)) if np.any(~np.isnan(grid)) else None
@@ -278,8 +229,7 @@ def render_area_result(
         leg_min, leg_max,
     )
 
-    add_geojson_then_raster(
-        geojson_path=geojson_path,
+    add_result_raster(
         geotiff_path=geotiff_path,
         analysis_type=str(render_state.analysis_type),
         sub_analysis_type=sub,

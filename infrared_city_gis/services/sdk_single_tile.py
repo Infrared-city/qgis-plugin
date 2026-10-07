@@ -20,7 +20,6 @@ localises them via the payload's ``latitude``/``longitude`` reference point
 
 from __future__ import annotations
 
-import json
 import os
 import tempfile
 import time
@@ -28,7 +27,6 @@ from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
 from infrared_sdk.analyses.jobs import JobsServiceClient, JobStatus
-from infrared_sdk.tiling.orchestrator import _extract_grid
 from qgis.core import Qgis
 from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import QApplication, QMessageBox
@@ -36,7 +34,7 @@ from qgis.utils import iface
 
 from ..infrared_logger import logger
 from ..utils.client_identity import make_client
-from ..visualization.display import add_geojson_then_raster
+from ..visualization.display import add_result_raster
 from .area_poller import AreaRenderState
 from .geotiff import generate_geotiff, map_categories
 from .ground_material_reader import timed_out
@@ -52,7 +50,6 @@ from .sdk_runner import (
     _prepare_run,
     _retire_poller,
     _status,
-    _write_buildings_outline_geojson,
     clear_layer_selections,
 )
 from .tree_layer_picker import has_tree_support, selected_tree_layer
@@ -77,7 +74,7 @@ def render_single_tile_result(
     """Render a single-tile result grid as a GeoTIFF + raster layer in QGIS.
 
     Mirrors :func:`sdk_runner.render_area_result` but for a raw 512×512 grid
-    straight from ``_extract_grid`` (no merge/clip — the tile *is* the
+    straight from the job's ``"output"`` (no merge/clip — the tile *is* the
     polygon), including its legend precedence: the backend's recommendation
     first, the grid's own range where it sent none, and the dialog's manual
     values over both. This path used to skip the first tier entirely, so the
@@ -111,18 +108,6 @@ def render_single_tile_result(
         simulation_type=str(render_state.analysis_type), criteria=sub,
     )
 
-    geojson_path = os.path.join(tmp_dir, "buildings_outline.geojson")
-    if _write_buildings_outline_geojson(area, geojson_path) is None:
-        with open(geojson_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "type": "FeatureCollection",
-                "features": [{
-                    "type": "Feature",
-                    "geometry": polygon,
-                    "properties": {"role": "tile"},
-                }],
-            }, f)
-
     api_min, api_max = api_legend
     grid_min = float(np.nanmin(grid)) if np.any(~np.isnan(grid)) else None
     grid_max = float(np.nanmax(grid)) if np.any(~np.isnan(grid)) else None
@@ -140,8 +125,7 @@ def render_single_tile_result(
         leg_min, leg_max,
     )
 
-    add_geojson_then_raster(
-        geojson_path=geojson_path,
+    add_result_raster(
         geotiff_path=geotiff_path,
         analysis_type=str(render_state.analysis_type),
         sub_analysis_type=sub,
@@ -333,7 +317,11 @@ def grid_from_result(
     mapping is exactly the kind of logic a test copy would silently drift from.
     """
     at_str = str(analysis_type)
-    grid_list = _extract_grid(result, at_str)
+    # JobsServiceClient normalises every result to {"output": grid}, int16
+    # divisor already applied. (SDK 1.0 removed its private _extract_grid.)
+    if "output" not in result:
+        raise KeyError(f"no grid in {at_str} result; keys: {sorted(result)}")
+    grid_list = result["output"]
 
     if at_str != "pedestrian-wind-comfort":
         # Numeric analyses: force float32 directly — numpy converts JSON-null

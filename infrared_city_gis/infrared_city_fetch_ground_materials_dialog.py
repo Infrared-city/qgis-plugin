@@ -7,9 +7,10 @@
         email                : connectors@infrared.city
  ***************************************************************************/
 
- Fetch ground-material layers (asphalt, concrete, vegetation, soil, water,
- building) for the current building-layer selection and add them to the
- project as editable ``ground-<material>`` vector layers.
+ Fetch ground-material layers (asphalt, concrete, vegetation, soil, water)
+ for the current building-layer selection and add them to the project as
+ editable ``ground-<material>`` vector layers. Buildings are not fetched here
+ — they have their own fetch dialog.
 
  Flow mirrors the Run Simulation dialog's selection handling: the selection
  polygon comes from ``create_wgs84_geojson_polygon_from_selection`` and is
@@ -161,8 +162,8 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
         self.info_label.setText(
             f"{area_line}\n\n"
             f"Fetching adds one editable 'ground-<material>' layer per "
-            f"surface type (asphalt, concrete, vegetation, soil, water, "
-            f"building). Note: 'ground-vegetation' is green surfaces (grass, "
+            f"surface type (asphalt, concrete, vegetation, soil, water). "
+            f"Note: 'ground-vegetation' is green surfaces (grass, "
             f"parks) — trees are separate 'tree-*' point layers."
         )
         self._init_ok = True

@@ -126,14 +126,22 @@ def _build_color_ramp_items(visual_config, analysis_type, vmin=None, vmax=None):
         return shader, color_items, cat_vmin, cat_vmax
 
     # ---- numerical values ----
-    if steps and len(steps) >= 2:
-        vmin, vmax = float(steps[0]), float(steps[-1])
-    else:
-        if vmin is None or vmax is None:
-            vmin, vmax = 0.0, float(len(colors) - 1)
+    # The caller's range (backend legend > grid range, with the dialog's manual
+    # values over both) wins. The registry's numeric `steps` is the analysis'
+    # full scale — UTCI's is [-40, 46] since registry 1.6 — and is only a
+    # fallback: letting it win painted a 23-31 C grid in a single band of an
+    # 86-degree ramp and ignored the manual min/max.
+    num_colors = len(colors)
+    if vmin is None or vmax is None:
+        if steps and len(steps) >= 2:
+            vmin, vmax = float(steps[0]), float(steps[-1])
+        else:
+            vmin, vmax = 0.0, float(num_colors - 1)
 
     step_range = vmax - vmin if vmax != vmin else 1.0
-    num_colors = len(colors)
+    # A step can label a colour only when there is one step per colour; a
+    # two-value [min, max] range labelled the first two bands "min" and "max".
+    step_labels = steps if len(steps) == num_colors else []
 
     for i, color in enumerate(colors):
         value = vmin + (i / max(1, num_colors - 1)) * step_range
@@ -141,7 +149,7 @@ def _build_color_ramp_items(visual_config, analysis_type, vmin=None, vmax=None):
         label = (
             steps_names[i]
             if i < len(steps_names)
-            else (str(steps[i]) if i < len(steps) else f"{value:.2f}")
+            else (str(step_labels[i]) if i < len(step_labels) else f"{value:.2f}")
         )
         color_items.append(QgsColorRampShader.ColorRampItem(value, color_qt, label))
 

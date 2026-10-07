@@ -71,7 +71,7 @@ charge. Submitting a simulation ends the mode; a ground-material fetch does not.
 - ☐ **Requires a building selection** — with no building features selected, open Fetch ground materials. Expect *"Please select a building area first"*.
 - ☐ **Tile-count preview** — select building features, open the dialog. Expect the selection size shown in tiles.
 - ☐ **>100 tiles rejected** — select a large area (> 100 tiles). Expect a "select a smaller area" message and the fetch **blocked**.
-- ☐ **Fetch succeeds** — select a reasonable area → Fetch. Expect one editable `ground-<material>` layer **per material** (asphalt, concrete, vegetation, soil, water, building), added to the project.
+- ☐ **Fetch succeeds** — select a reasonable area → Fetch. Expect one editable `ground-<material>` layer **per material** (asphalt, concrete, vegetation, soil, water — no building layer; buildings come from the Fetch Geometry dialog), added to the project.
 - ☐ **Result dialog** — a summary lists the created layers **by layer name** with feature counts.
 - ☐ **Repeated fetch numbers layers** — fetch again (different/overlapping area). Expect `ground-asphalt-2`, etc. — no overwrite, both sets present.
 - ☐ **No data** — fetch over an area with no ground-material data. Expect *"No ground material data was found"*, not a crash.
@@ -166,6 +166,7 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 
 - ☐ Each completed simulation loads a **result raster** styled for its analysis type.
 - ☐ **The layer name says what the run was** — `IC result - <analysis> · <inputs>`, e.g. `IC result - thermal-comfort-index · July, Afternoon`. Run the same analysis twice with different inputs and expect two distinguishable names. Sky-view-factors has no inputs, so it keeps the bare name.
+- ☐ **A run adds only its raster** — no extra `Infrared Buildings` outline layer appears after a single-tile or area run; the only buildings layer is the one the Fetch Geometry dialog created.
 - ☐ **Nothing falls off the top of the legend** — on a UTCI run, check the hottest areas (open sun, water) are coloured rather than white/transparent. The backend legend can be narrower than the data.
 - ☐ **The same scenario legends the same in both modes** — run one tile, then the same ground as an area, and expect comparable colour scales.
 - ☐ Area runs merge tiles into one coherent raster (no gaps/seams beyond expected tile edges).
