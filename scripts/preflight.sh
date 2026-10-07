@@ -23,6 +23,11 @@ RUN_E2E=0
 FAILED=()
 SKIPPED=()
 
+# A Python that actually runs. On Windows `python3` can be the Microsoft Store
+# stub, which "exists" but runs nothing — every python3 check here used to
+# skip silently on such a machine.
+PY=$(for c in python3 python; do "$c" -c '' >/dev/null 2>&1 && { echo "$c"; break; }; done)
+
 bold() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 ok()   { printf '  \033[32mok\033[0m      %s\n' "$1"; }
 bad()  { printf '  \033[31mFAILED\033[0m  %s\n' "$1"; FAILED+=("$1"); }
@@ -101,8 +106,8 @@ gate "no executables in the package" no_executables
 
 bold "Qt5/Qt6 name resolution (what a linter cannot catch)"
 
-if python3 -c "import PyQt6" 2>/dev/null; then
-    gate "qt6-names" python3 scripts/check_qt6_names.py infrared_city_gis
+if [[ -n "$PY" ]] && "$PY" -c "import PyQt6" 2>/dev/null; then
+    gate "qt6-names" "$PY" scripts/check_qt6_names.py infrared_city_gis
 else
     skip "qt6-names" "PyQt6 not importable (pip install PyQt6) — CI covers it"
 fi
@@ -144,8 +149,6 @@ elif [[ -z "$PINNED" ]]; then
 elif ! command -v curl >/dev/null; then
     skip "sdk on PyPI" "curl not available"
 else
-    # A Python that actually runs: on Windows `python3` can be the Store stub.
-    PY=$(for c in python3 python; do "$c" -c '' >/dev/null 2>&1 && { echo "$c"; break; }; done)
     BODY=$(mktemp)
     CODE=$(curl -s --max-time 15 -o "$BODY" -w '%{http_code}' \
         "https://pypi.org/pypi/infrared-sdk/$PINNED/json" 2>/dev/null)
