@@ -37,6 +37,19 @@ concurrency:
 permissions:
   contents: read
 
+# RUNNERS: every job is on GitHub-hosted `ubuntu-latest`, not the org's
+# `[self-hosted, azure-aca]` default (ir-dev:conventions ci-runners.md). That
+# pool only scales up for repos on its KEDA scaler list (and readable by its
+# PAT); this repo has never run there, and a job pointed at it without that
+# wiring runs only while another repo keeps the pool warm and hangs otherwise.
+# Moving is: check the list, add the repo (and the PAT allowlist), prove a
+# cold scale-up, then flip `runs-on`. Until then: four ~1-minute jobs per PR.
+# Per-job reasons that would keep a job hosted even then are noted on the job.
+#
+# TOOL VERSIONS are pinned exactly, like ruff below: an unpinned scanner or
+# linter adds rules on its own schedule and fails a PR that changed nothing.
+# Bump them on purpose, together with scripts/preflight.sh's expectations.
+
 jobs:
   ruff:
     # ubuntu-latest: the checksum below names ONE (x86_64) artifact, and a
@@ -76,7 +89,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: pip install bandit detect-secrets
+      # Pinned (see TOOL VERSIONS above): the versions last checked clean.
+      - run: pip install bandit==1.9.4 detect-secrets==1.5.0
 
       # Justified findings are marked with `# nosec <CODE> - <reason>` at the
       # call site; a bare `# nosec` is not accepted in review.
@@ -109,7 +123,7 @@ jobs:
             | grep -Ei '\.(exe|dll|so|dylib|sh|bat|cmd|ps1)$' || true)
           if [ -n "$found" ]; then
             echo "Suspicious files would ship in the plugin ZIP:"
-            echo "$found"
+            printf '%s\n' "$found"
             exit 1
           fi
 
@@ -120,7 +134,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: pip install flake8
+      - run: pip install flake8==7.4.1
       - run: flake8 infrared_city_gis/
 
   # Qt6 removed every unscoped enum member and moved some classes between
@@ -130,6 +144,8 @@ jobs:
   # Qt names only; QGIS classes need a QGIS install (the script reports them
   # as uncovered). See docs/battle-scars.md for the full local check.
   qt6-names:
+    # Stays hosted even once the repo is on the pool: the step below needs
+    # `sudo apt-get`, and `sudo` can never work on the pool (no_new_privileges).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -144,7 +160,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libegl1 libgl1 libdbus-1-3 libxkbcommon0
-      - run: pip install PyQt6
+      # 6.11.0 is the PyQt6 that QGIS 4.2 ships, so names resolve against the
+      # binding users actually run. Bump with the QGIS 4 release you test on.
+      - run: pip install PyQt6==6.11.0
       - run: python scripts/check_qt6_names.py infrared_city_gis
         env:
           QT_QPA_PLATFORM: offscreen

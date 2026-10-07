@@ -26,7 +26,7 @@ SKIPPED=()
 # A Python that actually runs. On Windows `python3` can be the Microsoft Store
 # stub, which "exists" but runs nothing — every python3 check here used to
 # skip silently on such a machine.
-PY=$(for c in python3 python; do "$c" -c '' >/dev/null 2>&1 && { echo "$c"; break; }; done)
+PY=$(for c in python3 python; do "$c" -c '' >/dev/null 2>&1 && { printf '%s\n' "$c"; break; }; done)
 
 bold() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 ok()   { printf '  \033[32mok\033[0m      %s\n' "$1"; }
@@ -96,7 +96,7 @@ no_executables() {
         | grep -Ei '\.(exe|dll|so|dylib|sh|bat|cmd|ps1)$' || true)
     if [ -n "$found" ]; then
         echo "These would ship in the plugin ZIP:"
-        echo "$found"
+        printf '%s\n' "$found"
         return 1
     fi
 }

@@ -41,13 +41,13 @@ if [[ -z "$APP" ]]; then
 fi
 [[ -n "$APP" ]] || { echo "No QGIS app bundle found — set QGIS_APP=/Applications/QGIS…app" >&2; exit 1; }
 CONTENTS="$APP/Contents"
-echo "QGIS: $APP"
+printf 'QGIS: %s\n' "$APP"
 
 # --- ad-hoc signed runtime (built once, reused) ------------------------------
 
 RT="${TMPDIR:-/tmp}/qgis-test-runtime-$(basename "$APP")"
 if [[ ! -x "$RT/MacOS/python3.12" ]]; then
-    echo "Building ad-hoc signed runtime in $RT"
+    printf 'Building ad-hoc signed runtime in %s\n' "$RT"
     rm -rf "$RT"; mkdir -p "$RT/MacOS"
     cp "$CONTENTS/MacOS/python3.12" "$RT/MacOS/python3.12"
     codesign --force --sign - "$RT/MacOS/python3.12" >/dev/null 2>&1
@@ -64,7 +64,7 @@ PROFILE="$HOME/Library/Application Support/QGIS/QGIS4/profiles/default"
 # The plugin's runtime deps must come FIRST: the bundle ships its own pydantic,
 # and mixing the two halves gives "pydantic-core … is incompatible".
 DEPS="$(find "$PROFILE/infrared_city_gis" -maxdepth 1 -type d -name 'deps-*' 2>/dev/null | head -1)"
-[[ -n "$DEPS" ]] && echo "deps: $DEPS" || echo "deps: none found (SDK-dependent tests will fail)"
+[[ -n "$DEPS" ]] && printf 'deps: %s\n' "$DEPS" || echo "deps: none found (SDK-dependent tests will fail)"
 
 # pytest is not in the bundle; keep a private copy next to the runtime. Test for
 # the entry point rather than the directory: this lives under $TMPDIR, which
@@ -72,7 +72,7 @@ DEPS="$(find "$PROFILE/infrared_city_gis" -maxdepth 1 -type d -name 'deps-*' 2>/
 # while failing with "'pytest' is a package and cannot be directly executed".
 PYLIBS="$RT/pylibs"
 if [[ ! -f "$PYLIBS/pytest/__main__.py" ]]; then
-    echo "Installing pytest into $PYLIBS"
+    printf 'Installing pytest into %s\n' "$PYLIBS"
     # Wipe first: pip --target refuses to overwrite an existing directory, so a
     # pruned-but-present pylibs/ would be "reinstalled" without any files landing.
     rm -rf "$PYLIBS"
@@ -92,7 +92,7 @@ export QGIS_PREFIX_PATH="$CONTENTS/MacOS"
 for _proj in "$CONTENTS/Resources/qgis/proj" "$CONTENTS/Resources/proj"; do
     [[ -f "$_proj/proj.db" ]] && { export PROJ_LIB="$_proj"; break; }
 done
-[[ -n "${PROJ_LIB:-}" ]] && echo "proj: $PROJ_LIB" \
+[[ -n "${PROJ_LIB:-}" ]] && printf 'proj: %s\n' "$PROJ_LIB" \
     || echo "proj: proj.db NOT FOUND — CRS transforms will be unreliable" >&2
 export PYTHONPATH="$REPO:$PYLIBS${DEPS:+:$DEPS}:$PYDIR:$PYDIR/lib-dynload:$PYDIR/site-packages:$CONTENTS/Resources/python"
 
