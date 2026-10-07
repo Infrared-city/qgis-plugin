@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.4](https://github.com/Infrared-city/qgis-plugin/compare/v1.1.3...v1.1.4) (2026-10-07)
+
+
+### Bug Fixes
+
+* pin infrared-sdk to 0.5.3 so fresh installs load again ([#48](https://github.com/Infrared-city/qgis-plugin/issues/48)) ([45ca4ee](https://github.com/Infrared-city/qgis-plugin/commit/45ca4ee587a0dabd768dca245cdbdd47eea6f8c6))
+
 ## [1.1.3](https://github.com/Infrared-city/qgis-plugin/compare/v1.1.2...v1.1.3) (2026-08-13)
 
 
