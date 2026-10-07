@@ -3,18 +3,15 @@ import math
 import os
 from datetime import datetime
 
+from infrared_sdk.layers.service import WeatherServiceError
 from qgis.core import QgsApplication
 
-from ..constants import (
-    FETCH_BUILDINGS_URL,
-    FETCH_GROUND_MATERIAL_URL,
-    FETCH_HTTP_TIMEOUT,
-    FETCH_WEATHER_FILES_URL,
-)
+from ..constants import FETCH_BUILDINGS_URL, FETCH_HTTP_TIMEOUT
 from ..exceptions import InfraredAPIError
 from ..infrared_logger import logger
-from ..utils.client_identity import client_headers
+from ..utils.client_identity import client_headers, make_client
 from . import qgis_http as requests
+from .epw_query import _server_message_from
 from .geometry import get_bbox
 
 # Tile size (m) for the buildings fetch fallback. Matches the single-tile
@@ -23,131 +20,42 @@ from .geometry import get_bbox
 _TILE_SIZE_M = 512.0
 
 
-def fetch_ground_materials(lon: float, lat: float, distance: float, api_key: str):
-    base_url = FETCH_GROUND_MATERIAL_URL
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "distance": distance,
-    }
-
-    logger.info(
-        "Fetching ground materials from %s with params=%s and api-key provided=%s",
-        base_url, params, bool(api_key),
-    )
-
-    headers = {**client_headers(), **({"x-api-key": api_key} if api_key else {})}
-
-    try:
-        response = requests.get(base_url, params=params, headers=headers, timeout=20)
-        logger.info("Ground materials API status: %s", response.status_code)
-        # The body is the whole response (KBs of JSON): DEBUG, truncated.
-        logger.debug("Ground materials API response: %.500s", response.text)
-
-        # Raise if non-2xx
-        response.raise_for_status()
-
-        try:
-            data = response.json()
-            # --- Save response to settings/ground_materials.json ---
-            dir = os.path.join(
-                QgsApplication.qgisSettingsDirPath(),
-                "infrared_city_gis",
-                "data",
-            )
-            os.makedirs(dir, exist_ok=True)
-            date_now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-            ground_file = os.path.join(dir, f"ground_materials_{date_now}.json")
-
-            try:
-                with open(ground_file, "w", encoding="utf-8") as fh:
-                    json.dump(data, fh, ensure_ascii=False, indent=2)
-                logger.info("Ground materials saved to %s", ground_file)
-            except Exception as write_err:
-                logger.warning(
-                    "Failed to save ground materials JSON to %s: %s",
-                    ground_file, write_err,
-                )
-
-            return data
-
-        except ValueError as e:
-            logger.warning("Ground materials API response is not valid JSON")
-            raise e
-
-    except requests.RequestException as e:
-        logger.error("Ground materials API request failed: %s", e, exc_info=True)
-        status = e.response.status_code if e.response is not None else None
-        parsed_message = None
-        if e.response is not None:
-            try:
-                parsed_message = e.response.json().get("message")
-            except Exception as parse_error:
-                # Non-JSON error body (HTML gateway page, empty response) — the
-                # status code alone still makes a usable InfraredAPIError.
-                logger.debug("could not parse the error body: %s", parse_error)
-        raise InfraredAPIError(status_code=status, server_message=parsed_message) from e
-
-
 def fetch_weather_file_names(lon: float, lat: float, radius: float, api_key: str):
-    """Call Infrared.city weather location endpoint and return response.
+    """Names of the public weather stations nearest to ``(lon, lat)``, nearest first.
 
-    Logs request URL, params, status code and body. Returns parsed JSON if
-    possible. Raises RequestException on network errors
-    and HTTPError on non-2xx status codes.
+    Goes through the SDK's static weather catalog (``client.weather``), not the
+    retiring utilities service: ``GET /v2/utils/weather/location`` must not be
+    called (Infrared-city/qgis-plugin#47). Same stations in the same order —
+    checked against that route for a Vienna point, radius 100 — and the same
+    ``radius`` meaning, kilometres. The catalog host is public, so no API key
+    reaches it; the key is still needed to build the client.
+
+    Raises
+    ------
+    InfraredAPIError
+        When the weather catalog answers with an error.
     """
-    base_url = FETCH_WEATHER_FILES_URL
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "radius": radius,
-    }
-
-    headers = {**client_headers(), **({"x-api-key": api_key} if api_key else {})}
-
     logger.info(
-        "Fetching weather file names from %s with params=%s and api-key provided=%s",
-        base_url, params, bool(api_key),
+        "Looking up weather stations near lon=%s lat=%s (radius=%s km)", lon, lat, radius,
     )
-
     try:
-        response = requests.get(base_url, params=params, headers=headers, timeout=20)
-        logger.info("Weather API status: %s", response.status_code)
-        # The body is the whole response (KBs of JSON): DEBUG, truncated.
-        logger.debug("Weather API response: %.500s", response.text)
+        with make_client(api_key) as client:
+            rows = client.weather.get_weather_file_from_location(
+                lat=lat, lon=lon, radius=radius,
+            )
+    except WeatherServiceError as e:
+        logger.error("Weather station lookup failed: %s", e, exc_info=True)
+        raise InfraredAPIError(
+            status_code=e.status_code or None,
+            server_message=_server_message_from(e),
+        ) from e
 
-        # Raise if non-2xx
-        response.raise_for_status()
-
-        try:
-            data = response.json()
-            logger.info("Weather API JSON parsed successfully")
-
-            # Extract locations list
-            locations = data.get("data", {}).get("locations", [])
-            logger.info("Weather API returned %d locations", len(locations))
-
-            # Collect only fileName values into a simple list
-            file_names = [loc.get("fileName") for loc in locations if isinstance(loc, dict) and loc.get("fileName")]
-            logger.info("Collected %d fileName entries from locations", len(file_names))
-            return file_names
-
-        except ValueError as e:
-            logger.warning("Weather API response is not valid JSON, returning raw text")
-            raise e
-
-    except requests.RequestException as e:
-        logger.error("Weather API request failed: %s", e, exc_info=True)
-        status = e.response.status_code if e.response is not None else None
-        parsed_message = None
-        if e.response is not None:
-            try:
-                parsed_message = e.response.json().get("message")
-            except Exception as parse_error:
-                # Non-JSON error body (HTML gateway page, empty response) — the
-                # status code alone still makes a usable InfraredAPIError.
-                logger.debug("could not parse the error body: %s", parse_error)
-        raise InfraredAPIError(status_code=status, server_message=parsed_message) from e
+    file_names = [
+        row.get("fileName") for row in rows
+        if isinstance(row, dict) and row.get("fileName")
+    ]
+    logger.info("Weather lookup returned %d stations", len(file_names))
+    return file_names
 
 
 def fetch_geometry_from_infrared(lon: float, lat: float, size_m: float, api_key: str):

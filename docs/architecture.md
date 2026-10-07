@@ -93,11 +93,15 @@ already-saved key keeps working offline. (This check used to be a side
 effect of the registry refresh, back when the registries were read from the
 utilities service with the key attached.)
 
-Weather-file data for thermal/wind analyses comes from the SDK weather
-client (`/v2/utils/weather/{id}/data/filter`) via `services/epw_query.py` —
-same host and API key as everything else. (It previously hit a legacy
-`app.infrared.city` endpoint with a separate key registry; see
-battle-scars.) The half-open plugin `TimeFrame` → inclusive SDK
+Weather comes from the SDK weather client's static public catalog
+(`geo.infrared.city/weather`, no API key sent) — both the station list for
+the dropdown (`services/fetch.fetch_weather_file_names`) and the hourly data
+(`services/epw_query.py`). Neither touches the retiring utilities service;
+nothing in the plugin may call `/v2/utils` (#47), and
+`tests/test_no_utilities_calls.py` fails if a URL for it comes back. (The
+data query previously hit a legacy `app.infrared.city` endpoint with a
+separate key registry, then `/v2/utils/weather/…`; see battle-scars.) The
+half-open plugin `TimeFrame` → inclusive SDK
 `TimePeriod` translation, including the multi-month / year-wrap splitting
 rules, is documented in `epw_query._time_periods_from_time_frame`.
 

@@ -121,9 +121,7 @@ def query_infrared_epw(file_name: str, time_frame: dict, api_key: str) -> Dict[s
     InfraredAPIError
         On any HTTP failure from the weather service.
     """
-    logger.info(
-        f"Querying epw data for {file_name} with time frame: \n{time_frame}"
-    )
+    logger.info("Querying EPW data for %s with time frame: %s", file_name, time_frame)
     try:
         with make_client(api_key) as client:
             points = []
@@ -142,6 +140,6 @@ def query_infrared_epw(file_name: str, time_frame: dict, api_key: str) -> Dict[s
 
     if not points:
         logger.warning(
-            f"Epw query for {file_name} returned no data points for {time_frame}"
+            "EPW query for %s returned no data points for %s", file_name, time_frame,
         )
     return {field: [getattr(p, field) for p in points] for field in _FIELDS}

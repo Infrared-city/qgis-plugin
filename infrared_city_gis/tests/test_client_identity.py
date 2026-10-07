@@ -89,8 +89,8 @@ def test_headers_carry_the_agreed_surface_and_client_name():
     [
         pytest.param(
             fetch,
-            lambda: fetch.fetch_weather_file_names(16.373, 48.215, 100, "k"),
-            id="weather-file-names",
+            lambda: fetch._fetch_buildings_request(48.215, 16.373, 512.0, 512.0, "k"),
+            id="building-geometry",
         ),
         pytest.param(
             key_check,
@@ -112,6 +112,43 @@ def test_every_authenticated_request_identifies_itself(module, call, monkeypatch
         assert headers.get("x-infrared-sdk", "").startswith(f"{CLIENT_NAME}/")
         # The identity headers must not displace authentication.
         assert headers.get("x-api-key") == "k"
+
+
+def test_weather_stations_come_through_the_sdk_client(monkeypatch):
+    """The station lookup used to be a direct GET on /v2/utils/weather/location.
+
+    That route belongs to the retiring utilities service (#47), so it now goes
+    through the SDK's static catalog — on a client from the identity-carrying
+    factory, with no direct HTTP request of the plugin's own.
+    """
+
+    class _Weather:
+        def __init__(self):
+            self.calls = []
+
+        def get_weather_file_from_location(self, *, lat, lon, radius):
+            self.calls.append((lat, lon, radius))
+            return [{"fileName": "A"}, {"uuid": "no-name"}, {"fileName": "B"}]
+
+    class _Client:
+        def __init__(self):
+            self.weather = _Weather()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    client, built = _Client(), []
+    recorder = _Recorder({})
+    monkeypatch.setattr(fetch, "make_client", lambda key: built.append(key) or client)
+    monkeypatch.setattr(fetch, "requests", recorder)
+
+    assert fetch.fetch_weather_file_names(16.373, 48.215, 100, "k") == ["A", "B"]
+    assert built == ["k"]
+    assert client.weather.calls == [(48.215, 16.373, 100)]
+    assert recorder.calls == [], "the lookup made a direct HTTP request"
 
 
 def test_the_registry_reads_identify_themselves_but_carry_no_key():

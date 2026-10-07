@@ -10,9 +10,8 @@ INFRARED_API_V2_URL = f"{INFRARED_API_BASE_URL}/v2"
 SUPPORT_EMAIL = "connectors@infrared.city"
 
 
-# Fetch
-FETCH_GROUND_MATERIAL_URL = f"{INFRARED_API_V2_URL}/utils/ground-material/collect"
-FETCH_WEATHER_FILES_URL = f"{INFRARED_API_V2_URL}/utils/weather/location"
+# Fetch. Nothing here may point at /v2/utils — the utilities service is being
+# retired (#47); weather stations come from the SDK's static catalog instead.
 # Building geometry (core-geometries-service, Mapbox-backed). NOTE: NOT under
 # /utils — it is mounted directly at /v2/buildings (same endpoint the SDK's
 # client.buildings.get_area uses).
