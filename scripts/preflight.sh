@@ -133,26 +133,38 @@ fi
 
 bold "Merge gate"
 
-PINNED=$(grep -oE 'infrared-sdk[^ ]*>=[0-9][^ ]*' infrared_city_gis/requirements.txt 2>/dev/null \
-    | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-if [[ -z "$PINNED" ]]; then
-    skip "sdk on PyPI" "could not read the pin from requirements.txt"
+SDK_LINE=$(grep -E '^infrared-sdk' infrared_city_gis/requirements.txt 2>/dev/null | head -1)
+PINNED=$(printf '%s' "$SDK_LINE" | grep -oE '==[0-9][0-9A-Za-z.]*' | sed 's/^==//')
+if [[ -z "$SDK_LINE" ]]; then
+    skip "sdk on PyPI" "no infrared-sdk line in requirements.txt"
+elif [[ -z "$PINNED" ]]; then
+    # A floor (>=) lets the bootstrap hand fresh installs an SDK this plugin
+    # was never tested with; v1.1.3 (>=0.4.11) broke the day 1.0.0 shipped.
+    bad "infrared-sdk must be an exact pin (==X.Y.Z), got: $SDK_LINE"
 elif ! command -v curl >/dev/null; then
     skip "sdk on PyPI" "curl not available"
 else
-    LATEST=$(curl -s --max-time 15 https://pypi.org/pypi/infrared-sdk/json \
-        | python3 -c 'import json,sys; print(json.load(sys.stdin)["info"]["version"])' 2>/dev/null)
-    if [[ -z "$LATEST" ]]; then
-        skip "sdk on PyPI" "could not reach PyPI"
-    elif python3 -c "
-import sys
-def parts(v): return [int(x) for x in v.split('.')[:3]]
-sys.exit(0 if parts('$LATEST') >= parts('$PINNED') else 1)
-" 2>/dev/null; then
-        ok "infrared-sdk $PINNED is on PyPI (latest $LATEST)"
-    else
-        bad "infrared-sdk $PINNED is NOT on PyPI (latest is $LATEST) — a fresh install cannot bootstrap"
-    fi
+    # A Python that actually runs: on Windows `python3` can be the Store stub.
+    PY=$(for c in python3 python; do "$c" -c '' >/dev/null 2>&1 && { echo "$c"; break; }; done)
+    BODY=$(mktemp)
+    CODE=$(curl -s --max-time 15 -o "$BODY" -w '%{http_code}' \
+        "https://pypi.org/pypi/infrared-sdk/$PINNED/json" 2>/dev/null)
+    case "$CODE" in
+        200)
+            # stdin, not a path: a Windows Python cannot open Git Bash's /tmp.
+            if [[ -n "$PY" ]] && "$PY" -c '
+import json, sys
+files = json.load(sys.stdin)["urls"]
+sys.exit(0 if files and not all(f.get("yanked") for f in files) else 1)
+' < "$BODY" 2>/dev/null; then
+                ok "infrared-sdk $PINNED is on PyPI"
+            else
+                bad "infrared-sdk $PINNED is yanked or has no files on PyPI — pin another version"
+            fi ;;
+        404) bad "infrared-sdk $PINNED is NOT on PyPI (TestPyPI does not count) — a fresh install cannot bootstrap" ;;
+        *)   skip "sdk on PyPI" "could not reach PyPI (HTTP ${CODE:-none})" ;;
+    esac
+    rm -f "$BODY"
 fi
 
 # -------------------------------------------------------------- report ----
