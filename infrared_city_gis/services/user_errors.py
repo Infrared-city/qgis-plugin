@@ -55,6 +55,11 @@ class UserError:
         return "\n\n".join(p for p in parts if p)
 
 
+#: The SDK's classes for a failed Overture read. Private modules, so matched by
+#: name: ``AreaOvertureReadError`` (site read) and ``OvertureReadError``.
+_OVERTURE_READ_CLASSES = frozenset({"AreaOvertureReadError", "OvertureReadError"})
+
+
 def _class_names(exc: BaseException) -> set:
     return {cls.__name__ for cls in type(exc).__mro__}
 
@@ -169,6 +174,21 @@ def describe_error(exc: BaseException) -> UserError:
             "data it needs.",
             "Please check your internet connection and try again.",
             charged=charged, detail=detail,
+        )
+
+    if any(_class_names(e) & _OVERTURE_READ_CLASSES for e in chain):
+        # Reached only once a missing component and a plain connection failure
+        # are ruled out. The read goes to the public Overture bucket with no
+        # API key, so this is never a key or token problem — the generic
+        # "Unexpected Error" said nothing a user could act on.
+        return UserError(
+            "Ground Materials Could Not Be Read",
+            "The Overture map data for ground materials could not be "
+            "downloaded or read. This download does not use your API key.",
+            "Please try again later. Behind a company proxy or firewall, ask "
+            "your IT team to allow overturemaps-us-west-2.s3.us-west-2."
+            "amazonaws.com. You can also add your own ground-* layers instead.",
+            charged=False, detail=detail,
         )
 
     status = getattr(exc, "status_code", None)

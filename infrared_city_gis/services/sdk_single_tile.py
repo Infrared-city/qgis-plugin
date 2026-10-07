@@ -32,6 +32,7 @@ from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import QApplication, QMessageBox
 from qgis.utils import iface
 
+from ..constants import GROUND_AUTO_FETCH_TIMEOUT_S
 from ..infrared_logger import logger
 from ..utils.client_identity import make_client
 from ..visualization.display import add_result_raster
@@ -433,9 +434,9 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
     if has_ground_material_support(dlg.analysis_type):
         if getattr(dlg, "use_infrared_ground_materials", False):
             _status(
-                "InfraredCity: reading ground materials from Overture — this "
-                "moves a lot of data and can take a few minutes on a slow "
-                "connection…"
+                "InfraredCity: reading ground materials from Overture — "
+                f"QGIS may not respond for up to "
+                f"{GROUND_AUTO_FETCH_TIMEOUT_S // 60} minutes…"
             )
             try:
                 with make_client(dlg.api_key) as gm_client:
@@ -447,6 +448,11 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
                     # their analysis from the same payload.
                     area_gm = gm_client.ground_materials.get_area(
                         polygon, analysis_type=payload.analysis_type,
+                        # Explicit, and bounded: this blocks the main thread,
+                        # so the budget is also how long QGIS can freeze. On
+                        # timeout the run goes on without materials (#47).
+                        timeout=GROUND_AUTO_FETCH_TIMEOUT_S,
+                        total_timeout=GROUND_AUTO_FETCH_TIMEOUT_S,
                     )
                 if area_gm.layers:
                     ground_materials = stamp_material_properties(area_gm.layers)
@@ -463,9 +469,11 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
                 # that was asked for.
                 if timed_out(e):
                     _status(
-                        "InfraredCity: ground materials timed out — this "
-                        "simulation is running WITHOUT them. Please check your "
-                        "internet connection; a smaller area downloads less.",
+                        "InfraredCity: ground materials did not download "
+                        f"within {GROUND_AUTO_FETCH_TIMEOUT_S // 60} minutes — "
+                        "this simulation is running WITHOUT them. Fetch them "
+                        "with the Ground Materials dialog (no freeze, longer "
+                        "limit) and run again with the ground-* layers.",
                         level=Qgis.Warning, duration=0,
                     )
                 else:

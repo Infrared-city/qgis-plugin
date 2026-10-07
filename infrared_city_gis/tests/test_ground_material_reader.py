@@ -48,6 +48,7 @@ class _FakeClient:
 
     def get_area(self, polygon, on_progress=None, **kwargs):
         self.ran_on = threading.current_thread().name
+        self.kwargs = kwargs
         for i in range(self._chunks):
             on_progress(type("P", (), {
                 "completed_count": i + 1, "total_count": self._chunks,
@@ -137,6 +138,38 @@ def test_a_timeout_is_reported_as_one(qgis_app, fake_client):
     outcome = _run(gmr.GroundMaterialReader("key", {"type": "Polygon"}))
 
     assert outcome["user_error"].title == "Fetch Timed Out"
+
+
+def test_the_read_gets_an_explicit_time_budget(qgis_app, fake_client):
+    """Without one the SDK's 60 s per-read default applies (#47)."""
+    from infrared_city_gis.constants import (
+        GROUND_FETCH_TIMEOUT_S,
+        GROUND_FETCH_TOTAL_TIMEOUT_S,
+    )
+    factory, _holder = fake_client
+    client = factory(_FakeClient())
+
+    _run(gmr.GroundMaterialReader("key", {"type": "Polygon"}))
+
+    assert client.kwargs["timeout"] == GROUND_FETCH_TIMEOUT_S > 60
+    assert client.kwargs["total_timeout"] == GROUND_FETCH_TOTAL_TIMEOUT_S
+
+
+def test_a_running_read_is_visible_until_it_retires(qgis_app, fake_client):
+    """The dialog refuses a second fetch while one still runs (#47)."""
+    factory, _holder = fake_client
+    factory(_FakeClient())
+    reader = gmr.GroundMaterialReader("key", {"type": "Polygon"})
+
+    assert gmr.read_in_progress() is False
+    reader.detach()  # a closed dialog: the read keeps going on its own
+    reader.start()
+    assert gmr.read_in_progress() is True
+
+    loop = QEventLoop()
+    QTimer.singleShot(2000, loop.quit)
+    loop.exec()
+    assert gmr.read_in_progress() is False
 
 
 def test_chunk_progress_is_forwarded(qgis_app, fake_client):

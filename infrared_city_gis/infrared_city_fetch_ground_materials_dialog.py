@@ -29,9 +29,10 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
 )
 
+from .constants import GROUND_FETCH_TOTAL_TIMEOUT_S
 from .infrared_logger import logger
 from .services import single_tile_selection
-from .services.ground_material_reader import GroundMaterialReader
+from .services.ground_material_reader import GroundMaterialReader, read_in_progress
 from .services.polygon_from_selection import (
     create_wgs84_geojson_polygon_from_selection,
 )
@@ -164,7 +165,10 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             f"Fetching adds one editable 'ground-<material>' layer per "
             f"surface type (asphalt, concrete, vegetation, soil, water). "
             f"Note: 'ground-vegetation' is green surfaces (grass, "
-            f"parks) — trees are separate 'tree-*' point layers."
+            f"parks) — trees are separate 'tree-*' point layers.\n\n"
+            f"The fetch downloads Overture map data and can take a few "
+            f"minutes on a slow connection (at most "
+            f"{GROUND_FETCH_TOTAL_TIMEOUT_S // 60} minutes)."
         )
         self._init_ok = True
 
@@ -184,6 +188,17 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             return
         if self._reader is not None:
             return  # already running; the button is disabled, but be certain
+        if read_in_progress():
+            # One left running by an earlier, closed dialog. It cannot be
+            # stopped, and a second download beside it only slows both (#47).
+            logger.info("Ground materials fetch refused: an earlier read is still running")
+            QMessageBox.information(
+                self, "Previous Fetch Still Running",
+                "A ground-materials fetch you started earlier is still "
+                "downloading in the background and cannot be stopped. Please "
+                "wait a few minutes for it to finish, then try again.",
+            )
+            return
 
         self._set_fetch_enabled(False)
         self._elapsed.start()

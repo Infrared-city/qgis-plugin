@@ -44,3 +44,16 @@ REGISTRY_DOCUMENTS = {
 # from here is a metadata or geometry lookup that answers in seconds; the
 # long-running simulation calls go through the SDK, which sets its own.
 FETCH_HTTP_TIMEOUT = (10, 30)           # weather / OSM / EPW metadata
+
+# Overture ground-material reads (SDK ground_materials.get_area), in seconds.
+# Without these the SDK's 60 s per-read default applies, which a single tile
+# already reaches on a good line (39-64 s measured) and a slow office line
+# misses by far (154-161 s, #47).
+# Manual fetch: the Ground Materials dialog reads on a worker thread, so QGIS
+# stays usable and the budget can be generous.
+GROUND_FETCH_TIMEOUT_S = 300            # per read
+GROUND_FETCH_TOTAL_TIMEOUT_S = 600      # whole site (large areas read in chunks)
+# Auto-fetch at submit ("Use Infrared ground materials"): runs on the main
+# thread, so this is also the longest QGIS can stop responding. On timeout the
+# run continues without ground materials and the user is told.
+GROUND_AUTO_FETCH_TIMEOUT_S = 120       # per read AND whole site

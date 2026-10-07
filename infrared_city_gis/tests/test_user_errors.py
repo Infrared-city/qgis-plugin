@@ -8,12 +8,13 @@ these tests build the REAL SDK exceptions — a rename fails here instead.
 
 import requests
 from infrared_sdk._internal.binary_transport import BinaryPreAcceptError
+from infrared_sdk._internal.geodata.overture_area import AreaOvertureReadError
 from infrared_sdk.analyses.jobs import (
     AmbiguousSubmitResponseError,
     JobFailedError,
     JobSubmitError,
 )
-from infrared_sdk.tiling.types import AreaRunError
+from infrared_sdk.tiling.types import AreaRunError, TiledRunError
 
 from infrared_city_gis.constants import SUPPORT_EMAIL
 from infrared_city_gis.exceptions import NothingToRunError
@@ -115,3 +116,44 @@ def test_anything_else_points_to_support_with_the_raw_text():
     assert SUPPORT_EMAIL in text
     assert "Details: kaboom" in text
     assert text.endswith("See the plugin log for more.")
+
+
+def _overture_failure(cause: BaseException) -> TiledRunError:
+    """The chain a failed Overture read reaches the plugin as (seen in QGIS)."""
+    try:
+        try:
+            raise cause
+        except BaseException as inner:
+            raise AreaOvertureReadError(f"the area Overture read failed: {inner}") from inner
+    except AreaOvertureReadError as read_error:
+        wrapped = TiledRunError("1 of 1 site read chunks failed", failed_tiles=[])
+        wrapped.__cause__ = read_error
+        return wrapped
+
+
+def test_a_failed_overture_read_is_named_and_is_free():
+    """It used to be "Unexpected Error", which said nothing a user could act on.
+
+    The read sends no API key, so the message must not point at the key, and
+    it costs no tokens.
+    """
+    err = describe_error(_overture_failure(OSError(
+        "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com/... sent no "
+        "ETag, so its reads cannot be pinned with If-Match"
+    )))
+
+    assert err.title == "Ground Materials Could Not Be Read"
+    assert err.charged is False
+    assert "API key" in err.summary and "does not use" in err.summary
+    assert "ground-*" in err.advice
+    assert "sent no ETag" in err.detail or "site read chunks failed" in err.detail
+
+
+def test_a_more_specific_cause_under_an_overture_read_still_wins():
+    """A missing component or a dead connection says more than "the read failed"."""
+    missing = describe_error(_overture_failure(ImportError("no module named pyarrow._s3fs")))
+    offline = describe_error(_overture_failure(requests.ConnectionError("unreachable")))
+
+    assert missing.title == "Plugin Component Missing"
+    assert offline.title == "Connection Error"
+

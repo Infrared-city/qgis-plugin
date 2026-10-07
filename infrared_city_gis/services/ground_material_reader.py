@@ -29,6 +29,7 @@ from typing import List, Optional
 
 from qgis.PyQt.QtCore import QObject, QThread, pyqtSignal
 
+from ..constants import GROUND_FETCH_TIMEOUT_S, GROUND_FETCH_TOTAL_TIMEOUT_S
 from ..infrared_logger import logger
 from ..utils.client_identity import make_client
 from .user_errors import UserError, describe_error
@@ -86,10 +87,22 @@ def describe_read_failure(exc: BaseException) -> UserError:
             "This read downloads a large amount of map data. Please check "
             "your internet connection and try again — on a slow or congested "
             "connection it can take longer than the read allows. A smaller "
-            "area downloads less.",
+            "area downloads less, and your own ground-* layers need no "
+            "download at all.",
             detail=str(exc),
         )
     return describe_error(exc)
+
+
+def read_in_progress() -> bool:
+    """Is an earlier read still running, possibly behind a closed dialog?
+
+    A read cannot be stopped (see the module docstring), so a second one
+    started now would run NEXT to it — two downloads on the same constrained
+    line, each slower than one, and a user retrying a slow fetch three times
+    had three running (#47). The dialog refuses to start while this is true.
+    """
+    return bool(_ACTIVE_READERS)
 
 
 class _Worker(QObject):
@@ -117,11 +130,18 @@ class _Worker(QObject):
                 logger.debug("ground-material progress tick skipped: %s", e)
 
         try:
-            kwargs = {"on_progress": on_progress}
-            if self._analysis_type is not None:
-                kwargs["analysis_type"] = self._analysis_type
             with make_client(self._api_key) as client:
-                area = client.ground_materials.get_area(self._polygon, **kwargs)
+                area = client.ground_materials.get_area(
+                    self._polygon,
+                    on_progress=on_progress,
+                    # None is the SDK default: the widest read margin.
+                    analysis_type=self._analysis_type,
+                    # Explicit budgets: the SDK's 60 s per-read default is
+                    # shorter than a single tile can take (#47). This runs off
+                    # the UI thread, so a long budget costs only waiting.
+                    timeout=GROUND_FETCH_TIMEOUT_S,
+                    total_timeout=GROUND_FETCH_TOTAL_TIMEOUT_S,
+                )
         except Exception as e:
             logger.error("Ground materials read failed: %s", e, exc_info=True)
             self.failed.emit(str(e), describe_read_failure(e))
