@@ -94,6 +94,50 @@ def get_visual_config(analysis_type, sub_analysis_type=None):
     return None
 
 
+#: Analyses coloured on their registry's FIXED scale rather than the run's own
+#: range, so separate runs read on one scale: wind speed's 0-20 m/s, the
+#: long-standing default (user decision, 2026-10-08). The others follow the run
+#: — UTCI's registry scale is -40..46 °C, far too wide to read one run on.
+FIXED_SCALE_ANALYSES = frozenset({"wind-speed"})
+
+
+def registry_scale(analysis_type, sub_analysis_type=None):
+    """``(min, max)`` of the registry's numeric ``steps``, or None."""
+    config = get_visual_config(analysis_type, sub_analysis_type) or {}
+    steps = config.get("steps") or []
+    numeric = all(isinstance(s, (int, float)) and not isinstance(s, bool) for s in steps)
+    if len(steps) >= 2 and numeric:
+        return float(steps[0]), float(steps[-1])
+    return None
+
+
+def resolve_legend(analysis_type, sub_analysis_type, run_range, grid_range, overrides):
+    """The legend range of a result, each bound picked on its own.
+
+    In order: the dialog's manual value; the registry's fixed scale for
+    :data:`FIXED_SCALE_ANALYSES`; the range the run reported (the backend's
+    recommendation on a single tile, the SDK's measured range on an area —
+    SDK 1.0, DEVIATIONS D214); the grid's own min/max. Shared by the area and
+    single-tile paths so the same scenario legends the same in both.
+    """
+    fixed = None
+    if str(analysis_type) in FIXED_SCALE_ANALYSES:
+        fixed = registry_scale(str(analysis_type), sub_analysis_type)
+
+    def pick(i):
+        for candidate in (overrides[i], fixed[i] if fixed else None, run_range[i], grid_range[i]):
+            if candidate is not None:
+                return candidate
+        return None
+
+    applied = (pick(0), pick(1))
+    logger.info(
+        "Legend %s: run=%s grid=%s fixed=%s override=%s -> applied=%s",
+        analysis_type, run_range, grid_range, fixed, overrides, applied,
+    )
+    return applied
+
+
 def _build_color_ramp_items(visual_config, analysis_type, vmin=None, vmax=None):
     colors = visual_config.get("colors", [])
     # `or []`, not a `.get` default: the registry carries these as explicit

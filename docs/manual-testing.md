@@ -172,6 +172,7 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 - ☐ **The layer name says what the run was** — `IC result - <analysis> · <inputs>`, e.g. `IC result - thermal-comfort-index · July, Afternoon`. Run the same analysis twice with different inputs and expect two distinguishable names. Sky-view-factors has no inputs, so it keeps the bare name.
 - ☐ **A run adds only its raster** — no extra building-outline layer appears after a single-tile or area run; the only buildings layer is the one the Download building geometry dialog created.
 - ☐ **Nothing falls off the top of the legend** — on a UTCI run, check the hottest areas (open sun, water) are coloured rather than white/transparent. The backend legend can be narrower than the data.
+- ☐ **Wind speed keeps 0-20 m/s** — run wind speed twice (single tile and area). Both legend 0-20 m/s, and faster cells take the top colour. A manual min/max set in the dialog wins.
 - ☐ **The legend follows the run, not the full scale** — a UTCI run is coloured over the backend's legend range (e.g. 21–30 °C), not the registry's full −40…46 °C scale, and each band is labelled with its own value. Set a manual min/max in the dialog and expect it to win over both.
 - ☐ **The same scenario legends the same in both modes** — run one tile, then the same ground as an area, and expect comparable colour scales.
 - ☐ Area runs merge tiles into one coherent raster (no gaps/seams beyond expected tile edges).

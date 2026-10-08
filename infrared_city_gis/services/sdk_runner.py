@@ -40,6 +40,7 @@ from ..services.sdk_payloads import build_sdk_payload
 from ..services.tree_layer_picker import has_tree_support, selected_tree_layer
 from ..services.user_errors import show_error_dialog
 from ..utils.client_identity import make_client
+from ..visualization.color_ramp import resolve_legend
 from ..visualization.display import add_result_raster
 
 
@@ -207,26 +208,14 @@ def render_area_result(
         simulation_type=str(render_state.analysis_type), criteria=sub,
     )
 
-    # Legend bounds — per SDK README: prefer result.min_legend / max_legend
-    # when the API supplies them; otherwise fall back to np.nanmin/nanmax.
-    grid_min = float(np.nanmin(grid)) if np.any(~np.isnan(grid)) else None
-    grid_max = float(np.nanmax(grid)) if np.any(~np.isnan(grid)) else None
-    leg_min: Optional[float] = (
-        result.min_legend if result.min_legend is not None else grid_min
-    )
-    leg_max: Optional[float] = (
-        result.max_legend if result.max_legend is not None else grid_max
-    )
-    if render_state.legend_min_override is not None:
-        leg_min = render_state.legend_min_override
-    if render_state.legend_max_override is not None:
-        leg_max = render_state.legend_max_override
-    logger.info(
-        "Legend bounds: api=(%s, %s) grid=(%s, %s) override=(%s, %s) -> "
-        "applied=(%s, %s)",
-        result.min_legend, result.max_legend, grid_min, grid_max,
-        render_state.legend_min_override, render_state.legend_max_override,
-        leg_min, leg_max,
+    # Since SDK 1.0 (D214) min_legend/max_legend are measured over the merged
+    # grid, not folded from the backend's per-tile estimates.
+    finite = np.any(~np.isnan(grid))
+    leg_min, leg_max = resolve_legend(
+        render_state.analysis_type, sub,
+        run_range=(result.min_legend, result.max_legend),
+        grid_range=(float(np.nanmin(grid)), float(np.nanmax(grid))) if finite else (None, None),
+        overrides=(render_state.legend_min_override, render_state.legend_max_override),
     )
 
     add_result_raster(

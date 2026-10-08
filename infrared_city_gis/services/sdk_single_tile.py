@@ -34,6 +34,7 @@ from qgis.utils import iface
 
 from ..infrared_logger import logger
 from ..utils.client_identity import make_client
+from ..visualization.color_ramp import resolve_legend
 from ..visualization.display import add_result_raster
 from .geotiff import generate_geotiff, map_categories
 from .ground_materials import (
@@ -106,21 +107,12 @@ def render_single_tile_result(
         simulation_type=str(render_state.analysis_type), criteria=sub,
     )
 
-    api_min, api_max = api_legend
-    grid_min = float(np.nanmin(grid)) if np.any(~np.isnan(grid)) else None
-    grid_max = float(np.nanmax(grid)) if np.any(~np.isnan(grid)) else None
-    leg_min: Optional[float] = api_min if api_min is not None else grid_min
-    leg_max: Optional[float] = api_max if api_max is not None else grid_max
-    if render_state.legend_min_override is not None:
-        leg_min = render_state.legend_min_override
-    if render_state.legend_max_override is not None:
-        leg_max = render_state.legend_max_override
-    logger.info(
-        "Single-tile legend: api=(%s, %s) grid=(%s, %s) override=(%s, %s) -> "
-        "applied=(%s, %s)",
-        api_min, api_max, grid_min, grid_max,
-        render_state.legend_min_override, render_state.legend_max_override,
-        leg_min, leg_max,
+    finite = np.any(~np.isnan(grid))
+    leg_min, leg_max = resolve_legend(
+        render_state.analysis_type, sub,
+        run_range=api_legend,
+        grid_range=(float(np.nanmin(grid)), float(np.nanmax(grid))) if finite else (None, None),
+        overrides=(render_state.legend_min_override, render_state.legend_max_override),
     )
 
     add_result_raster(
