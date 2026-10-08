@@ -36,7 +36,7 @@ def _ring(x0, y0, x1, y1):
 
 
 def _layer(name, ring):
-    """A one-feature in-memory polygon layer, as the fetch dialog creates."""
+    """A one-feature in-memory polygon layer, like a hand-drawn ground-* layer."""
     from qgis.core import QgsFeature, QgsGeometry, QgsVectorLayer
 
     layer = QgsVectorLayer("Polygon?crs=EPSG:4326", name, "memory")

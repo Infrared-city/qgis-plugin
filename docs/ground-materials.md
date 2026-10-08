@@ -106,9 +106,16 @@ tick exactly the ones you want.
 
 ## Editing / drawing your own
 
-The `ground-*` layers are ordinary QGIS memory layers — edit them freely
+Each fetch is saved as one GeoPackage in the plugin's data folder
+(`<QGIS profile>/infrared_city_gis/data/infrared_city_ground_materials_<date-time>.gpkg`,
+one table per `ground-*` layer), next to the fetched buildings. They are files,
+not QGIS scratch layers: no "Temporary scratch layer only!" warning, they
+survive a QGIS restart, and a saved project opens them again. Edit them freely
 before running a simulation (reshape polygons, delete wrong areas, add new
-ones). You can also create a layer from scratch: any polygon layer named
+ones) — edits are written back to the file. Like the building files, a file
+there that has not been modified for 30 days is deleted when the plugin starts;
+to keep a set for longer, save it next to your project (*Export → Save
+Features As…*). You can also create a layer from scratch: any polygon layer named
 `ground-<material>` participates automatically, so a hand-drawn
 `ground-water` (or a future registry material) works without any plugin
 support.

@@ -75,7 +75,8 @@ charge. Submitting a simulation ends the mode; a ground-material fetch does not.
 - ☐ **Result dialog** — a summary lists the created layers **by layer name** with feature counts.
 - ☐ **Repeated fetch numbers layers** — fetch again (different/overlapping area). Expect `ground-asphalt-2`, etc. — no overwrite, both sets present.
 - ☐ **No data** — fetch over an area with no ground-material data. Expect *"No ground material data was found"*, not a crash.
-- ☐ **Editable** — the `ground-*` layers are memory layers you can edit before a run.
+- ☐ **Editable and saved to disk** — the `ground-*` layers have no "Temporary scratch layer only!" icon, their source is `…/infrared_city_gis/data/infrared_city_ground_materials_<date-time>.gpkg`, and an edit (move a vertex, save) is kept after a QGIS restart and reopening the project.
+- ☐ **Nothing dropped** — the result dialog's per-layer counts match the fetch (no "unreadable coordinates" warning in the plugin log), and a polygon with a hole (e.g. a courtyard) keeps it.
 
 - ☐ **The dialog stays alive during the read** — start a fetch and watch: the clock keeps ticking and the window repaints. It must be possible to close the dialog mid-read. (The dialog is modal, so QGIS itself is out of reach until it closes — what is being checked is that nothing is frozen, not that you can work meanwhile.)
 - ☐ **The status line counts up** — expect `Reading ground materials from Overture… m:ss`, ticking once a second, with a note that it can take minutes on a slow connection.

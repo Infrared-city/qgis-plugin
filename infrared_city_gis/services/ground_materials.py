@@ -377,7 +377,12 @@ def collect_ground_materials(
         features = []
         for layer in material_layers:
             transform = _wgs84_transform(layer)
-            field_names = [f.name() for f in layer.fields()]
+            # Not the storage's own key: a GeoPackage exposes `fid` as a
+            # field, and it means nothing to the model.
+            keys = set(layer.primaryKeyAttributes())
+            field_names = [
+                f.name() for i, f in enumerate(layer.fields()) if i not in keys
+            ]
             for feat in layer.getFeatures():
                 geom = feat.geometry()
                 if geom is None or geom.isEmpty():
