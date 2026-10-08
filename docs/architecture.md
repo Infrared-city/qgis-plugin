@@ -119,6 +119,34 @@ through `services/sdk_single_tile.py`. The legacy raw-REST simulation path
 (`client.py` and its `RUN_ANALYSIS_ENDPOINT`) lost its last caller when both
 moved to the SDK, and was removed on `feat/qgis4-qt6-compat` (after
 v1.1.4).
+### Single-tile mode
+
+**Select tile** is a toolbar TOGGLE over one piece of state,
+`services/single_tile_selection.py`: pressed means a 512 × 512 m box is armed.
+
+- **Picking** (`infrared_city_select_bbox_dialog.py`): the click is transformed
+  to WGS84 and becomes the centre of a 512 × 512 m box. The buildings inside it
+  are selected on the active polygon layer (`selectByRect`); a box with no
+  buildings is refused and nothing is armed. The module stores the **box**, not
+  the selection, because the selection's hull reaches past it (617 × 586 m
+  measured), which the area tiler would charge nine jobs for (battle-scars
+  2026-09-29).
+- **Readers**: the run dialog submits an armed box through
+  `services/sdk_single_tile.py` as ONE `analyses.execute` job, with buildings,
+  trees and ground materials embedded in the payload, instead of the area tiler,
+  which steps every 256 m and would make four jobs of it. The Download ground
+  materials dialog downloads exactly the box.
+- **Lifecycle**: submitting a run ends the mode, clearing the box and the map
+  selection together; the toggle follows through `subscribe()`. A ground
+  download does not end it. It is also released by clicking the pressed button,
+  by saving an API key (a tile must not carry into another account), and on
+  plugin unload. If the user clears the map selection by hand, the run dialog
+  drops the armed box (`_has_map_selection`) instead of running an invisible
+  tile.
+- **Legend**: both paths legend a result the same way (backend range, then the
+  grid's own, with the manual min/max over both), so a tile and the same ground
+  run as an area are comparable (battle-scars 2026-09-29).
+
 Trees and ground materials are documented in
 [`vegetation-input.md`](vegetation-input.md) and
 [`ground-materials.md`](ground-materials.md).

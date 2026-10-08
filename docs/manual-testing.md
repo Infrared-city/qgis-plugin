@@ -27,7 +27,7 @@ The plugin adds these actions (left to right):
 | 1 | Save API Key | Auth dialog |
 | 2 | Download building geometry | Download building geometry dialog |
 | 3 | Download ground materials | Ground-materials download dialog |
-| 4 | Select tile | Makes a 512 m selection on the map (no mode, no state) |
+| 4 | Select tile | Toggle: arms one 512 × 512 m tile; the next run is one job (§3) |
 | 5 | Tree catalog | Tree-catalog dialog |
 | 6 | Run simulation | Run-simulation dialog |
 
