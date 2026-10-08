@@ -7,10 +7,10 @@
         email                : connectors@infrared.city
  ***************************************************************************/
 
- Fetch ground-material layers (asphalt, concrete, vegetation, soil, water)
+ Download ground-material layers (asphalt, concrete, vegetation, soil, water)
  for the current building-layer selection and add them to the project as
- editable ``ground-<material>`` vector layers. Buildings are not fetched here
- — they have their own fetch dialog.
+ editable ``ground-<material>`` vector layers. Buildings are not downloaded
+ here — they have their own download dialog.
 
  Flow mirrors the Run Simulation dialog's selection handling: the selection
  polygon comes from ``create_wgs84_geojson_polygon_from_selection`` and is
@@ -48,7 +48,7 @@ _MAX_TILES = 100
 class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Fetch Ground Materials")
+        self.setWindowTitle("Download Ground Materials")
         self.setMinimumSize(460, 220)
 
         self.polygon = None
@@ -76,7 +76,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Fetch")
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Download")
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
@@ -95,7 +95,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             logger.warning("Ground materials fetch refused: no API key saved")
             QMessageBox.warning(
                 self, "No API Key",
-                "Fetching ground materials requires an Infrared City API key.\n"
+                "Downloading ground materials requires an Infrared City API key.\n"
                 "Please save your API key first (Save API Key).",
             )
             return
@@ -161,11 +161,11 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
 
         self.info_label.setText(
             f"{area_line}\n\n"
-            f"Fetching adds one editable 'ground-<material>' layer per "
+            f"Downloading adds one editable 'ground-<material>' layer per "
             f"surface type (asphalt, concrete, vegetation, soil, water). "
             f"Note: 'ground-vegetation' is green surfaces (grass, "
             f"parks) — trees are separate 'tree-*' point layers.\n\n"
-            f"The fetch downloads Overture map data and can take a few "
+            f"The download reads Overture map data and can take a few "
             f"minutes on a slow connection."
         )
         self._init_ok = True
@@ -191,8 +191,8 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             # stopped, and a second download beside it only slows both (#47).
             logger.info("Ground materials fetch refused: an earlier read is still running")
             QMessageBox.information(
-                self, "Previous Fetch Still Running",
-                "A ground-materials fetch you started earlier is still "
+                self, "Previous Download Still Running",
+                "A ground-materials download you started earlier is still "
                 "downloading in the background and cannot be stopped. Please "
                 "wait a few minutes for it to finish, then try again.",
             )
@@ -250,7 +250,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
         self._stop_progress()
         self._set_fetch_enabled(True)
         QMessageBox.critical(
-            self, user_error.title, user_error.message("Fetching ground materials"),
+            self, user_error.title, user_error.message("Downloading ground materials"),
         )
 
     def _on_read_finished(self, area_gm):

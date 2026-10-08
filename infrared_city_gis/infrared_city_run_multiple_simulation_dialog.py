@@ -497,8 +497,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
         if not self._ground_layers:
             label.setText(
-                "No ground-* layers in the project — fetch them with the "
-                "'Fetch ground materials' dialog first, or draw your own."
+                "No ground-* layers in the project — download them with the "
+                "'Download ground materials' dialog first, or draw your own."
             )
             return
         if self.polygon is None:

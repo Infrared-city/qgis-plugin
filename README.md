@@ -2,17 +2,17 @@
 
 QGIS plugin that connects to the [Infrared City](https://infrared.city) simulation platform for urban climate analysis.
 
-Fetch building geometry with the help of Infrared City platform, run microclimate simulations, and visualize results as raster layers — all without leaving QGIS.
+Download building geometry with the help of Infrared City platform, run microclimate simulations, and visualize results as raster layers — all without leaving QGIS.
 
 **An Infrared City subscription is required to run simulations.** [Get access →](https://infrared.city)
 
 ## Features
 
-- Fetch building geometry for a 1 km × 1 km area with the help of Infrared City platform
+- Download building geometry for a 1 km × 1 km area with the help of Infrared City platform
 - Run climate simulations: wind speed, pedestrian wind comfort (PWC), thermal comfort (UTCI/TCS), solar radiation, daylight availability, direct sun hours, sky view factors
 - Upload a local EPW weather file for weather-based analyses (PWC / UTCI / TCS / solar radiation), or use the built-in weather lookup
 - Vegetation from a tree point layer — any OpenStreetMap tree layer works as-is: trees are typed from their own `species` / `genus` / `leaf_type` tags (matching a registry species for an exact mesh, otherwise a broadleaf/conifer/columnar/palm archetype; untagged → broadleaf). Nothing is mandatory but the point geometry. See [`docs/vegetation-input.md`](docs/vegetation-input.md)
-- Ground materials — fetch editable surface layers (asphalt, concrete, water, soil, vegetation) for a selected area and include them in the thermal comfort simulations (UTCI, TCS). See [`docs/ground-materials.md`](docs/ground-materials.md)
+- Ground materials — download editable surface layers (asphalt, concrete, water, soil, vegetation) for a selected area and include them in the thermal comfort simulations (UTCI, TCS). See [`docs/ground-materials.md`](docs/ground-materials.md)
 - Results visualized as raster layers in QGIS
 
 ## Requirements
@@ -33,7 +33,7 @@ Fetch building geometry with the help of Infrared City platform, run microclimat
 1. Open the plugin from the QGIS toolbar or **Plugins** menu
 2. Enter your Infrared City API key — it is verified against the server and stored locally; the other toolbar actions stay disabled until a valid key is saved
 3. Select an area of interest on the map
-4. Fetch building geometry (a 1 km × 1 km area around the entered coordinates)
+4. Download building geometry (a 1 km × 1 km area around the entered coordinates)
 5. Choose a simulation type and configure parameters — for weather-based analyses you can **Upload EPW…** to use a local weather file instead of the built-in lookup
 6. Run — results appear as a raster layer
 

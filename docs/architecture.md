@@ -3,7 +3,7 @@ _Last updated: 2026-07-14_
 
 ## Overview
 
-QGIS plugin that exposes the Infrared City simulation platform inside QGIS. Users authenticate, define an area of interest, fetch building geometry (and optionally ground-material surface layers) from the Infrared City platform, run a microclimate simulation — with trees from a `tree-*` point layer and surface materials from `ground-*` polygon layers — and visualize the result raster, all from QGIS dialogs.
+QGIS plugin that exposes the Infrared City simulation platform inside QGIS. Users authenticate, define an area of interest, download building geometry (and optionally ground-material surface layers) from the Infrared City platform, run a microclimate simulation — with trees from a `tree-*` point layer and surface materials from `ground-*` polygon layers — and visualize the result raster, all from QGIS dialogs.
 
 ## Structure
 
@@ -64,7 +64,7 @@ infrared_city_gis/
 | `services/ground_material_reader.py` | Runs the Overture ground-material read (`ground_materials.get_area`) on a worker thread, with an explicit time budget; refuses a second read while one still runs |
 | `services/user_errors.py` | Turns any failure into what the user sees: title, plain summary, advice, and whether tokens were charged |
 | `models/analysis.py` | Request/response shapes for each simulation type |
-| `visualization/` | Converts raw simulation arrays → QGIS-styled raster layers; renders fetched `ground-*` layers with registry colors |
+| `visualization/` | Converts raw simulation arrays → QGIS-styled raster layers; renders downloaded `ground-*` layers with registry colors |
 
 ## External Dependencies
 
@@ -86,8 +86,8 @@ User → Auth Dialog → key VERIFIED against the API before saving
                       not saved + "contact connectors@infrared.city";
                       server unreachable → not saved either)
                    → API key stored in QGIS settings
-     → Select bbox / Select tile → Fetch buildings (POST /v2/buildings, GeoJson)
-       (optional) Fetch ground materials → editable ground-* layers
+     → Select bbox / Select tile → Download buildings (POST /v2/buildings, GeoJson)
+       (optional) Download ground materials → editable ground-* layers
      → Configure simulation (analysis, time frame, EPW, tree-* layer,
        ticked ground-* layers)
      → SDK run_area + poll + merge_area_jobs (area) / analyses.execute (single tile)
@@ -154,9 +154,9 @@ Name your height attribute using any of the recognized field names above and the
 
 If your attribute has a non-standard name, the code supports an `override_field` parameter internally — a future UI release will expose this as a dropdown in the simulation dialog.
 
-### Fetch Geometry dialog path
+### Download building geometry dialog path
 
-The **Fetch building geometry** dialog (`services/fetch.py:fetch_geometry_from_infrared`) pulls footprints from the Infrared City buildings API (`POST /v2/buildings`, `outputFormat=GeoJson`) over a fixed **1 km × 1 km** area (1024 m) centred on the entered coordinates, writes a `FeatureCollection`, and loads it as a layer. Heights come from the API response, not from local tag parsing. It tries one request for the whole area first; if that returns nothing it falls back to fetching 512 m tiles (a 2×2 grid for 1024 m) and merging + de-duplicating them, and surfaces a clear error if both paths fail. The tier table above applies to the **separate** path where you run a simulation from your own QGIS buildings layer (`collect_qgis_area_buildings` + `feature_height.py`).
+The **Download building geometry** dialog (`services/fetch.py:fetch_geometry_from_infrared`) pulls footprints from the Infrared City buildings API (`POST /v2/buildings`, `outputFormat=GeoJson`) over a fixed **1 km × 1 km** area (1024 m) centred on the entered coordinates, writes a `FeatureCollection`, and loads it as a layer. Heights come from the API response, not from local tag parsing. It tries one request for the whole area first; if that returns nothing it falls back to fetching 512 m tiles (a 2×2 grid for 1024 m) and merging + de-duplicating them, and surfaces a clear error if both paths fail. The tier table above applies to the **separate** path where you run a simulation from your own QGIS buildings layer (`collect_qgis_area_buildings` + `feature_height.py`).
 
 ## Why This Shape
 

@@ -72,7 +72,7 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         if not api_key:
             QMessageBox.warning(
                 self, "No API Key",
-                "Fetching building geometry requires an Infrared City API key.\n"
+                "Downloading building geometry requires an Infrared City API key.\n"
                 "Please save your API key first (Save API Key).",
             )
             return
@@ -88,8 +88,8 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
             if error:
                 logger.error("Geometry fetch failed for lon=%s lat=%s: %s", lon, lat, error)
                 QMessageBox.critical(
-                    self, "Fetch Failed",
-                    "Fetching building geometry failed.\n\n"
+                    self, "Download Failed",
+                    "Downloading building geometry failed.\n\n"
                     "Check your internet connection and that your API key and "
                     "subscription are active, then try again.\n\n"
                     f"Details: {error}\n\n"
@@ -114,7 +114,7 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
 
         except Exception as e:
             logger.error("Failed to fetch geometry: %s", e, exc_info=True)
-            show_error_dialog(self, "Fetching building geometry", e)
+            show_error_dialog(self, "Downloading building geometry", e)
             return
 
         super().accept()

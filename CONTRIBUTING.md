@@ -66,7 +66,7 @@ Manual checks still matter for anything UI-shaped (full list in
 
 - Plugin loads (no exceptions in QGIS Python console)
 - Auth dialog accepts a valid API key
-- Fetch geometry pulls buildings (1 km × 1 km) for a known area (e.g. Hamburg city center)
+- Download building geometry pulls buildings (1 km × 1 km) for a known area (e.g. Hamburg city center)
 - Run a simulation end-to-end (try **wind speed** as the smoke test)
 - Result raster appears as a layer with a sensible style
 

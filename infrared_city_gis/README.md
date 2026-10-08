@@ -4,7 +4,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
 
 ## Features
 
-- Fetch building geometry (1 km × 1 km) with the help of Infrared City platform for any location
+- Download building geometry (1 km × 1 km) with the help of Infrared City platform for any location
 - Run climate simulations:
   - Wind Speed
   - Pedestrian Wind Comfort (PWC)
@@ -17,7 +17,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
 - Upload a local EPW weather file for weather-based analyses (PWC / UTCI / TCS / Solar Radiation), or use the built-in weather lookup
 - Visualize results as raster layers in QGIS
 - Vegetation from a tree point layer — any OpenStreetMap tree layer works as-is: trees are typed from their own `species` / `genus` / `leaf_type` tags (registry species → exact mesh, otherwise a broadleaf/conifer/columnar/palm archetype; untagged → broadleaf). Only the point geometry is mandatory
-- Ground materials — fetch editable surface layers (asphalt, concrete, water, soil, vegetation) for a selected area and include them in the thermal comfort simulations (UTCI, TCS)
+- Ground materials — download editable surface layers (asphalt, concrete, water, soil, vegetation) for a selected area and include them in the thermal comfort simulations (UTCI, TCS)
 
 ## Requirements
 
@@ -36,7 +36,7 @@ A QGIS plugin that connects to the [Infrared City](https://infrared.city) simula
 1. Open the plugin from the QGIS toolbar or **Plugins** menu
 2. Enter your Infrared City API key — it is verified against the server, then saved locally for future sessions; the other toolbar actions are disabled until a valid key is saved
 3. Select an area of interest on the map
-4. Fetch building geometry (a 1 km × 1 km area around the entered coordinates)
+4. Download building geometry (a 1 km × 1 km area around the entered coordinates)
 5. Choose a simulation type and configure the parameters — for weather-based analyses you can **Upload EPW…** to use a local weather file instead of the built-in lookup
 6. Run the simulation — results appear as a raster layer in QGIS
 

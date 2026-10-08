@@ -260,13 +260,13 @@ class InfraredCityGIS:
 
         self.add_action(
             fetch_geometry_icon_path,
-            text=self.tr(u'Fetch building geometry'),
+            text=self.tr(u'Download building geometry'),
             callback=self.fetch_geometry,
             parent=self.iface.mainWindow())
 
         self.add_action(
             ground_materials_icon_path,
-            text=self.tr(u'Fetch ground materials'),
+            text=self.tr(u'Download ground materials'),
             callback=self.fetch_ground_materials,
             parent=self.iface.mainWindow()
         )
@@ -465,7 +465,7 @@ class InfraredCityGIS:
             self.iface.messageBar().pushMessage(
                 "InfraredCity",
                 "Single-tile mode off. Simulations and ground-material "
-                "fetches now follow your QGIS feature selection.",
+                "downloads now follow your QGIS feature selection.",
                 level=Qgis.Info,
                 duration=6,
             )
@@ -577,7 +577,7 @@ class InfraredCityGIS:
             if self.last_geojson_path and self.bbox:
                 self.iface.messageBar().pushMessage(
                     "InfraredCity",
-                    f"Fetched geometry saved to: {self.last_geojson_path} \n"
+                    f"Downloaded geometry saved to: {self.last_geojson_path} \n"
                     f"with bbox: {self.bbox}",
                     level=Qgis.Info,
                     duration=5
@@ -586,5 +586,5 @@ class InfraredCityGIS:
                 logger.warning("Fetch geometry dialog accepted without a file or bbox")
                 self.iface.messageBar().pushWarning(
                     "InfraredCity",
-                    "No building geometry was loaded. Please try the fetch again."
+                    "No building geometry was loaded. Please try the download again."
                 )

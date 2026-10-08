@@ -82,7 +82,7 @@ def describe_read_failure(exc: BaseException) -> UserError:
     """What a failed ground-material read means to the user."""
     if timed_out(exc):
         return UserError(
-            "Fetch Timed Out",
+            "Download Timed Out",
             "Reading ground materials took longer than allowed.",
             "This read downloads a large amount of map data. Please check "
             "your internet connection and try again — on a slow or congested "

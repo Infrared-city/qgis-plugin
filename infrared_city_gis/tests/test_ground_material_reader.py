@@ -123,7 +123,7 @@ def test_a_failure_arrives_as_a_message_not_an_exception(qgis_app, fake_client):
 
     assert "error" in outcome
     assert "something went wrong" in outcome["error"]
-    assert outcome["user_error"].title != "Fetch Timed Out"
+    assert outcome["user_error"].title != "Download Timed Out"
     assert "something went wrong" in outcome["user_error"].detail
 
 
@@ -137,7 +137,7 @@ def test_a_timeout_is_reported_as_one(qgis_app, fake_client):
 
     outcome = _run(gmr.GroundMaterialReader("key", {"type": "Polygon"}))
 
-    assert outcome["user_error"].title == "Fetch Timed Out"
+    assert outcome["user_error"].title == "Download Timed Out"
 
 
 def test_the_read_gets_an_explicit_time_budget(qgis_app, fake_client):
