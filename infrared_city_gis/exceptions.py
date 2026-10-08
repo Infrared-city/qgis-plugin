@@ -5,6 +5,26 @@ Custom exceptions for the Infrared City GIS plugin.
 from .constants import SUPPORT_EMAIL
 
 
+class IncompleteGroundDownload(Exception):
+    """Some ground-material layers of a download could not be saved.
+
+    Raised AFTER the layers that did save were added, so a caller that does
+    nothing still cannot present the set as complete: a missing material runs
+    as the default surface and changes a thermal result without a word.
+    """
+
+    def __init__(self, created, failed, path):
+        #: ``{layer_name: feature_count}`` — saved and added to the project.
+        self.created = dict(created)
+        #: ``{layer_name: reason}`` — not saved, so not in the project.
+        self.failed = dict(failed)
+        self.path = path
+        super().__init__(
+            f"{len(self.failed)} ground-material layer(s) could not be saved to "
+            f"{path}: " + "; ".join(f"{n}: {r}" for n, r in sorted(self.failed.items()))
+        )
+
+
 class NothingToRunError(Exception):
     """An area submission that scheduled no jobs: nothing ran, nothing was charged."""
 

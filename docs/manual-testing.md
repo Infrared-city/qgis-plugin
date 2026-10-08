@@ -36,7 +36,7 @@ The plugin adds these actions (left to right):
 ## 1. API key
 
 - ☐ **Save a valid key** — Save API Key → paste key → save. Expect "verified and saved" success message, dialog closes, all toolbar icons enabled.
-- ☐ **Change the key** — reopen Save API Key, paste a different valid key, save. Expect the new key to take effect (subsequent downloads/simulations use it; registries re-fetch).
+- ☐ **Change the key** — reopen Save API Key, paste a different valid key, save. Expect the new key to take effect (subsequent downloads/simulations use it). The registries are not re-fetched — they refresh at plugin start and need no key.
 - ☐ **Invalid key** — save a bogus key. Expect a rejection dialog referencing connectors@infrared.city, the key is NOT saved, and (if no valid key was stored before) the other toolbar icons stay greyed out.
 - ☐ **No key** — with no key saved, all toolbar icons except Save API Key are greyed out.
 - ☐ **Offline save** — disconnect network, save a plausible key. Expect a "could not verify / NOT saved" warning distinct from the invalid-key rejection; the key is not stored.
@@ -76,6 +76,7 @@ charge. Submitting a simulation ends the mode; a ground-material download does n
 - ☐ **Repeated download numbers layers** — download again (different/overlapping area). Expect `ground-asphalt-2`, etc. — no overwrite, both sets present.
 - ☐ **No data** — download over an area with no ground-material data. Expect *"No ground material data was found"*, not a crash.
 - ☐ **Editable and saved to disk** — the `ground-*` layers have no "Temporary scratch layer only!" icon, their source is `…/infrared_city_gis/data/infrared_city_ground_materials_<date-time>.gpkg`, and an edit (move a vertex, save) is kept after a QGIS restart and reopening the project.
+- ☐ **Downloads are never auto-deleted** — the files in `…/infrared_city_gis/data/` (buildings GeoJSON, ground-material GeoPackages) stay after a restart, however old; only the plugin's logs are pruned (30 days).
 - ☐ **Nothing dropped** — the result dialog's per-layer counts match the download (no "unreadable coordinates" warning in the plugin log), and a polygon with a hole (e.g. a courtyard) keeps it.
 
 - ☐ **The dialog stays alive during the read** — start a download and watch: the clock keeps ticking and the window repaints. It must be possible to close the dialog mid-read. (The dialog is modal, so QGIS itself is out of reach until it closes — what is being checked is that nothing is frozen, not that you can work meanwhile.)
@@ -161,7 +162,7 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 
 ## 6. Tree catalog
 
-- ☐ **Lists species** — Tree catalog shows the registry species with default height / crown (fetched on API-key save).
+- ☐ **Lists species** — Tree catalog shows the registry species with default height / crown (refreshed at plugin start).
 - ☐ **Info label** — selecting a species shows its Latin name + dimensions (Small/Medium/Large changes the dimensions).
 - ☐ **Override wiring** — a selection here is applied only when *"Use tree catalog tree type"* is ticked in Run Simulation (see §5e).
 - ☐ **Doc link** — the "vegetation input guide" link opens.

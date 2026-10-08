@@ -106,3 +106,82 @@ def test_a_second_fetch_is_numbered_in_its_own_file(saved, tmp_path, monkeypatch
 
     assert created == {"ground-concrete-2": 2}
     assert second.exists()
+
+
+# -- a download that cannot save every table (PR #51 review) -----------------
+
+TWO = {
+    "concrete": FETCHED["concrete"],
+    "water": {"type": "FeatureCollection", "features": [
+        {"type": "Feature", "properties": {},
+         "geometry": {"type": "Polygon", "coordinates": [OUTER]}},
+    ]},
+    "soil": {"type": "FeatureCollection", "features": []},
+}
+
+
+def test_a_table_that_fails_to_save_makes_the_download_incomplete(qgis_app, tmp_path, monkeypatch):
+    """A disk-full on one table used to be reported as 'Ground Materials Added'."""
+    from qgis.core import QgsProject, QgsVectorFileWriter
+
+    from infrared_city_gis.exceptions import IncompleteGroundDownload
+    from infrared_city_gis.visualization import layers
+
+    real_write = layers._write_table
+
+    def flaky(source, path, options):
+        if options.layerName == "ground-water":
+            return QgsVectorFileWriter.WriterError.ErrCreateDataSource, "disk full"
+        return real_write(source, path, options)
+
+    monkeypatch.setattr(layers, "ground_package_path", lambda: str(tmp_path / "g.gpkg"))
+    monkeypatch.setattr(layers, "_write_table", flaky)
+    try:
+        with pytest.raises(IncompleteGroundDownload) as caught:
+            layers.display_ground_materials(TWO)
+        names = {ly.name() for ly in QgsProject.instance().mapLayers().values()}
+    finally:
+        QgsProject.instance().removeAllMapLayers()
+
+    assert caught.value.created == {"ground-concrete": 2}
+    assert set(caught.value.failed) == {"ground-water"}
+    assert "disk full" in caught.value.failed["ground-water"]
+    assert names == {"ground-concrete"}, "the saved layer is kept, the failed one is not added"
+
+
+def test_an_empty_material_is_absent_not_a_failure(qgis_app, tmp_path, monkeypatch):
+    from qgis.core import QgsProject
+
+    from infrared_city_gis.visualization import layers
+
+    monkeypatch.setattr(layers, "ground_package_path", lambda: str(tmp_path / "g.gpkg"))
+    try:
+        created = layers.display_ground_materials({"soil": TWO["soil"], "water": TWO["water"]})
+    finally:
+        QgsProject.instance().removeAllMapLayers()
+
+    assert created == {"ground-water": 1}
+
+
+def test_startup_cleanup_prunes_logs_but_never_downloaded_data(qgis_app, tmp_path, monkeypatch):
+    """A month-old GeoPackage may still back a saved project (PR #51 review)."""
+    import os
+    import time
+
+    from infrared_city_gis.utils import helper
+
+    root = tmp_path / "infrared_city_gis"
+    (root / "data").mkdir(parents=True)
+    (root / "logs").mkdir()
+    old = time.time() - 40 * 86400
+    kept = root / "data" / "infrared_city_ground_materials_old.gpkg"
+    pruned = root / "logs" / "infrared_city_old.log"
+    for f in (kept, pruned):
+        f.write_text("x")
+        os.utime(f, (old, old))
+
+    monkeypatch.setattr(helper.QgsApplication, "qgisSettingsDirPath", staticmethod(lambda: str(tmp_path)))
+    helper.cleanup_old_logs()
+
+    assert kept.exists(), "downloaded data was deleted"
+    assert not pruned.exists(), "an old log was kept"
