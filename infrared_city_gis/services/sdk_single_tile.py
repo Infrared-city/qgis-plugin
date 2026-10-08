@@ -20,41 +20,46 @@ localises them via the payload's ``latitude``/``longitude`` reference point
 
 from __future__ import annotations
 
-import json
 import os
 import tempfile
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
-from infrared_sdk import InfraredClient
 from infrared_sdk.analyses.jobs import JobsServiceClient, JobStatus
-from infrared_sdk.tiling.orchestrator import _extract_grid
 from qgis.core import Qgis
 from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import QApplication, QMessageBox
 from qgis.utils import iface
 
 from ..infrared_logger import logger
-from ..visualization.display import add_geojson_then_raster
-from .area_poller import AreaRenderState
+from ..utils.client_identity import make_client
+from ..visualization.color_ramp import resolve_legend
+from ..visualization.display import add_result_raster
 from .geotiff import generate_geotiff, map_categories
 from .ground_materials import (
     collect_ground_materials,
     has_ground_material_support,
-    stamp_material_properties,
 )
 from .qgis_area_vegetation import collect_qgis_area_vegetation
+from .render_state import AreaRenderState
 from .sdk_runner import (
     _ACTIVE_POLLERS,
     _merged_grid_wgs84_bbox,
     _prepare_run,
     _retire_poller,
     _status,
-    _write_buildings_outline_geojson,
     clear_layer_selections,
 )
 from .tree_layer_picker import has_tree_support, selected_tree_layer
+from .user_errors import (
+    UserError,
+    describe_error,
+    failed_on_server,
+    push_error,
+    run_timed_out,
+    show_error_dialog,
+)
 
 # Single-tile jobs are quick; poll every 2 s with a 5-minute wall-clock cap.
 _POLL_INTERVAL_MS = 2000
@@ -63,18 +68,22 @@ _JOB_TIMEOUT_S = 300
 
 def render_single_tile_result(
     render_state: AreaRenderState, polygon: dict, area, grid,
+    api_legend: Tuple[Optional[float], Optional[float]] = (None, None),
 ) -> None:
     """Render a single-tile result grid as a GeoTIFF + raster layer in QGIS.
 
     Mirrors :func:`sdk_runner.render_area_result` but for a raw 512×512 grid
-    straight from ``_extract_grid`` (no merge/clip — the tile *is* the
-    polygon). Legend bounds come from the grid itself (the single-job path
-    has no API-supplied ``min_legend``/``max_legend``), overridden by the
-    dialog's manual legend values when set.
+    straight from the job's ``"output"`` (no merge/clip — the tile *is* the
+    polygon), including its legend precedence: the backend's recommendation
+    first, the grid's own range where it sent none, and the dialog's manual
+    values over both. This path used to skip the first tier entirely, so the
+    same scenario run as one tile and as an area produced two different colour
+    scales and could not be compared.
     """
     if grid is None or getattr(grid, "size", 0) == 0:
-        _status("InfraredCity: empty single-tile result grid",
-                level=Qgis.Warning, duration=10)
+        logger.warning("render_single_tile_result: grid is empty — nothing to render")
+        _status("InfraredCity: the simulation returned an empty result — "
+                "nothing to display", level=Qgis.Warning, duration=10)
         return
     grid = np.asarray(grid, dtype=np.float32)
 
@@ -98,43 +107,22 @@ def render_single_tile_result(
         simulation_type=str(render_state.analysis_type), criteria=sub,
     )
 
-    geojson_path = os.path.join(tmp_dir, "buildings_outline.geojson")
-    if _write_buildings_outline_geojson(area, geojson_path) is None:
-        with open(geojson_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "type": "FeatureCollection",
-                "features": [{
-                    "type": "Feature",
-                    "geometry": polygon,
-                    "properties": {"role": "tile"},
-                }],
-            }, f)
-
-    grid_min = float(np.nanmin(grid)) if np.any(~np.isnan(grid)) else None
-    grid_max = float(np.nanmax(grid)) if np.any(~np.isnan(grid)) else None
-    leg_min: Optional[float] = (
-        render_state.legend_min_override
-        if render_state.legend_min_override is not None else grid_min
-    )
-    leg_max: Optional[float] = (
-        render_state.legend_max_override
-        if render_state.legend_max_override is not None else grid_max
-    )
-    logger.info(
-        "Single-tile legend: grid=(%s, %s) override=(%s, %s) -> applied=(%s, %s)",
-        grid_min, grid_max,
-        render_state.legend_min_override, render_state.legend_max_override,
-        leg_min, leg_max,
+    finite = np.any(~np.isnan(grid))
+    leg_min, leg_max = resolve_legend(
+        render_state.analysis_type, sub,
+        run_range=api_legend,
+        grid_range=(float(np.nanmin(grid)), float(np.nanmax(grid))) if finite else (None, None),
+        overrides=(render_state.legend_min_override, render_state.legend_max_override),
     )
 
-    add_geojson_then_raster(
-        geojson_path=geojson_path,
+    add_result_raster(
         geotiff_path=geotiff_path,
         analysis_type=str(render_state.analysis_type),
         sub_analysis_type=sub,
         min_legend_value=leg_min,
         max_legend_value=leg_max,
         tile_id=None,
+        label=render_state.label,
     )
     # Drop the picked-tile selection highlight now the result raster is shown.
     clear_layer_selections()
@@ -168,7 +156,8 @@ class SingleTilePoller(QObject):
         polygon: dict,
         area,
         render_state: AreaRenderState,
-        on_render: Callable[[AreaRenderState, dict, Any, Any], None],
+        # (render_state, polygon, area, grid, *, api_legend)
+        on_render: Callable[..., None],
         poll_interval_ms: int = _POLL_INTERVAL_MS,
         timeout_s: int = _JOB_TIMEOUT_S,
         parent: Optional[QObject] = None,
@@ -199,6 +188,14 @@ class SingleTilePoller(QObject):
                 level=Qgis.Warning, duration=10)
         self.deleteLater()
 
+    def shutdown(self) -> None:
+        """Stop polling silently — for plugin unload / QGIS quit.
+
+        See :meth:`AreaPoller.shutdown`; the job continues server-side.
+        """
+        self._timer.stop()
+        self.deleteLater()
+
     def _on_tick(self) -> None:
         try:
             job = self._client.jobs.get_status(self._job.job_id)
@@ -213,53 +210,28 @@ class SingleTilePoller(QObject):
             return
         if job.status == JobStatus.failed:
             self._timer.stop()
-            self._fail(f"job failed: {job.error or '(no error message)'}")
+            server_says = job.error or "(no error message)"
+            self._fail(f"job failed: {server_says}",
+                       user=failed_on_server(server_says))
             return
 
         _status(f"InfraredCity: single tile {job.status}…", level=Qgis.Info)
 
         if self._deadline is not None and time.monotonic() > self._deadline:
             self._timer.stop()
-            self._fail(f"timed out after {self._timeout_s}s (last status={job.status})")
+            msg = f"timed out after {self._timeout_s}s (last status={job.status})"
+            self._fail(msg, user=run_timed_out(msg))
 
     def _finalize(self, job) -> None:
         try:
             download = self._client.jobs.download_results(job.job_id, _job=job)
             result = JobsServiceClient.decompress(download.content)
-            at_str = str(self._render_state.analysis_type)
-            grid_list = _extract_grid(result, at_str)
-            if at_str == "pedestrian-wind-comfort":
-                # Categorical grid — PWC Lawson classes arrive as letter
-                # strings ('A'…'E'/'S') or 0-based index strings, not
-                # numbers. Map them to the registry's 1-based class indices,
-                # same as the area path does inside generate_geotiff. JSON
-                # nulls come through as Python None (object dtype) —
-                # normalise to the "None" nodata string map_categories
-                # expects. PWC ONLY: numeric grids of other analyses can
-                # also arrive as object/string arrays (floats + None), and
-                # map_categories' numeric mode would shift those by +1.
-                raw = np.array(grid_list)
-                if raw.dtype.kind in "fiu":
-                    # Already-numeric PWC matrix — mirror generate_geotiff's
-                    # float branch: treat as mapped, no re-mapping.
-                    grid = raw.astype(np.float32)
-                else:
-                    if raw.dtype.kind == "O":
-                        raw = np.where(
-                            np.equal(raw, None), "None", raw
-                        ).astype(str)
-                    sub = (
-                        self._render_state.sub_analysis_type.value
-                        if self._render_state.sub_analysis_type is not None
-                        else None
-                    )
-                    grid, _ = map_categories(
-                        raw, analysis_type=at_str, criteria=sub,
-                    )
-            else:
-                # Numeric analyses: force float32 directly — numpy converts
-                # JSON-null Nones to NaN.
-                grid = np.array(grid_list, dtype=np.float32)
+            grid = grid_from_result(
+                result,
+                self._render_state.analysis_type,
+                self._render_state.sub_analysis_type,
+            )
+            api_legend = legend_from_result(result)
         except Exception as e:
             self._fail(f"download/extract failed: {e}", exc=e)
             return
@@ -267,25 +239,103 @@ class SingleTilePoller(QObject):
         logger.info("SingleTilePoller: job %s succeeded, grid shape=%s",
                     job.job_id, grid.shape)
         try:
-            self._on_render(self._render_state, self._polygon, self._area, grid)
+            self._on_render(
+                self._render_state, self._polygon, self._area, grid,
+                api_legend=api_legend,
+            )
         except Exception as e:
             logger.error("SingleTilePoller: render failed: %s", e, exc_info=True)
-            _status(f"InfraredCity: render failed — {str(e)[:120]}",
-                    level=Qgis.Critical, duration=15)
+            push_error("Displaying the single-tile result", describe_error(e))
 
         self.finished.emit(grid)
         self.deleteLater()
 
-    def _fail(self, msg: str, *, exc: Optional[Exception] = None) -> None:
+    def _fail(
+        self, msg: str, *, exc: Optional[Exception] = None,
+        user: Optional[UserError] = None,
+    ) -> None:
+        """Log *msg* (developer text); show *user*, or *exc* translated."""
         if exc is not None:
             logger.error("SingleTilePoller: %s", msg, exc_info=True)
         else:
             logger.error("SingleTilePoller: %s", msg)
-        _status(f"InfraredCity: single-tile run failed — {msg[:120]}",
-                level=Qgis.Critical, duration=15)
+        if user is None:
+            user = describe_error(exc) if exc is not None else failed_on_server(msg)
+        push_error("Single-tile simulation", user)
         self._timer.stop()
         self.failed.emit(msg)
         self.deleteLater()
+
+
+def legend_from_result(result: dict) -> Tuple[Optional[float], Optional[float]]:
+    """The display legend the backend recommends for this tile, if it sent one.
+
+    The area path gets this for free — the SDK aggregates it across tiles onto
+    ``AreaResult.min_legend`` / ``max_legend``. A single job is downloaded and
+    extracted here instead, so the same keys have to be read by hand or the two
+    paths legend the same data differently and stop being comparable.
+
+    Wire keys are KEBAB (``min-legend`` / ``max-legend``); camelCase is accepted
+    as the same defensive fallback the SDK keeps in
+    ``_area/_merge_common.append_legends``. A legend that silently goes missing
+    is the failure this guards, so a spare spelling is cheap insurance.
+
+    Note this is a DISPLAY recommendation, not the data range: it can be
+    narrower than the grid, which is why the ramp opens its top band upwards
+    (see visualization/color_ramp).
+    """
+    def _read(*keys):
+        for key in keys:
+            if key in result:
+                value = result[key]
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    return float(value)
+        return None
+
+    return _read("min-legend", "minLegend"), _read("max-legend", "maxLegend")
+
+
+def grid_from_result(
+    result: dict,
+    analysis_type: Any,
+    sub_analysis_type: Optional[Any] = None,
+) -> np.ndarray:
+    """Turn a decompressed single-tile job result into the grid the renderer draws.
+
+    Kept separate from the poller so the e2e tests can compare a real run's grid
+    against a baseline without reimplementing the PWC category mapping — that
+    mapping is exactly the kind of logic a test copy would silently drift from.
+    """
+    at_str = str(analysis_type)
+    # JobsServiceClient normalises every result to {"output": grid}, int16
+    # divisor already applied. (SDK 1.0 removed its private _extract_grid.)
+    if "output" not in result:
+        raise KeyError(f"no grid in {at_str} result; keys: {sorted(result)}")
+    grid_list = result["output"]
+
+    if at_str != "pedestrian-wind-comfort":
+        # Numeric analyses: force float32 directly — numpy converts JSON-null
+        # Nones to NaN.
+        return np.array(grid_list, dtype=np.float32)
+
+    # Categorical grid — PWC Lawson classes arrive as letter strings ('A'…'E'/'S')
+    # or 0-based index strings, not numbers. Map them to the registry's 1-based
+    # class indices, same as the area path does inside generate_geotiff. JSON
+    # nulls come through as Python None (object dtype) — normalise to the "None"
+    # nodata string map_categories expects. PWC ONLY: numeric grids of other
+    # analyses can also arrive as object/string arrays (floats + None), and
+    # map_categories' numeric mode would shift those by +1.
+    raw = np.array(grid_list)
+    if raw.dtype.kind in "fiu":
+        # Already-numeric PWC matrix — mirror generate_geotiff's float branch:
+        # treat as mapped, no re-mapping.
+        return raw.astype(np.float32)
+
+    if raw.dtype.kind == "O":
+        raw = np.where(np.equal(raw, None), "None", raw).astype(str)
+    sub = sub_analysis_type.value if sub_analysis_type is not None else None
+    grid, _ = map_categories(raw, analysis_type=at_str, criteria=sub)
+    return grid
 
 
 def _single_tile_geometries(area) -> dict:
@@ -368,37 +418,24 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
     # Every feature must carry a properties.material stamp: run_area's tile
     # assignment would add it, but analyses.execute sends the payload as-is
     # and the Lambda's emissivity lookup needs it. The collector stamps its
-    # own output; auto-fetched layers are stamped here.
+    # own output. Nothing is fetched at submit (#47; see sdk_runner).
     ground_materials: Optional[dict] = None
     if has_ground_material_support(dlg.analysis_type):
-        if getattr(dlg, "use_infrared_ground_materials", False):
-            _status("InfraredCity: fetching ground materials for the tile…")
+        try:
+            gm_layers = dlg.selected_ground_material_layers()
+        except AttributeError:
+            gm_layers = {}
+        if gm_layers:
             try:
-                with InfraredClient(api_key=dlg.api_key) as gm_client:
-                    area_gm = gm_client.ground_materials.get_area(polygon)
-                if area_gm.layers:
-                    ground_materials = stamp_material_properties(area_gm.layers)
+                ground_materials = (
+                    collect_ground_materials(polygon, gm_layers) or None
+                )
             except Exception as e:
                 logger.warning(
-                    "Single-tile: ground materials auto-fetch failed — "
-                    "running without: %s", e, exc_info=True,
+                    "Single-tile: ground material collection failed: %s",
+                    e, exc_info=True,
                 )
-        else:
-            try:
-                gm_layers = dlg.selected_ground_material_layers()
-            except AttributeError:
-                gm_layers = {}
-            if gm_layers:
-                try:
-                    ground_materials = (
-                        collect_ground_materials(polygon, gm_layers) or None
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "Single-tile: ground material collection failed: %s",
-                        e, exc_info=True,
-                    )
-                    ground_materials = None
+                ground_materials = None
     if ground_materials:
         payload = payload.model_copy(
             update={"ground_materials": ground_materials}, deep=True,
@@ -414,19 +451,15 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
     render_state = AreaRenderState.from_dialog(dlg)
     parent = iface.mainWindow() if iface is not None else None
 
-    client = InfraredClient(api_key=dlg.api_key)
+    client = make_client(dlg.api_key)
     _status("InfraredCity: submitting single-tile job…")
     try:
         job = client.analyses.execute(payload=payload)
     except Exception as e:
         logger.error("Single-tile execute() failed: %s", e, exc_info=True)
-        _status(f"InfraredCity: single-tile submit failed — {str(e)[:120]}",
+        _status("InfraredCity: single-tile submission failed",
                 level=Qgis.Critical, duration=15)
-        QMessageBox.critical(
-            dlg, "Simulation Error",
-            f"Single-tile submission failed.\n\n{e}\n\n"
-            "Check the plugin log for details.",
-        )
+        show_error_dialog(dlg, "Single-tile submission", e)
         return None
 
     logger.info("Single-tile job submitted: %s", job.job_id)

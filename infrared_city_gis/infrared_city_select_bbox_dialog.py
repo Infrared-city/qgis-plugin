@@ -47,7 +47,6 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
         except Exception:
             self.btn_select.clicked.connect(self.on_select_clicked)
 
-        # 🔹 Ezek lesznek az adatok, amiket a plugin olvas majd
         self.geojson_path = None
         self.dotbim_path = None
         self.bbox = None
@@ -68,7 +67,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
         self.map_tool = QgsMapToolEmitPoint(canvas)
         self.map_tool.canvasClicked.connect(self._on_map_clicked)
         canvas.setMapTool(self.map_tool)
-        iface.messageBar().pushMessage("InfraredCity", "Click on the map to choose bbox center.", level=0)
+        iface.messageBar().pushMessage("InfraredCity", "Click on the map to choose bbox center.", level=Qgis.Info)
 
     def _on_map_clicked(self, point, button):
         logger.info("Map clicked at: %.6f, %.6f", point.x(), point.y())
@@ -99,8 +98,14 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
             try:
                 lonlat = transform_to_wgs84.transform(point)
             except Exception as e:
-                iface.messageBar().pushMessage("InfraredCity", f"Transform failed: {e}", level=3)
-                logger.error("Transform to WGS84 failed: %s", e)
+                logger.error("Transform to WGS84 failed: %s", e, exc_info=True)
+                iface.messageBar().pushMessage(
+                    "InfraredCity",
+                    "Could not convert the clicked point to WGS84 — check that "
+                    "the project has a valid coordinate reference system.",
+                    f"Details: {e}",
+                    level=Qgis.Critical,
+                )
                 return
 
             center_lon, center_lat = lonlat.x(), lonlat.y()
@@ -111,8 +116,13 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 xmin, ymin, xmax, ymax = get_bbox(center_lon, center_lat, 512)
                 bbox_rect_wgs84 = QgsRectangle(xmin, ymin, xmax, ymax)
             except Exception as e:
-                iface.messageBar().pushMessage("InfraredCity", f"get_bbox failed: {e}", level=3)
-                logger.error("get_bbox failed: %s", e)
+                logger.error("get_bbox failed: %s", e, exc_info=True)
+                iface.messageBar().pushMessage(
+                    "InfraredCity",
+                    "Could not build a 512×512 m tile around the clicked point.",
+                    f"Details: {e}",
+                    level=Qgis.Critical,
+                )
                 return
 
             # --- Pick a buildings reference layer.
@@ -133,7 +143,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                     iface.messageBar().pushMessage(
                         "InfraredCity",
                         "No polygon vector layer found. Add a buildings layer to the project first.",
-                        level=2,
+                        level=Qgis.Critical,
                     )
                     logger.error("No polygon vector layer in project.")
                     return
@@ -143,7 +153,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                         "InfraredCity",
                         f"Multiple polygon layers found. Click the buildings layer in the Layers panel "
                         f"to make it active, then try again. Currently active: '{active_name}'.",
-                        level=1,
+                        level=Qgis.Warning,
                         duration=8,
                     )
                     logger.warning(
@@ -196,11 +206,13 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 )
                 return
 
-            # --- Store the 512×512 m tile as a one-shot single-tile selection
-            # (ArcGIS-style). No dotbim/geojson export here — the Run
-            # Simulation dialog consumes this selection, collects buildings
-            # from the active QGIS layer at run time, and submits ONE tile via
-            # analyses.execute (≈10 tokens) instead of the area tiler.
+            # --- Arm single-tile mode with this 512×512 m box.
+            #
+            # The BOX is what is stored, not the buildings it highlighted.
+            # `selectByRect` takes whole features, so a building straddling an
+            # edge pulls the selection's convex hull past the box — measured at
+            # 617 × 586 m for a 512 m pick, which the area tiler charges NINE
+            # jobs for. The run needs the box itself to submit ONE.
             w = bbox_rect_wgs84.xMinimum()
             s = bbox_rect_wgs84.yMinimum()
             e = bbox_rect_wgs84.xMaximum()
@@ -223,12 +235,19 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
                 "InfraredCity",
                 f"512×512 m tile selected ({count} buildings). "
                 "Open 'Run simulation' to run it.",
-                level=0,
+                level=Qgis.Info,
                 duration=8,
             )
 
         except Exception as e:
-            logger.error("Failed to select features: %s", e)
+            logger.error("Failed to select features: %s", e, exc_info=True)
+            # Without a notice the click just does nothing visible.
+            iface.messageBar().pushMessage(
+                "InfraredCity",
+                "Selecting the tile failed — please click on the map again.",
+                f"Details: {e}",
+                level=Qgis.Critical,
+            )
             return
 
         self.accept()
@@ -244,7 +263,7 @@ class InfraredCitySelectBBoxDialog(QtWidgets.QDialog, FORM_CLASS):
             if self.prev_map_tool:
                 iface.mapCanvas().setMapTool(self.prev_map_tool)
         except Exception as e:
-            logger.error("Failed to restore map tool: %s", e)
+            logger.error("Failed to restore map tool: %s", e, exc_info=True)
 
         self._clear_rubber()
         super().closeEvent(event)

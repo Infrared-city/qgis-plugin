@@ -1,7 +1,10 @@
 numpy>=1.23.0
 mapbox_earcut>=1.0.0
 structlog>=24.0.0
-# EXACT pin: the bootstrap installs the newest match on a fresh install, and
-# infrared-sdk 1.0.0 removed tiling.orchestrator._extract_grid, which this
-# release imports at load time.
-infrared-sdk==0.5.3
+# [geodata] (pyarrow + shapely) is required from 0.9.0 on: ground_materials.get_area
+# reads Overture parquet in-process instead of calling the utilities service.
+# EXACT pin, never >=: the bootstrap installs the newest match on a fresh
+# install, so a floor hands users an SDK this plugin was never tested with
+# (released v1.1.3 had >=0.4.11 and stopped loading the day 1.0.0 shipped).
+# A new SDK reaches users only through a new plugin release.
+infrared-sdk[geodata]==1.0.0

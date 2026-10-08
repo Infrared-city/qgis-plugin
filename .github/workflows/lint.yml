@@ -1,35 +1,96 @@
+# LINT — every gate the plugin ZIP must pass, on every pull request.
+#
+# Pull requests only, not every push. This used to run on `push` to every
+# branch AND on `pull_request`, so one commit on a PR branch ran it twice, and
+# every WIP push to a branch nobody had opened a PR for burned runner minutes
+# as well. The PR is where the result is read; before that,
+# scripts/preflight.sh runs the same commands locally (it mirrors this file
+# command for command — change both together). `workflow_dispatch` runs it on
+# any branch by hand.
+#
+# NO `paths:` FILTER, deliberately (same reasoning as infrared-core's
+# python-lint.yml): a check skipped by a path filter leaves a PR blocked on
+# "Expected" forever the day it is made required. It is cheap enough not to
+# need scoping.
+#
+# `merge_group` is dormant — merge queues need a paid plan — but listed so the
+# check names below are satisfiable there the day queues turn on.
+#
+# The release workflows (release-please.yml, release.yml) keep their own
+# triggers; release.yml re-runs the security scanners on the tagged commit.
 name: Lint
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
+  merge_group:
+  workflow_dispatch:
 
+concurrency:
+  group: lint-${{ github.ref }}
+  # Supersede an outdated PR build; never cancel a merge_group run — a
+  # cancelled run reports back to the queue as a FAILED check and ejects the
+  # entry it was validating.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Least-privilege: read-only, and no job widens it. Nothing here writes,
+# publishes, or uploads.
 permissions:
   contents: read
 
+# RUNNERS: every job is on GitHub-hosted `ubuntu-latest`, not the org's
+# `[self-hosted, azure-aca]` default (ir-dev:conventions ci-runners.md). That
+# pool only scales up for repos on its KEDA scaler list (and readable by its
+# PAT); this repo has never run there, and a job pointed at it without that
+# wiring runs only while another repo keeps the pool warm and hangs otherwise.
+# Moving is: check the list, add the repo (and the PAT allowlist), prove a
+# cold scale-up, then flip `runs-on`. Until then: four ~1-minute jobs per PR.
+# Per-job reasons that would keep a job hosted even then are noted on the job.
+#
+# TOOL VERSIONS are pinned exactly, like ruff below: an unpinned scanner or
+# linter adds rules on its own schedule and fails a PR that changed nothing.
+# Bump them on purpose, together with scripts/preflight.sh's expectations.
+
 jobs:
   ruff:
+    # ubuntu-latest: the checksum below names ONE (x86_64) artifact, and a
+    # job that downloads and runs a third-party binary belongs on an ephemeral
+    # GitHub-hosted runner, not a shared self-hosted pool.
     runs-on: ubuntu-latest
+    env:
+      # The exact version, never a range or the action's default — an unpinned
+      # ruff picks up new rules on its own schedule and fails a PR that changed
+      # nothing. Re-pin the checksum below whenever this moves.
+      RUFF_VERSION: "0.16.9"
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/ruff-action@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # SHA-pinned: a tag is mutable, and this is third-party code running in
+      # the repo's context. `checksum:` is not belt-and-braces: the action SHA
+      # pins its JavaScript, not the binary it downloads, and at this SHA the
+      # action's own checksum table stops at ruff 0.15.20, so without this line
+      # verification silently no-ops (infrared-core python-lint.yml has the
+      # full story). Value: the sha256 published on the GitHub Release for
+      # 0.16.9 ruff-x86_64-unknown-linux-gnu.tar.gz, verified by download.
+      - uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89 # v4.1.0
         with:
-          args: check infrared_city_gis/
+          version: ${{ env.RUFF_VERSION }}
+          checksum: "1bfbb819b5d4f9af501748862276b60e412d336034d99387691a4d4bce7a6f13"
+          args: check
+          src: infrared_city_gis/
 
   # plugins.qgis.org scans every upload with bandit + detect-secrets and blocks
   # on findings, which is a slow way to learn about them: the ZIP is already
   # built, tagged and released by then. Same scanners, same scope (only what
   # actually ships — tests/ and test/ are excluded from the release ZIP), run on
-  # push instead. See docs/battle-scars.md for the findings this first caught.
+  # every PR instead. See docs/battle-scars.md for the findings this first caught.
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: pip install bandit detect-secrets
+      # Pinned (see TOOL VERSIONS above): the versions last checked clean.
+      - run: pip install bandit==1.9.4 detect-secrets==1.5.0
 
       # Justified findings are marked with `# nosec <CODE> - <reason>` at the
       # call site; a bare `# nosec` is not accepted in review.
@@ -45,8 +106,8 @@ jobs:
           bandit -r infrared_city_gis/ \
             -x infrared_city_gis/tests,infrared_city_gis/test,infrared_city_gis/thirdparty,infrared_city_gis/venv,infrared_city_gis/.venv
 
-      # Honours `# pragma: allowlist secret` for false positives such as the
-      # X-Api-Key HEADER NAME in client.py.
+      # Honours `# pragma: allowlist secret` for a false positive. None is
+      # needed today: the `x-api-key` header NAME alone is not flagged.
       - name: detect-secrets
         run: |
           git ls-files -z 'infrared_city_gis/*' \
@@ -62,16 +123,46 @@ jobs:
             | grep -Ei '\.(exe|dll|so|dylib|sh|bat|cmd|ps1)$' || true)
           if [ -n "$found" ]; then
             echo "Suspicious files would ship in the plugin ZIP:"
-            echo "$found"
+            printf '%s\n' "$found"
             exit 1
           fi
 
   flake8:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: pip install flake8
+      - run: pip install flake8==7.4.1
       - run: flake8 infrared_city_gis/
+
+  # Qt6 removed every unscoped enum member and moved some classes between
+  # modules. Those accesses sit inside functions, so neither a linter nor an
+  # import smoke test touches them — they fail only when a user opens the
+  # dialog. Resolving them against a real PyQt6 catches them on the PR.
+  # Qt names only; QGIS classes need a QGIS install (the script reports them
+  # as uncovered). See docs/battle-scars.md for the full local check.
+  qt6-names:
+    # Stays hosted even once the repo is on the pool: the step below needs
+    # `sudo apt-get`, and `sudo` can never work on the pool (no_new_privileges).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      # PyQt6's QtGui links against EGL/OpenGL, so even *importing* it fails on
+      # a bare runner with "libEGL.so.1: cannot open shared object file". The
+      # script only reads attributes — it never constructs a QApplication — but
+      # the dynamic linker still needs these present at import time.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libdbus-1-3 libxkbcommon0
+      # 6.11.0 is the PyQt6 that QGIS 4.2 ships, so names resolve against the
+      # binding users actually run. Bump with the QGIS 4 release you test on.
+      - run: pip install PyQt6==6.11.0
+      - run: python scripts/check_qt6_names.py infrared_city_gis
+        env:
+          QT_QPA_PLATFORM: offscreen

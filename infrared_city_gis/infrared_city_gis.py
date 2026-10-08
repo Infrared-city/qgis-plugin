@@ -23,11 +23,12 @@
 """
 import os.path
 
-from qgis.core import Qgis
+from qgis.core import Qgis, QgsApplication
 from qgis.PyQt.QtCore import QCoreApplication, QSettings, QTranslator
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
+from .constants import SUPPORT_EMAIL
 from .exceptions import InfraredAPIError
 
 # Import the code for the dialog
@@ -42,11 +43,27 @@ from .infrared_city_save_auth import InfraredCitySaveAuthDialog
 from .infrared_city_select_bbox_dialog import InfraredCitySelectBBoxDialog
 from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
 from .infrared_logger import logger
-
-# Initialize Qt resources from file resources.py
-from .resources import *  # noqa: F401,F403
-from .services.fetch_from_registry import _load_api_key, fetch_from_registry
+from .services import single_tile_selection
+from .services.fetch_from_registry import fetch_from_registry
+from .services.key_check import verify_api_key
+from .services.sdk_runner import clear_layer_selections
+from .services.secret_manager import get_api_key
 from .utils.helper import cleanup_old_data
+
+_ICON_DIR = os.path.join(os.path.dirname(__file__), 'icons')
+
+
+def _icon(name: str) -> str:
+    """File system path to a bundled icon.
+
+    Icons used to be addressed through Qt resource paths
+    (``:/plugins/infrared_city_gis/icons/...``) backed by a ``pyrcc5``-compiled
+    ``resources.py``. PyQt6 ships no resource compiler, so that module could
+    not be rebuilt for QGIS 4 — and importing it pulled in ``PyQt5`` directly,
+    which fails outright there. ``QIcon`` takes a plain path just as happily,
+    on both Qt5 and Qt6, and a new icon needs no build step.
+    """
+    return os.path.join(_ICON_DIR, name)
 
 
 class InfraredCityGIS:
@@ -88,25 +105,36 @@ class InfraredCityGIS:
         # cleanup old data
         cleanup_old_data()
 
-        # Refresh the model registry (visualConfigurations) on startup so that
-        # colormaps reflect the latest server-side definitions. Only runs if
-        # the user has already saved an API key; otherwise skipped silently
-        # and will run later on save / on demand.
+        # Refresh the registries on startup so that colormaps, the tree catalog
+        # and the ground-material palette reflect the latest published
+        # definitions. The documents are public, so this runs whether or not a
+        # key is saved — on a fresh install the plugin is fully styled before
+        # the user has one. Failure is silent by design: the on-disk copies
+        # from the previous run keep the plugin working offline.
+        try:
+            _ = fetch_from_registry()
+        except Exception as e:
+            logger.warning("Startup registry refresh failed: %s", e)
+
+        # Separately, check the SAVED key. A 401/403 means the server rejected
+        # it and initGui() greys out every action except "Save API Key".
+        # Transient failures (offline, 5xx) do NOT flag the key — an outage
+        # must not lock the user out of the plugin.
         #
-        # The call doubles as a key check: a 401/403 here means the SAVED key
-        # was rejected by the server, and initGui() greys out every action
-        # except "Save API Key". Transient failures (offline, 5xx) do NOT
-        # flag the key — an outage must not lock the user out of the plugin.
+        # This used to be a side effect of the registry refresh above, back
+        # when the registries came from the utilities service with the key
+        # attached. The public mirror cannot reject a key, so the check is now
+        # its own call (services.key_check).
         self._saved_key_rejected = False
-        if _load_api_key():
+        if get_api_key():
             try:
-                _ = fetch_from_registry()
+                verify_api_key(get_api_key())
             except InfraredAPIError as e:
                 if e.status_code in (401, 403):
                     self._saved_key_rejected = True
-                logger.warning("Startup registry refresh failed: %s", e)
+                logger.warning("Startup API key check failed: %s", e)
             except Exception as e:
-                logger.warning("Startup registry refresh failed: %s", e)
+                logger.warning("Startup API key check failed: %s", e)
 
     # noinspection PyMethodMayBeStatic
 
@@ -135,11 +163,14 @@ class InfraredCityGIS:
         status_tip=None,
         whats_this=None,
         parent=None,
+        checkable=False,
     ):
         """Add a toolbar icon to the toolbar.
 
-        :param icon_path: Path to the icon for this action. Can be a resource
-            path (e.g. ':/plugins/foo/bar.png') or a normal file system path.
+        :param icon_path: File system path to the icon for this action — see
+            :func:`_icon`. Qt resource paths (``:/plugins/...``) are no longer
+            used; the compiled resource module they needed cannot be rebuilt
+            for Qt6.
         :type icon_path: str
 
         :param text: Text that should be shown in menu items for this action.
@@ -167,6 +198,10 @@ class InfraredCityGIS:
         :param parent: Parent widget for the new action. Defaults None.
         :type parent: QWidget
 
+        :param checkable: Make the action a toggle. The caller owns the checked
+            state — ``add_action`` never sets it.
+        :type checkable: bool
+
         :param whats_this: Optional text to show in the status bar when the
             mouse pointer hovers over the action.
 
@@ -177,7 +212,11 @@ class InfraredCityGIS:
 
         icon = QIcon(icon_path)
         action = QAction(icon, text, parent)
-        action.triggered.connect(callback)
+        action.setCheckable(checkable)
+        # Qt applies the new checked state BEFORE emitting, so the argument
+        # describes the click, not the outcome. Every callback here re-derives
+        # the state from what it owns, so it is dropped rather than trusted.
+        action.triggered.connect(lambda _checked=False: callback())
         action.setEnabled(enabled_flag)
 
         if status_tip is not None:
@@ -202,17 +241,12 @@ class InfraredCityGIS:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
-        save_auth_icon_path = ':/plugins/infrared_city_gis/icons/login.png'
-        fetch_geometry_icon_path = ':/plugins/infrared_city_gis/icons/get_geometry.png'
-        select_bbox_icon_path = ':/plugins/infrared_city_gis/icons/select_area.png'
-        tree_icon_path = ':/plugins/infrared_city_gis/icons/tree.svg'
-        run_multiple_icon_path = ':/plugins/infrared_city_gis/icons/run_multiple.svg'
-        # Loaded from disk, not the compiled resource file — adding a file to
-        # resources.qrc requires a pyrcc5 recompile, which QIcon(file path)
-        # sidesteps entirely.
-        ground_materials_icon_path = os.path.join(
-            os.path.dirname(__file__), 'icons', 'ground_materials.png'
-        )
+        save_auth_icon_path = _icon('login.png')
+        fetch_geometry_icon_path = _icon('get_geometry.png')
+        select_bbox_icon_path = _icon('select_area.png')
+        tree_icon_path = _icon('tree.svg')
+        run_multiple_icon_path = _icon('run_multiple.svg')
+        ground_materials_icon_path = _icon('ground_materials.png')
 
         # Kept as an attribute: this is the one action that must stay
         # enabled when the API key is missing or rejected (see
@@ -226,23 +260,40 @@ class InfraredCityGIS:
 
         self.add_action(
             fetch_geometry_icon_path,
-            text=self.tr(u'Fetch building geometry'),
+            text=self.tr(u'Download building geometry'),
             callback=self.fetch_geometry,
             parent=self.iface.mainWindow())
 
         self.add_action(
             ground_materials_icon_path,
-            text=self.tr(u'Fetch ground materials'),
+            text=self.tr(u'Download ground materials'),
             callback=self.fetch_ground_materials,
             parent=self.iface.mainWindow()
         )
 
-        self.add_action(
+        # A TOGGLE. Pressed means a 512 m box is armed and the next run is a
+        # single job; the mode ends when a simulation is submitted, which
+        # releases the button and the map selection together. The button is
+        # DERIVED from services.single_tile_selection rather than tracked
+        # alongside it — the two drifting apart is what made an armed tile
+        # invisible and let a forgotten pick shrink a later fetch.
+        self.select_tile_action = self.add_action(
             select_bbox_icon_path,
             text=self.tr(u'Select tile'),
             callback=self.select_bbox,
-            parent=self.iface.mainWindow()
+            parent=self.iface.mainWindow(),
+            checkable=True,
         )
+        single_tile_selection.subscribe(self._sync_single_tile_action)
+        self._sync_single_tile_action()
+
+        # See _finalize_arrow_s3: pyarrow's own atexit hook never runs under
+        # QGIS, so the one chance to shut its S3 stack down cleanly is this
+        # signal.
+        try:
+            QgsApplication.instance().aboutToQuit.connect(self._finalize_arrow_s3)
+        except Exception as e:  # noqa: BLE001 - never block initGui
+            logger.warning("could not hook Arrow S3 finalization: %s", e)
 
         self.add_action(
             tree_icon_path,
@@ -269,15 +320,15 @@ class InfraredCityGIS:
         # (see InfraredCitySaveAuthDialog.accept); an ALREADY-saved key is
         # only locked out on a confirmed 401/403 from the startup registry
         # check above — a mere outage keeps the plugin usable.
-        if not _load_api_key():
+        if not get_api_key():
             self._set_authed_actions_enabled(False)
         elif self._saved_key_rejected:
             self._set_authed_actions_enabled(False)
             self.iface.messageBar().pushWarning(
                 "InfraredCity",
-                "Your saved API key was rejected by the Infrared server. "
+                "Your saved API key was rejected by the Infrared City server. "
                 "Update it via 'Save API Key'. If you believe the key is "
-                "correct, please contact us at connectors@infrared.city.",
+                f"correct, please contact us at {SUPPORT_EMAIL}.",
             )
 
     def _set_authed_actions_enabled(self, enabled):
@@ -299,8 +350,66 @@ class InfraredCityGIS:
             # QAction's default tooltip is its text; restore that on enable.
             action.setToolTip(action.text() if enabled else why_disabled)
 
+    def _finalize_arrow_s3(self):
+        """Shut Arrow's S3 subsystem down before the process tears itself down.
+
+        pyarrow reads Overture from S3 for ground materials, and its AWS event
+        loop must be finalized before static destructors run. It registers its
+        own ``atexit`` hook for exactly this, but QGIS's embedded interpreter
+        never runs it: the app exits without finalizing Python, so the AWS
+        event-loop cleanup thread ends up calling a logger the C++ side has
+        already destroyed — SIGSEGV in ``s_aws_logger_redirect_get_log_level``,
+        on quit, after a fetch. Same family as the Qt SSL crash below.
+
+        Bound to ``aboutToQuit`` rather than done in :meth:`unload`, because
+        S3 CANNOT be re-initialised once finalized ("Attempt to initialize S3
+        after it has been finalized"). ``unload`` also runs on a plugin reload,
+        which would leave ground materials broken for the rest of the session;
+        ``aboutToQuit`` fires only on a real exit.
+        """
+        try:
+            from pyarrow.fs import ensure_s3_finalized
+        except Exception:  # noqa: BLE001 - no pyarrow, nothing to finalize
+            return
+        try:
+            ensure_s3_finalized()
+            logger.debug("Arrow S3 finalized before quit")
+        except Exception as e:  # noqa: BLE001 - teardown must not raise
+            logger.warning("could not finalize Arrow S3: %s", e)
+
     def unload(self):
-        """Removes the plugin menu item and icon from QGIS GUI."""
+        """Remove the plugin's menu items and toolbar icons, and stop polling.
+
+        Stopping the pollers is the part that matters on **quit**: QGIS tears
+        the Qt and network stacks down while static destructors run, and a
+        poller still ticking can open an HTTPS connection mid-teardown —
+        observed as a SIGSEGV in Qt's own SSL cleanup
+        (``QSslConfigurationPrivate::deepCopyDefaultConfiguration`` on the
+        QNetworkAccessManager thread). Submitted jobs continue server-side, so
+        nothing is lost by stopping.
+        """
+        from .services.sdk_runner import _ACTIVE_POLLERS
+
+        for poller in list(_ACTIVE_POLLERS):
+            try:
+                poller.shutdown()
+            except Exception as e:  # never let teardown fail on a dead C++ object
+                logger.warning("unload: could not stop poller: %s", e)
+        _ACTIVE_POLLERS.clear()
+
+        # Module-level state outlives the plugin object on a reload.
+        single_tile_selection.clear()
+
+        # A reload would otherwise connect a second time, and the old plugin
+        # object would be kept alive by the connection.
+        try:
+            QgsApplication.instance().aboutToQuit.disconnect(self._finalize_arrow_s3)
+        except Exception as e:  # noqa: BLE001 - not connected, or already gone
+            # Expected on a first unload or a torn-down application; logged
+            # rather than swallowed, so a teardown that fails for some OTHER
+            # reason leaves a trace instead of vanishing.
+            logger.debug("aboutToQuit was not connected: %s", e)
+
         for action in self.actions:
             self.iface.removePluginMenu(
                 self.tr(u'&infrared.city GIS'),
@@ -319,22 +428,55 @@ class InfraredCityGIS:
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
 
         if result:
             logger.info("Multiple simulations dialog closed successfully")
         else:
             logger.info("Multiple simulations dialog cancelled")
 
+    def _sync_single_tile_action(self):
+        """Make the toolbar toggle show whether a tile is armed.
+
+        Registered with ``single_tile_selection.subscribe``, so whatever
+        disarms — a submitted simulation, an API-key save, plugin unload —
+        moves the button without needing to know it exists.
+        """
+        action = getattr(self, "select_tile_action", None)
+        if action is None:
+            return
+        try:
+            action.setChecked(single_tile_selection.is_armed())
+        except RuntimeError as e:
+            # The C++ QAction can already be gone during teardown.
+            logger.debug("could not sync the single-tile toggle: %s", e)
+
     def select_bbox(self):
-        """Run method that performs all the real work"""
+        """Arm single-tile mode by picking a 512 m tile, or release it.
+
+        Pressed, the next run is ONE job on that box. Releasing it, or
+        submitting a simulation, returns to area mode driven by the QGIS
+        feature selection.
+        """
+        if single_tile_selection.is_armed():
+            single_tile_selection.clear()
+            clear_layer_selections()
+            logger.info("Single-tile mode released")
+            self.iface.messageBar().pushMessage(
+                "InfraredCity",
+                "Single-tile mode off. Simulations and ground-material "
+                "downloads now follow your QGIS feature selection.",
+                level=Qgis.Info,
+                duration=6,
+            )
+            return
 
         self.dlg = InfraredCitySelectBBoxDialog()
 
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
 
         if result:
 
@@ -345,7 +487,12 @@ class InfraredCityGIS:
 
             logger.info("BBox selected successfully")
         else:
-            logger.error("BBox selection cancelled")
+            logger.info("BBox selection cancelled")
+
+        # Read the outcome back from the armed state, not from `result`: a
+        # dialog closed after an empty-tile rejection also returns falsy, and
+        # both cases must leave the toggle released.
+        self._sync_single_tile_action()
 
         # When the modal dialog closes, Qt hands keyboard focus back to the
         # toolbar button that opened it, which macOS draws as a lingering
@@ -363,7 +510,7 @@ class InfraredCityGIS:
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
 
         if result:
             logger.info("Tree type selected successfully")
@@ -380,13 +527,16 @@ class InfraredCityGIS:
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
 
         if result:
             # accept() only fires after the key was verified against the
             # server AND saved — unlock the rest of the toolbar.
             self._saved_key_rejected = False
             self._set_authed_actions_enabled(True)
+            # A tile picked against the previous account's data must not carry
+            # into a new one.
+            single_tile_selection.clear()
             logger.info("API key save dialog closed successfully (verified)")
         else:
             logger.info("API key save dialog cancelled")
@@ -401,7 +551,7 @@ class InfraredCityGIS:
             logger.info("Ground materials dialog: preconditions not met")
             return
 
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
         if result:
             logger.info(
                 "Ground materials fetched: %s",
@@ -417,7 +567,7 @@ class InfraredCityGIS:
         # show the dialog
         self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        result = self.dlg.exec()
         # See if OK was pressed
         if result:  # OK was pressed
             self.last_geojson_path = getattr(self.dlg, "geojson_path", None)
@@ -427,13 +577,14 @@ class InfraredCityGIS:
             if self.last_geojson_path and self.bbox:
                 self.iface.messageBar().pushMessage(
                     "InfraredCity",
-                    f"Fetched geometry saved to: {self.last_geojson_path} \n"
+                    f"Downloaded geometry saved to: {self.last_geojson_path} \n"
                     f"with bbox: {self.bbox}",
                     level=Qgis.Info,
                     duration=5
                 )
             else:
+                logger.warning("Fetch geometry dialog accepted without a file or bbox")
                 self.iface.messageBar().pushWarning(
                     "InfraredCity",
-                    "No file path returned from fetch dialog."
+                    "No building geometry was loaded. Please try the download again."
                 )

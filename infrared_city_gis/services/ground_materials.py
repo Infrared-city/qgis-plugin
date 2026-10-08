@@ -7,7 +7,8 @@ The SDK/backend contract (see docs/ground-materials.md):
   the material identity — the server's emissivity table is looked up by name,
   so features are never merged across materials.
 * Material names come from the materials registry
-  (``GET /v2/utils/registry/materials`` → ``settings/materials_registry.json``);
+  (``registry.infrared.city/materials/latest.json`` →
+  ``settings/materials_registry.json``);
   the SDK only WARNS on names it doesn't know, so a registry-driven list stays
   forward-compatible when the backend adds materials. When the registry is
   missing we fall back to the canonical five.
@@ -29,6 +30,7 @@ layers.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from typing import Dict, List, Optional, Tuple
@@ -325,22 +327,51 @@ def validate_ground_material_layers(
     return counts
 
 
+#: Metres per degree of latitude on the SDK's spherical earth (radius 6 371 000 m,
+#: ``cleaning_extent``), so the envelope converts the SDK's metres the same way.
+_M_PER_DEG = 6_371_000.0 * math.pi / 180.0
+
+
+def ground_envelope(polygon: dict) -> Tuple[float, float, float, float]:
+    """``(west, south, east, north)`` that holds everything the SDK's read keeps.
+
+    The SDK's ground read crops to a CIRCLE around the polygon's bbox centre,
+    radius half the bbox diagonal and never less than the widest read distance
+    (``cleaning_extent``, 544 m today; ground materials only feed UTCI/TCS, the
+    widest preset). On a 1 km square that reaches ~210 m past the selection.
+    Filtering to anything narrower dropped context the SDK had fetched for the
+    edge tiles: those surfaces ran as the default asphalt instead. This is the
+    circle's bounding square plus 1 m, so a downloaded layer passes whole and
+    run_area still crops per tile.
+    """
+    from infrared_sdk.ground_materials.cleaning import cleaning_extent
+    from infrared_sdk.tiling.read_margin import ground_read_distance_m
+
+    extent = cleaning_extent(polygon, fetch_distance=ground_read_distance_m(None))
+    if extent is None:
+        # Empty outer ring: fall back to the old envelope rather than nothing.
+        return _polygon_wgs84_bbox_with_margin(polygon, _DEFAULT_CONTEXT_MARGIN_M)
+    lat, lon, distance = extent
+    reach = distance + 1.0
+    dlat = reach / _M_PER_DEG
+    dlon = reach / (_M_PER_DEG * max(math.cos(math.radians(lat)), 1e-6))
+    return lon - dlon, lat - dlat, lon + dlon, lat + dlat
+
+
 def collect_ground_materials(
     polygon: dict,
     layers: Dict[str, List[QgsVectorLayer]],
-    *,
-    context_margin_m: float = _DEFAULT_CONTEXT_MARGIN_M,
 ) -> Dict[str, dict]:
     """Build the SDK ``ground_materials`` mapping from ``ground-*`` layers.
 
     Each MATERIAL is read into its own WGS84 FeatureCollection — features
     from several layers of the same material (numbered fetches over
     different areas) are merged under one key, but never across materials:
-    the material identity is the dict key. Features are filtered to the
-    polygon bbox + context margin (same envelope as the
-    buildings/vegetation collectors: surfaces just outside the selection
-    still influence the thermal result inside it). Non-polygon geometries
-    are skipped.
+    the material identity is the dict key. Features are kept when they touch
+    :func:`ground_envelope` — the area the SDK's own ground read covers
+    (wider than the 100 m the building and tree collectors use: surfaces that
+    far out still feed the thermal result of the edge tiles). Non-polygon
+    geometries are skipped.
 
     Every coordinate is re-stamped with the material's stacking Z (see
     :data:`MATERIAL_Z_ORDER`) — QGIS 2D layers drop the Z the server put on
@@ -353,9 +384,7 @@ def collect_ground_materials(
     omitted entirely — sending an empty FeatureCollection would tell the
     server "this surface type is absent" rather than "unspecified".
     """
-    west, south, east, north = _polygon_wgs84_bbox_with_margin(
-        polygon, context_margin_m,
-    )
+    west, south, east, north = ground_envelope(polygon)
     bbox_ring = [
         [west, south], [east, south], [east, north], [west, north], [west, south],
     ]
@@ -376,7 +405,12 @@ def collect_ground_materials(
         features = []
         for layer in material_layers:
             transform = _wgs84_transform(layer)
-            field_names = [f.name() for f in layer.fields()]
+            # Not the storage's own key: a GeoPackage exposes `fid` as a
+            # field, and it means nothing to the model.
+            keys = set(layer.primaryKeyAttributes())
+            field_names = [
+                f.name() for i, f in enumerate(layer.fields()) if i not in keys
+            ]
             for feat in layer.getFeatures():
                 geom = feat.geometry()
                 if geom is None or geom.isEmpty():
@@ -477,29 +511,3 @@ def has_ground_material_support(analysis_type) -> bool:
         AnalysisType.THERMAL_COMFORT_INDEX,
         AnalysisType.THERMAL_COMFORT_STATISTICS,
     }
-
-
-def stamp_material_properties(layers: Dict[str, dict]) -> Dict[str, dict]:
-    """Return ``layers`` with ``properties.material`` stamped per feature.
-
-    ``run_area``'s tile assignment stamps the material itself, but the
-    single-tile path embeds the payload as-is — auto-fetched layers (which
-    come straight from the SDK, unstamped) need this before embedding or
-    the Lambda's emissivity lookup falls back to the 0.97 default.
-
-    The result is also re-keyed into :data:`MATERIAL_Z_ORDER`. The SDK hands
-    back whatever key order ``/ground-material/collect`` produced; that is
-    canonical today (``merge_fgb_layers``), but the order decides the server's
-    z re-stamp, so don't depend on it silently — an asphalt key that drifted
-    last would put the full-bbox backdrop on top of the whole stack.
-    """
-    stamped: Dict[str, dict] = {}
-    for material, fc in layers.items():
-        features = []
-        for feat in (fc or {}).get("features", []):
-            features.append({
-                **feat,
-                "properties": {**(feat.get("properties") or {}), "material": material},
-            })
-        stamped[material] = {"type": "FeatureCollection", "features": features}
-    return _in_z_order(stamped)

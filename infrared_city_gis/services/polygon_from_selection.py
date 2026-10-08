@@ -1,5 +1,5 @@
 """Polygon-from-selection helpers split out of ``services/tiles.py`` to keep
-that module under the 400-line Infrared convention.
+that module under the 400-line Infrared City convention.
 
 Public entry points (re-exported by ``services.tiles`` and
 ``services.geometry`` for backward compatibility):
@@ -8,7 +8,7 @@ Public entry points (re-exported by ``services.tiles`` and
   layer's current selection in the layer CRS, with three modes (convex /
   bbox / concave) approximating the user's drawn region.
 * :func:`create_wgs84_geojson_polygon_from_selection` — same in WGS84
-  GeoJSON Polygon format ready for the Infrared SDK.
+  GeoJSON Polygon format ready for the Infrared City SDK.
 * :func:`plot_selected_polygon` — debug visualiser that drops the polygon
   back onto the canvas as a temporary memory layer.
 """
@@ -26,7 +26,7 @@ from qgis.core import (
     QgsProject,
     QgsVectorLayer,
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType
 from qgis.utils import iface
 
 from ..infrared_logger import logger
@@ -147,7 +147,7 @@ def create_wgs84_geojson_polygon_from_selection(
 
     Wraps :func:`create_polygon_from_selection`, reprojects the ring to
     WGS84 lon/lat (if needed), ensures the ring is closed, and returns a
-    dict shaped for the Infrared SDK::
+    dict shaped for the Infrared City SDK::
 
         {"type": "Polygon", "coordinates": [[[lon, lat], ..., [lon, lat]]]}
 
@@ -218,7 +218,7 @@ def plot_selected_polygon(polygon):
 
     pr = vlayer.dataProvider()
     fields = QgsFields()
-    fields.append(QgsField("id", QVariant.Int))
+    fields.append(QgsField("id", QMetaType.Type.Int))
     pr.addAttributes(fields)
     vlayer.updateFields()
 

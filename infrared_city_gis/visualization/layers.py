@@ -1,95 +1,88 @@
-from PyQt5.QtGui import QColor
+import json
+import os
+import tempfile
+from datetime import datetime
+
 from qgis.core import (
+    Qgis,
+    QgsApplication,
     QgsFeature,
     QgsGeometry,
     QgsPointXY,
     QgsProject,
+    QgsVectorFileWriter,
     QgsVectorLayer,
 )
+from qgis.PyQt.QtGui import QColor
 
 from ..infrared_logger import logger
 
 
-def _create_layer_from_feature_collection(name, collection, color):
-    """Create an in-memory layer from a GeoJSON FeatureCollection dict.
+def ground_package_path():
+    """Where one ground-material fetch is saved: a new GeoPackage per fetch.
 
-    Supports Point, Polygon and MultiPolygon geometries in EPSG:4326.
-    Returns the created QgsVectorLayer or None if no valid features.
+    Next to the fetched buildings (``fetch.py``) in the plugin's data folder,
+    so both survive a QGIS restart and a saved project finds them again. Note
+    ``utils.helper.cleanup_old_data`` deletes files there that have not been
+    modified for 30 days, like the building files.
     """
-    if not collection or not isinstance(collection, dict):
+    folder = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
+    os.makedirs(folder, exist_ok=True)
+    stamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+    return os.path.join(folder, f"infrared_city_ground_materials_{stamp}.gpkg")
+
+
+def _save_material_layer(name, collection, gpkg_path):
+    """Write one FeatureCollection as table ``name`` of ``gpkg_path``; load it back.
+
+    Read through OGR rather than rebuilt point by point, so polygon holes
+    survive (the old in-memory builder kept only each outer ring, which filled
+    a courtyard or a pond with the surrounding material) and 2.5D coordinates
+    need no special casing. Written 2D MultiPolygon with geometry only: the
+    collector derives z and the material stamp itself, and a stray attribute
+    would ride along into the payload.
+
+    Returns the loaded, file-backed layer, or None when nothing was written.
+    """
+    if not isinstance(collection, dict) or not collection.get("features"):
         return None
-    if collection.get("type") != "FeatureCollection":
-        return None
-
-    features_in = collection.get("features") or []
-    if not features_in:
-        return None
-
-    first_geom = (features_in[0] or {}).get("geometry") or {}
-    gtype = first_geom.get("type", "Point")
-    qgis_geom_type = "Polygon" if gtype in ("Polygon", "MultiPolygon") else "Point"
-
-    layer = QgsVectorLayer(f"{qgis_geom_type}?crs=EPSG:4326", name, "memory")
-    provider = layer.dataProvider()
-
-    new_features = []
-    skipped_geometry = 0
-    for f in features_in:
-        geom = (f or {}).get("geometry") or {}
-        coords = geom.get("coordinates")
-        if not coords:
-            continue
-        qfeat = QgsFeature()
-        try:
-            # Index positions instead of tuple-unpacking: several endpoints
-            # (e.g. ground-material clean-v3) return 2.5D coordinates
-            # ([lon, lat, z]) and `for x, y in ...` raises on those — which
-            # silently dropped every feature here.
-            if gtype == "Point":
-                qgeom = QgsGeometry.fromPointXY(
-                    QgsPointXY(float(coords[0]), float(coords[1]))
-                )
-            elif gtype == "Polygon":
-                pts = [QgsPointXY(float(p[0]), float(p[1])) for p in coords[0]]
-                qgeom = QgsGeometry.fromPolygonXY([pts])
-            elif gtype == "MultiPolygon":
-                polys = []
-                for poly in coords:
-                    if not poly:
-                        continue
-                    pts = [QgsPointXY(float(p[0]), float(p[1])) for p in poly[0]]
-                    polys.append([pts])
-                if not polys:
-                    continue
-                qgeom = QgsGeometry.fromMultiPolygonXY(polys)
-            else:
-                continue
-        except Exception:
-            # Counted rather than logged here: malformed coordinates come in
-            # runs, and this loop can see thousands of features. The comment
-            # above records what already bit us once.
-            skipped_geometry += 1
-            continue
-        qfeat.setGeometry(qgeom)
-        new_features.append(qfeat)
-
-    if skipped_geometry:
-        logger.warning(
-            "%s: %d feature(s) had unreadable coordinates and were dropped",
-            name, skipped_geometry,
-        )
-
-    if not new_features:
-        return None
-
-    provider.addFeatures(new_features)
+    fd, tmp = tempfile.mkstemp(suffix=".geojson")
     try:
-        layer.renderer().symbol().setColor(color)
-    except Exception as e:
-        # Styling is cosmetic — a layer with default symbology still works.
-        logger.debug("could not set the symbol color on %r: %s", name, e)
-
-    QgsProject.instance().addMapLayer(layer)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(collection, fh)
+        source = QgsVectorLayer(tmp, name, "ogr")
+        if not source.isValid() or source.featureCount() == 0:
+            logger.warning("%s: the fetched collection could not be read", name)
+            return None
+        options = QgsVectorFileWriter.SaveVectorOptions()
+        options.driverName = "GPKG"
+        options.layerName = name
+        options.fileEncoding = "UTF-8"
+        options.overrideGeometryType = Qgis.WkbType.MultiPolygon
+        options.forceMulti = True
+        options.includeZ = False
+        options.skipAttributeCreation = True
+        options.actionOnExistingFile = (
+            QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
+            if os.path.exists(gpkg_path)
+            else QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
+        )
+        error, message, _path, _layer = QgsVectorFileWriter.writeAsVectorFormatV3(
+            source, gpkg_path, QgsProject.instance().transformContext(), options,
+        )
+        del source  # release the temp file before deleting it (Windows locks it)
+        if error != QgsVectorFileWriter.WriterError.NoError:
+            logger.error("%s: could not be saved to %s: %s", name, gpkg_path, message)
+            return None
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError as e:
+            logger.debug("could not remove the temporary file %s: %s", tmp, e)
+    layer = QgsVectorLayer(f"{gpkg_path}|layername={name}", name, "ogr")
+    if not layer.isValid():
+        logger.error("%s: saved to %s but could not be loaded back", name, gpkg_path)
+        return None
     return layer
 
 
@@ -116,7 +109,7 @@ def display_route_and_points(route, points):
 
 
 def display_geojson(geojson_path):
-    layer = QgsVectorLayer(geojson_path, "Infrared Buildings", "ogr")
+    layer = QgsVectorLayer(geojson_path, "Infrared City Buildings", "ogr")
     if layer.isValid():
         symbol = layer.renderer().symbol()
         symbol.setColor(QColor("#555555"))
@@ -129,7 +122,12 @@ def display_geojson(geojson_path):
 
 
 def display_ground_materials(ground_materials):
-    """Create one editable ``ground-<material>`` layer per material.
+    """Save one editable ``ground-<material>`` layer per material, and add them.
+
+    All layers of one fetch go into one GeoPackage in the plugin's data folder
+    (:func:`ground_package_path`), so they are files, not QGIS scratch layers:
+    they survive a restart, a saved project reopens them, and edits are written
+    straight back to the file.
 
     ``ground_materials`` is the SDK's ``AreaGroundMaterials.layers`` mapping
     (``{material_name: FeatureCollection}``). Layer names follow the
@@ -158,6 +156,7 @@ def display_ground_materials(ground_materials):
         for ly in QgsProject.instance().mapLayers().values()
     }
     created: dict = {}
+    gpkg_path = ground_package_path()
     for material, collection in sorted((ground_materials or {}).items()):
         base = f"{GROUND_LAYER_PREFIX}{material}"
         name = base
@@ -166,9 +165,13 @@ def display_ground_materials(ground_materials):
             name = f"{base}-{n}"
             n += 1
         existing.add(name.lower())
-        color = QColor(*material_color(material))
-        layer = _create_layer_from_feature_collection(name, collection, color)
+        layer = _save_material_layer(name, collection, gpkg_path)
         if layer is not None:
+            try:
+                layer.renderer().symbol().setColor(QColor(*material_color(material)))
+            except Exception as e:
+                # Styling is cosmetic — a layer with default symbology still works.
+                logger.debug("could not set the symbol color on %r: %s", name, e)
             # Styling comes from the materials registry (diffuseColor +
             # opacity), scaled by a 0.55 display factor: the asphalt layer
             # carries a bbox-covering background polygon (the server's
@@ -180,8 +183,11 @@ def display_ground_materials(ground_materials):
                 "Ground material layer created: %s (%d features)",
                 name, layer.featureCount(),
             )
+            QgsProject.instance().addMapLayer(layer)
             created[name] = layer.featureCount()
-    if not created:
+    if created:
+        logger.info("Ground materials saved to %s", gpkg_path)
+    else:
         logger.warning("No ground material layers were created (no features in response)")
     return created
 

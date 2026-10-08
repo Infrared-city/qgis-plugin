@@ -1,4 +1,4 @@
-"""Validate a tree point layer against the Infrared vegetation input contract.
+"""Validate a tree point layer against the Infrared City vegetation input contract.
 
 Counts, strictly INSIDE the selected simulation area polygon (unlike the
 collector, which also ships nearby context trees within a ~100 m margin —

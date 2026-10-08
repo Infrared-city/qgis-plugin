@@ -1,4 +1,4 @@
-"""Query weather-file data through the Infrared SDK's weather client.
+"""Query weather-file data through the Infrared City SDK's weather client.
 
 Historically this POSTed to the legacy public endpoint on
 ``app.infrared.city`` (``/api/public/weatherfiles/{fileName}/data``). That
@@ -16,12 +16,12 @@ produces for uploaded EPW files.
 import json
 from typing import Dict, List
 
-from infrared_sdk import InfraredClient
 from infrared_sdk.layers.service import WeatherServiceError
 from infrared_sdk.models import TimePeriod
 
 from ..exceptions import InfraredAPIError
 from ..infrared_logger import logger
+from ..utils.client_identity import make_client
 
 # camelCase keys consumed by ``sdk_payloads.build_sdk_payload`` — the same
 # set ``epw_parser._FIELDS`` produces, so both weather sources stay
@@ -121,11 +121,9 @@ def query_infrared_epw(file_name: str, time_frame: dict, api_key: str) -> Dict[s
     InfraredAPIError
         On any HTTP failure from the weather service.
     """
-    logger.info(
-        f"Querying epw data for {file_name} with time frame: \n{time_frame}"
-    )
+    logger.info("Querying EPW data for %s with time frame: %s", file_name, time_frame)
     try:
-        with InfraredClient(api_key=api_key) as client:
+        with make_client(api_key) as client:
             points = []
             for tp in _time_periods_from_time_frame(time_frame):
                 points.extend(
@@ -134,7 +132,7 @@ def query_infrared_epw(file_name: str, time_frame: dict, api_key: str) -> Dict[s
                     )
                 )
     except WeatherServiceError as e:
-        logger.error(f"Epw query request failed: {e}")
+        logger.error("EPW query request failed: %s", e, exc_info=True)
         raise InfraredAPIError(
             status_code=e.status_code or None,
             server_message=_server_message_from(e),
@@ -142,6 +140,6 @@ def query_infrared_epw(file_name: str, time_frame: dict, api_key: str) -> Dict[s
 
     if not points:
         logger.warning(
-            f"Epw query for {file_name} returned no data points for {time_frame}"
+            "EPW query for %s returned no data points for %s", file_name, time_frame,
         )
     return {field: [getattr(p, field) for p in points] for field in _FIELDS}

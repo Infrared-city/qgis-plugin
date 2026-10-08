@@ -1,13 +1,11 @@
 import math
 
 from qgis.core import (
-    QgsFillSymbol,
     QgsProject,
     QgsRasterLayer,
     QgsRasterRange,
     QgsRasterShader,
     QgsSingleBandPseudoColorRenderer,
-    QgsVectorLayer,
 )
 
 from ..infrared_logger import logger
@@ -19,17 +17,22 @@ from .layers import (  # noqa: F401 re-exported
 )
 
 
-def add_geojson_then_raster(
-    geojson_path,
+def add_result_raster(
     geotiff_path,
     analysis_type,
     sub_analysis_type,
     raster_opacity=0.7,
     min_legend_value=None,
     max_legend_value=None,
-    tile_id=None
+    tile_id=None,
+    label="",
 ):
-    logger.info("Adding GeoJSON layer: %s", geojson_path)
+    """Add a simulation result GeoTIFF as a colourised raster layer.
+
+    Only the raster: a run used to add a building-outline layer as well, under
+    the same name as the user's own building layer (fetched in its own
+    dialog), which made the two indistinguishable.
+    """
     logger.info("Adding GeoTIFF layer: %s", geotiff_path)
 
     visual_config = get_visual_config(analysis_type, sub_analysis_type)
@@ -39,26 +42,19 @@ def add_geojson_then_raster(
             f"sub analysis type: {sub_analysis_type}"
         )
 
-    logger.info(f"Visual configuration: {visual_config}")
-
-    # --- GeoJSON layer ---
-    vlayer = QgsVectorLayer(geojson_path, "Infrared Buildings", "ogr")
-    if not vlayer.isValid():
-        raise RuntimeError(f"GeoJSON layer loading failed: {geojson_path}")
-
-    fill_sym = QgsFillSymbol.createSimple({
-        "color": "0,0,0,0",
-        "outline_color": "0,0,0",
-        "outline_width": "0.8",
-    })
-    vlayer.renderer().setSymbol(fill_sym)
-    QgsProject.instance().addMapLayer(vlayer)
+    logger.info("Visual configuration: %s", visual_config)
 
     # --- GeoTIFF layer ---
+    # The name has to say what the result came FROM. Two UTCI runs a month
+    # apart were both "IC result - thermal-comfort-index", so the layer panel
+    # could not tell them apart and the user had to remember which was which.
+    # `label` carries the run's own inputs (month, hours, season, criteria,
+    # wind); it is empty for analyses that have none to show, like SVF.
+    layer_name = f"IC result - {analysis_type}"
     if tile_id is not None:
-        layer_name = f"IC result - {analysis_type}{tile_id}"
-    else:
-        layer_name = f"IC result - {analysis_type}"
+        layer_name = f"{layer_name}{tile_id}"
+    if label:
+        layer_name = f"{layer_name} · {label}"
 
     rlayer = QgsRasterLayer(geotiff_path, layer_name, "gdal")
 
@@ -111,17 +107,6 @@ def add_geojson_then_raster(
 
     QgsProject.instance().addMapLayer(rlayer)
 
-    # --- Vector on top of raster ---
-    try:
-        root = QgsProject.instance().layerTreeRoot()
-        v_node = root.findLayer(vlayer.id())
-        if v_node is not None:
-            parent = v_node.parent()
-            parent.removeChildNode(v_node)
-            root.insertChildNode(0, v_node)
-    except Exception as e:
-        logger.warning("Could not reorder layers automatically: %s", e)
-
     # --- PWC mapping debug ---
     # if analysis_type == "pedestrian-wind-comfort":
     #     try:
@@ -159,4 +144,4 @@ def add_geojson_then_raster(
     #     except Exception as e:
     #         logger.warning("PWC mapping debug failed: %s", e)
 
-    logger.info("✅ GeoJSON and colorized GeoTIFF added. Raster opacity=%s", raster_opacity)
+    logger.info("✅ Colourised GeoTIFF added. Raster opacity=%s", raster_opacity)

@@ -500,13 +500,6 @@
     </widget>
    </item>
    <item>
-    <widget class="QCheckBox" name="use_infrared_ground_checkbox">
-     <property name="text">
-      <string>Use Infrared ground materials (auto-fetch for the area, ignores ground-* layers)</string>
-     </property>
-    </widget>
-   </item>
-   <item>
     <widget class="QListWidget" name="ground_materials_list">
      <property name="toolTip">
       <string>Tick the ground-* layers to include as surface materials. Unticked surfaces run with the server default.</string>

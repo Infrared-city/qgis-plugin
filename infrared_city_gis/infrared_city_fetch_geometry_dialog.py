@@ -30,6 +30,7 @@ from qgis.PyQt.QtWidgets import QMessageBox
 from .infrared_logger import logger
 from .services.fetch import fetch_geometry_from_infrared
 from .services.secret_manager import get_api_key
+from .services.user_errors import show_error_dialog
 from .visualization.display import display_geojson
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
@@ -71,7 +72,7 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
         if not api_key:
             QMessageBox.warning(
                 self, "No API Key",
-                "Fetching building geometry requires an Infrared City API key.\n"
+                "Downloading building geometry requires an Infrared City API key.\n"
                 "Please save your API key first (Save API Key).",
             )
             return
@@ -87,10 +88,12 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
             if error:
                 logger.error("Geometry fetch failed for lon=%s lat=%s: %s", lon, lat, error)
                 QMessageBox.critical(
-                    self, "Fetch Failed",
-                    f"Failed to fetch building geometry.\n\n{error}.\n\n"
-                    "Check your API key/subscription and network, then try again.\n\n"
-                    "See the plugin log for details.",
+                    self, "Download Failed",
+                    "Downloading building geometry failed.\n\n"
+                    "Check your internet connection and that your API key and "
+                    "subscription are active, then try again.\n\n"
+                    f"Details: {error}\n\n"
+                    "See the plugin log for more.",
                 )
                 return
 
@@ -110,11 +113,8 @@ class InfraredCityFetchGeometryDialog(QtWidgets.QDialog, FORM_CLASS):
             display_geojson(geojson_path)
 
         except Exception as e:
-            logger.error(f"Failed to fetch geometry: {e}")
-            QMessageBox.critical(
-                self, "Fetch Error",
-                f"Failed to fetch geometry.\n\n{e}\n\nSee the plugin log for details.",
-            )
+            logger.error("Failed to fetch geometry: %s", e, exc_info=True)
+            show_error_dialog(self, "Downloading building geometry", e)
             return
 
         super().accept()

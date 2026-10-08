@@ -24,7 +24,6 @@
 
 import os
 
-from infrared_sdk import InfraredClient
 from qgis.core import Qgis
 from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtWidgets import QMessageBox
@@ -67,10 +66,32 @@ from .services.tree_layer_picker import (
     update_tree_layer_enabled,
 )
 from .services.tree_validation import validate_tree_layer
+from .services.user_errors import show_error_dialog
+from .utils.client_identity import make_client
 
 # This loads your .ui file so that PyQt can populate your plugin with the elements from Qt Designer
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'infrared_city_run_simulation_dialog.ui'))
+
+
+def _has_map_selection() -> bool:
+    """Is anything still selected on any vector layer?
+
+    A tile pick highlights the buildings inside its box, so the highlight is
+    what the user sees the armed mode AS. If they clear it by hand, the mode
+    would otherwise stay armed with nothing on the canvas showing it — the
+    invisible state this design exists to avoid. Never raises: failing to
+    answer must not stop a dialog opening.
+    """
+    try:
+        from qgis.core import QgsProject, QgsVectorLayer
+        return any(
+            isinstance(lyr, QgsVectorLayer) and lyr.selectedFeatureCount() > 0
+            for lyr in QgsProject.instance().mapLayers().values()
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("could not check the map selection: %s", e)
+        return True
 
 
 class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
@@ -99,47 +120,52 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         # "Upload EPW…" controls and read by build_sdk_payload.
         self._epw_paths = {}
 
-        # ArcGIS-style mode detection: if the "Select tile" tool stored a
-        # one-shot single-tile selection, peek at it and run that single
-        # 512×512 m tile via analyses.execute (1 tile ≈ 10 tokens). Otherwise
-        # fall back to area mode driven by the current QGIS feature selection.
-        #
-        # We *peek* rather than *consume* here: closing the dialog without
-        # running a simulation must leave single-tile mode intact, so
-        # re-opening (while the tile selection is still active) stays in
-        # single-tile mode. The pending selection is cleared only after a
-        # simulation is actually submitted — see accept().
+        # An armed "Select tile" box runs as ONE job. Reconcile first: if the
+        # user cleared the map selection by hand, the pick they made is gone
+        # from the canvas and keeping the mode armed would be the same
+        # invisible state this design exists to avoid.
+        if single_tile_selection.is_armed() and not _has_map_selection():
+            logger.info("Armed tile dropped — the map selection was cleared")
+            single_tile_selection.clear()
+
         self.is_single_tile = False
-        _sel = single_tile_selection.peek()
-        if _sel is not None:
-            self.is_single_tile = True
-            self.polygon = _sel.polygon
-            self.bbox = list(_sel.bbox)
-            self.crs = _sel.crs
-            self.tile_count = 1
-            logger.info(
-                "Single-tile mode: 1 tile (512×512 m), center=(%.6f, %.6f), "
-                "%d buildings highlighted at pick time",
-                _sel.center_lon, _sel.center_lat, _sel.building_count,
+        selected_bbox = get_selected_bbox()
+        if selected_bbox is None:
+            # The ordinary case of opening the dialog before selecting
+            # anything — not an error. It used to unpack None and log a
+            # TypeError traceback for it.
+            logger.info("Run simulation refused: nothing selected")
+            QMessageBox.information(
+                self, "No Selection",
+                "Nothing is selected.\n\n"
+                "Select one or more building features on your buildings "
+                "layer (or pick a tile with 'Select tile'), then open "
+                "'Run simulation' again.",
             )
-        else:
-            try:
-                w, s, e, n = get_selected_bbox()
-                self.bbox = [w, s, e, n]
-                self.crs = get_selected_crs()
+            self.reject()
+            return
+        try:
+            w, s, e, n = selected_bbox
+            self.bbox = [w, s, e, n]
+            self.crs = get_selected_crs()
 
-                iface.messageBar().pushMessage(
-                    "InfraredCity",
-                    f"Layer CRS is the following: {self.crs}",
-                    level=Qgis.Info,
-                    duration=7
-                )
+            iface.messageBar().pushMessage(
+                "InfraredCity",
+                f"Layer CRS is the following: {self.crs}",
+                level=Qgis.Info,
+                duration=7
+            )
 
-            except Exception as e:
-                logger.error(f"Failed to get selected bbox: {e}")
-                QMessageBox.warning(self, "Invalid selection", "Invalid selection please select geometry.")
-                self.reject()
-                return
+        except Exception as e:
+            logger.error("Failed to get selected bbox: %s", e, exc_info=True)
+            QMessageBox.warning(
+                self, "Invalid Selection",
+                "The current selection cannot be used for a simulation.\n\n"
+                "Select one or more building features on your buildings "
+                "layer, then open 'Run simulation' again.",
+            )
+            self.reject()
+            return
 
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
@@ -168,19 +194,14 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # Ground materials: one checkable row per ground-* layer in the
         # project (created by the Fetch Ground Materials dialog or drawn by
-        # hand), plus an auto-fetch option that pulls Infrared's own ground
-        # materials at submit time and ignores the layers. The whole section
-        # hides for analyses that don't use surface materials (wind, PWC,
-        # SVF).
+        # hand). The whole section hides for analyses that don't use surface
+        # materials (wind, PWC, SVF). There is no fetch-at-submit option: it
+        # froze QGIS for the whole read and re-downloaded every run (#47).
         self._ground_layers = {}
-        self.use_infrared_ground_materials = False
         try:
             self._populate_ground_materials()
             self.ground_materials_list.itemChanged.connect(
                 self._on_ground_item_changed
-            )
-            self.use_infrared_ground_checkbox.toggled.connect(
-                self._on_use_infrared_ground_toggled
             )
         except AttributeError:
             pass  # older .ui without the ground-material widgets
@@ -211,18 +232,41 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.reject()
             return
 
+        _armed = single_tile_selection.peek()
+        self.is_single_tile = _armed is not None
         if self.is_single_tile:
-            # Polygon already set from the tile selection; skip preview_area /
-            # tiling entirely — the single tile is submitted via
-            # analyses.execute so the 512 m box is never split into overlapping
-            # 256 m-step tiles (which would multiply the token cost).
+            # The stored BOX, not the hull of the buildings it selected: whole
+            # features are selected, so one straddling an edge pulls the hull
+            # past the box — measured at 617 x 586 m for a 512 m pick, which
+            # the tiler charges NINE jobs for. Skipping preview_area() is the
+            # same point: it asks the tiler, which answers 4 for a box this
+            # path submits as one job.
+            self.polygon = _armed.polygon
+            self.bbox = list(_armed.bbox)
+            self.crs = _armed.crs
+            self.tile_count = 1
             self.setWindowTitle("Run Simulation — single tile (512×512 m) · 1 tile · ~10 tokens")
-            logger.info("Dialog loaded in single-tile mode")
+            logger.info(
+                "Single tile armed: centre=(%.6f, %.6f), %d buildings at pick time",
+                _armed.center_lon, _armed.center_lat, _armed.building_count,
+            )
         else:
             try:
+                selection = create_wgs84_geojson_polygon_from_selection()
+            except Exception as e:
+                logger.exception("Error computing the selection polygon: %s", e)
+                QMessageBox.warning(
+                    self, "Error",
+                    f"An error occurred while computing the selection polygon. "
+                    f"Please try again. Message: {e}"
+                )
+                self.reject()
+                return
+        if not self.is_single_tile:
+            try:
 
-                client = InfraredClient(api_key=self.api_key)
-                self.polygon = create_wgs84_geojson_polygon_from_selection()
+                client = make_client(self.api_key)
+                self.polygon = selection
                 preview = client.preview_area(self.polygon)
                 logger.info("Preview area: %s", preview.tile_count)
                 self.tile_count = preview.tile_count
@@ -375,17 +419,13 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         for material in sorted(self._ground_layers):
             for layer in self._ground_layers[material]:
                 item = QListWidgetItem(f"{material} — {layer.name()}")
-                item.setData(Qt.UserRole, (material, layer))
-                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setData(Qt.ItemDataRole.UserRole, (material, layer))
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 # Opt-in: ground materials are extra payload + server work,
                 # so the dialog opens with nothing ticked.
-                item.setCheckState(Qt.Unchecked)
+                item.setCheckState(Qt.CheckState.Unchecked)
                 lst.addItem(item)
         lst.blockSignals(False)
-        self._revalidate_ground_materials()
-
-    def _on_use_infrared_ground_toggled(self, checked):
-        self.use_infrared_ground_materials = bool(checked)
         self._revalidate_ground_materials()
 
     def _on_ground_item_changed(self, changed_item):
@@ -397,8 +437,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         """
         from qgis.PyQt.QtCore import Qt
 
-        if changed_item.checkState() == Qt.Checked:
-            data = changed_item.data(Qt.UserRole)
+        if changed_item.checkState() == Qt.CheckState.Checked:
+            data = changed_item.data(Qt.ItemDataRole.UserRole)
             if data:
                 material = data[0]
                 lst = self.ground_materials_list
@@ -407,9 +447,9 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     item = lst.item(i)
                     if item is changed_item:
                         continue
-                    other = item.data(Qt.UserRole)
+                    other = item.data(Qt.ItemDataRole.UserRole)
                     if other and other[0] == material:
-                        item.setCheckState(Qt.Unchecked)
+                        item.setCheckState(Qt.CheckState.Unchecked)
                 lst.blockSignals(False)
         self._revalidate_ground_materials()
 
@@ -424,8 +464,8 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         selected = {}
         for i in range(lst.count()):
             item = lst.item(i)
-            if item.checkState() == Qt.Checked:
-                data = item.data(Qt.UserRole)
+            if item.checkState() == Qt.CheckState.Checked:
+                data = item.data(Qt.ItemDataRole.UserRole)
                 if not data:
                     continue
                 material, layer = data
@@ -436,14 +476,12 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         """Refresh ground-material widgets for the current analysis + area.
 
         Visibility: the whole section hides for analyses that ignore surface
-        materials (wind, PWC, SVF). The auto-fetch checkbox is always shown
-        for supported analyses (it needs no layers); the layer list only
-        when ground-* layers exist, and disabled while auto-fetch is ticked.
+        materials (wind, PWC, SVF); the layer list shows only when ground-*
+        layers exist, and the label says how to get them otherwise.
         """
         try:
             label = self.ground_validation_label
             lst = self.ground_materials_list
-            checkbox = self.use_infrared_ground_checkbox
         except AttributeError:
             return
 
@@ -451,25 +489,16 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.analysis_type_dropdown.currentData()
         )
         self.label_ground_materials.setVisible(supported)
-        checkbox.setVisible(supported)
         lst.setVisible(supported and bool(self._ground_layers))
         label.setVisible(supported)
         if not supported:
             label.setText("")
             return
 
-        lst.setEnabled(not self.use_infrared_ground_materials)
-        if self.use_infrared_ground_materials:
-            label.setText(
-                "Infrared ground materials will be fetched automatically for "
-                "the selected area at submit; ground-* layers are ignored."
-            )
-            return
-
         if not self._ground_layers:
             label.setText(
-                "No ground-* layers in the project — fetch them with "
-                "'Fetch ground materials', or tick the auto-fetch option."
+                "No ground-* layers in the project — download them with the "
+                "'Download ground materials' dialog first, or draw your own."
             )
             return
         if self.polygon is None:
@@ -544,7 +573,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                 return
             except Exception as e:
                 logger.error("Unexpected error fetching weather file names: %s", e, exc_info=True)
-                QMessageBox.critical(self, "Error", f"Failed to fetch weather file names.\n\n{e}")
+                show_error_dialog(self, "Fetching the weather files", e)
                 return
 
         # Switch stacked pages by widget name — robust against page reordering
@@ -750,8 +779,14 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
                     from .services.epw_parser import validate_file
                     validate_file(path)
                 except Exception as e:
+                    logger.warning(
+                        "Rejected uploaded EPW %s: %s", os.path.basename(path), e,
+                    )
                     QMessageBox.warning(
-                        self, "Invalid EPW", f"Not a usable EPW file:\n\n{e}",
+                        self, "Invalid EPW",
+                        "The selected file is not a usable EPW weather file. "
+                        "Pick a valid EnergyPlus .epw file, or use one of the "
+                        f"listed weather files.\n\nDetails: {e}",
                     )
                     btn.setChecked(False)
                     return
@@ -775,6 +810,7 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
 
             if not self.api_key:
+                logger.warning("Run simulation refused: no API key saved")
                 QMessageBox.warning(
                     self, "Missing API Key",
                     "No API key found. Please save your API key first via the 'Save API Key' menu."
@@ -815,13 +851,15 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             else:
                 poller = run_sdk_area_async(self, self.polygon, area)
             if poller is None:
-                # Payload validation failed; build_sdk_payload already
-                # showed a QMessageBox. Keep the dialog open.
+                # Validation or submission failed and a QMessageBox was
+                # already shown. Keep the dialog open so the user can fix
+                # the input or retry — never close it as if a run started.
                 return
 
-            # Simulation submitted — now consume the one-shot single-tile
-            # selection so the next dialog open falls back to area mode.
-            # (We only peek() on open, so closing without running keeps it.)
+            # Submitting ENDS single-tile mode: the armed box and the map
+            # highlight go together, and the toolbar toggle follows through
+            # subscribe(). Clearing one without the other is what left an armed
+            # tile invisible. A fetch does not end it — only a run does.
             if self.is_single_tile:
                 single_tile_selection.clear()
 
@@ -832,11 +870,4 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             QMessageBox.critical(self, e.title, e.detail)
         except Exception as e:
             logger.error("Unhandled exception in accept(): %s", e, exc_info=True)
-            msg = str(e)
-            short_msg = msg if len(msg) < 200 else msg[:200] + "…"
-            QMessageBox.critical(
-                self,
-                "Error",
-                "An error occurred during the simulation.\n"
-                f"Details: {short_msg}\n\nCheck the plugin log for more information."
-            )
+            show_error_dialog(self, "Starting the simulation", e)

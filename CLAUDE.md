@@ -5,9 +5,11 @@ QGIS plugin that connects to the [Infrared City](https://infrared.city) simulati
 ## Stack
 
 - Python 3 (whatever QGIS ships — typically 3.9+)
-- QGIS 3.44 – 3.x (PyQGIS / PyQt5) — QGIS 4 (Qt6) not yet supported; `metadata.txt` caps at `qgisMaximumVersion=3.99`
+- QGIS 3.44 (current LTR) – 3.x, PyQGIS via the `qgis.PyQt` shim — always import through `qgis.PyQt.*`, never `PyQt5.*` directly, and use scoped Qt enums (`Qt.CheckState.Checked`, not `Qt.Checked`) so one codebase serves Qt5 and Qt6
+- QGIS 4 (Qt6, released 2026-03) is served by the **same package** — `qgisMaximumVersion=4.99`, no separate branch, ZIP or `supportsQt6` flag (that one was removed from QGIS core). The Plugin Manager reads `metadata.txt` before loading any code, so the cap is a promise to the user, not a capability check: never ship a raised cap that the `docs/manual-testing.md` round has not actually passed on QGIS 4. See `docs/battle-scars.md` for what a grep cannot catch.
 - `pb_tool` for plugin packaging (`infrared_city_gis/pb_tool.cfg`)
 - Internal services: `infrared-sdk`, REST calls to `api.infrared.city`
+- `infrared-sdk` is pinned **exactly** (`==`) in `requirements.txt`, never `>=`: the runtime bootstrap installs the newest match on a fresh install, so a floor ships an SDK nobody tested (v1.1.3, `>=0.4.11`, stopped loading the day 1.0.0 reached PyPI). A new SDK reaches users only through a plugin release; `scripts/preflight.sh` refuses a non-exact pin
 
 ## Repository Layout
 
@@ -17,8 +19,7 @@ qgis-plugin/
 │   ├── __init__.py            # Plugin entry point — classFactory()
 │   ├── infrared_city_gis.py   # Main plugin class
 │   ├── infrared_city_*.{py,ui}# Dialogs (auth, fetch geometry, ground materials, simulation, bbox, trees)
-│   ├── client.py              # HTTP client wrapper around infrared-sdk
-│   ├── services/              # Domain helpers (fetch, area_poller, geometry, buildings)
+│   ├── services/              # Domain helpers (fetch, qgis_http, area_poller, geometry, buildings)
 │   ├── models/                # Analysis, vegetation, time-frame parsers
 │   ├── visualization/         # Raster rendering helpers
 │   ├── utils/                 # Shared utilities
@@ -40,10 +41,41 @@ The plugin **must** ship as a single folder (`infrared_city_gis/`) zipped at the
 # stays clean for plugins.qgis.org (no hidden-file warnings).
 zip -r infrared-city-qgis.zip infrared_city_gis/ \
   -x "*__pycache__*" "*.pyc" "*.pyo" "*.DS_Store" "*/.*" \
+     "infrared_city_gis/venv/*" \
      "infrared_city_gis/tests/*" "infrared_city_gis/test/*"
 
-# Lint
-pylint --rcfile=infrared_city_gis/pylintrc infrared_city_gis/
+# Everything below in one pass, plus the QGIS suite and the merge gate.
+# Run this before a PR; see docs/development-setup.md.
+scripts/preflight.sh
+scripts/preflight.sh --e2e        # also the paid prod round (needs a key)
+
+# Lint — these two are the CI gates (NOT pylint; pylintrc is a leftover)
+ruff check infrared_city_gis/
+flake8 infrared_city_gis/
+
+# Security — the same two scanners plugins.qgis.org runs on every upload.
+# Run bandit with NO config: it auto-discovers any .bandit inside the tree it
+# scans and silently applies its skips. The upload waiver is kept outside the
+# scanned tree for exactly that reason.
+#
+# Keep this list identical to .github/workflows/lint.yml. It must name BOTH
+# virtualenvs: bandit walks the filesystem rather than git, so a local `venv/`
+# or `.venv/` inside the plugin folder (both gitignored, ~140 MB together)
+# drowns the scan — 771k lines and thousands of third-party findings against
+# our ~9k. A runner never has them; a developer running this by hand does.
+bandit -r infrared_city_gis/ \
+  -x infrared_city_gis/tests,infrared_city_gis/test,infrared_city_gis/thirdparty,infrared_city_gis/venv,infrared_city_gis/.venv
+git ls-files 'infrared_city_gis/*' | xargs detect-secrets-hook
+
+# Tests — real QGIS runtime; see the marker gates in infrared_city_gis/tests/
+./scripts/run_qgis_tests.sh -q                       # free, no network
+INFRARED_API_KEY=… ./scripts/run_qgis_tests.sh -m e2e -s   # hits prod, costs tokens
+
+# Qt5/Qt6 name resolution (what a linter cannot catch — see Stack above).
+# Needs the binding installed: `pip install PyQt6`, or run it under the QGIS
+# bundled interpreter to cover Qgs* classes too (docs/battle-scars.md 2026-08-03).
+python scripts/check_qt6_names.py infrared_city_gis
+python scripts/check_qt6_names.py infrared_city_gis --binding pyqt5
 ```
 
 Plugin uploads to `plugins.qgis.org` are **manual via the web UI** — see [`docs/deployment.md`](docs/deployment.md).
@@ -52,21 +84,36 @@ Plugin uploads to `plugins.qgis.org` are **manual via the web UI** — see [`doc
 
 ## Release Process
 
-Triggered by pushing a `v*` tag (see `.github/workflows/release.yml`):
+Release Please (see [`docs/release-process.md`](docs/release-process.md)): a `fix:`/`feat:` merge of `staging` into `main` opens `chore(main): release X.Y.Z`. On that PR's branch, bump `version=` and `changelog=` in `infrared_city_gis/metadata.txt` **by hand** (Release Please does not touch it), then merge — that creates the `vX.Y.Z` tag, and `.github/workflows/release.yml` builds the ZIP into a GitHub Release. Before that: `scripts/preflight.sh` green and the `docs/manual-testing.md` round passed on **QGIS 3 and QGIS 4**.
 
-```bash
-# Bump version in infrared_city_gis/metadata.txt first, commit, then:
-git tag v0.2.2 && git push --tags
-```
-
-CI builds the ZIP and creates a GitHub Release. Upload to `plugins.qgis.org` is still **manual** — review the release on plugins.qgis.org before promoting to non-experimental.
+Upload to `plugins.qgis.org` is still **manual** — review the release on plugins.qgis.org before promoting to non-experimental. Afterwards merge `main` back into `staging`.
 
 See [`docs/deployment.md`](docs/deployment.md) for full deploy details.
+
+## Conventions
+
+Team-wide rules are **not duplicated here** — they live in the plugins enabled by
+[`.claude/settings.json`](.claude/settings.json) and are the default for this repo:
+
+| Skill | Use it for |
+|---|---|
+| `ir-dev:conventions` | Size limits, naming, imports, error handling, testing tiers, git workflow. Its `python-conventions.md` and `logging-conventions.md` are the baseline for every file here. |
+| `infrared:use-infrared` + `ir-sdk:infrared-sdk-consumers` | The simulation domain this plugin drives — analysis types, weather data, area vs. single-tile, result handling. Read before changing anything under `services/`. |
+| `ir-research:simulation-context` | What the results *mean* — the Lawson and UTCI standards this plugin renders, model accuracy, the serving pipeline. |
+| `ir-dev:codebase-overview` | Where this repo sits among the org's services, and how the SDK is released. |
+| `/ir-dev:audit-branch` | Run before opening a PR — checks conventions, reinvention, and doc sync. |
+| `/security-review`, `/code-review` | Before a release. plugins.qgis.org scans every upload and **blocks on Critical findings**. |
+
+Two deviations from those conventions are deliberate and documented under
+**Reviewer Corrections** in [`docs/battle-scars.md`](docs/battle-scars.md):
+snake_case module names, and prose logging. Read that section before "fixing"
+either — both are load-bearing.
 
 ## Doc Map
 
 - [`README.md`](README.md) — user-facing overview, install, and usage.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contributing guide (canonical filename; there is no `CONTRIBUTION.md`).
+- [`docs/development-setup.md`](docs/development-setup.md) — what a new machine needs: the plugin install is a COPY not a symlink, seeding the deps dir by hand, the two cost gates, the pre-PR checklist.
 - [`docs/architecture.md`](docs/architecture.md) — component overview, dialog flow, API contract.
 - [`docs/vegetation-input.md`](docs/vegetation-input.md) — tree-layer input contract (OSM-native: `species`/`genus`/`leaf_type`, optional size; two-tier resolution — precise registry species or archetype; catalog override). Only the point geometry is mandatory.
 - [`docs/ground-materials.md`](docs/ground-materials.md) — ground-material (surface) layers: fetch dialog, `ground-*` layer convention, simulation usage.
