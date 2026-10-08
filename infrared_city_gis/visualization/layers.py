@@ -15,6 +15,7 @@ from qgis.core import (
 )
 from qgis.PyQt.QtGui import QColor
 
+from ..exceptions import IncompleteGroundDownload
 from ..infrared_logger import logger
 
 
@@ -22,9 +23,9 @@ def ground_package_path():
     """Where one ground-material fetch is saved: a new GeoPackage per fetch.
 
     Next to the fetched buildings (``fetch.py``) in the plugin's data folder,
-    so both survive a QGIS restart and a saved project finds them again. Note
-    ``utils.helper.cleanup_old_data`` deletes files there that have not been
-    modified for 30 days, like the building files.
+    so both survive a QGIS restart and a saved project finds them again. The
+    plugin never deletes them (``utils.helper`` prunes logs only): a saved
+    project may load them at any time.
     """
     folder = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
     os.makedirs(folder, exist_ok=True)
@@ -42,7 +43,9 @@ def _save_material_layer(name, collection, gpkg_path):
     collector derives z and the material stamp itself, and a stray attribute
     would ride along into the payload.
 
-    Returns the loaded, file-backed layer, or None when nothing was written.
+    Returns the loaded, file-backed layer, or None for an empty collection
+    (that material is simply absent). Raises ``RuntimeError`` with the reason
+    when features were there but could not be read, written or loaded back.
     """
     if not isinstance(collection, dict) or not collection.get("features"):
         return None
@@ -52,8 +55,7 @@ def _save_material_layer(name, collection, gpkg_path):
             json.dump(collection, fh)
         source = QgsVectorLayer(tmp, name, "ogr")
         if not source.isValid() or source.featureCount() == 0:
-            logger.warning("%s: the fetched collection could not be read", name)
-            return None
+            raise RuntimeError("the downloaded features could not be read")
         options = QgsVectorFileWriter.SaveVectorOptions()
         options.driverName = "GPKG"
         options.layerName = name
@@ -67,13 +69,10 @@ def _save_material_layer(name, collection, gpkg_path):
             if os.path.exists(gpkg_path)
             else QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteFile
         )
-        error, message, _path, _layer = QgsVectorFileWriter.writeAsVectorFormatV3(
-            source, gpkg_path, QgsProject.instance().transformContext(), options,
-        )
+        error, message = _write_table(source, gpkg_path, options)
         del source  # release the temp file before deleting it (Windows locks it)
         if error != QgsVectorFileWriter.WriterError.NoError:
-            logger.error("%s: could not be saved to %s: %s", name, gpkg_path, message)
-            return None
+            raise RuntimeError(f"could not be written ({message or error})")
     finally:
         try:
             os.remove(tmp)
@@ -81,9 +80,16 @@ def _save_material_layer(name, collection, gpkg_path):
             logger.debug("could not remove the temporary file %s: %s", tmp, e)
     layer = QgsVectorLayer(f"{gpkg_path}|layername={name}", name, "ogr")
     if not layer.isValid():
-        logger.error("%s: saved to %s but could not be loaded back", name, gpkg_path)
-        return None
+        raise RuntimeError("was written but could not be loaded back")
     return layer
+
+
+def _write_table(source, gpkg_path, options):
+    """``(error, message)`` of writing *source* as one table (a seam for tests)."""
+    error, message, _path, _layer = QgsVectorFileWriter.writeAsVectorFormatV3(
+        source, gpkg_path, QgsProject.instance().transformContext(), options,
+    )
+    return error, message
 
 
 def display_route_and_points(route, points):
@@ -139,7 +145,9 @@ def display_ground_materials(ground_materials):
 
     Returns ``{layer_name: feature_count}`` for the layers created — keyed
     by the actual (possibly numbered) layer name so repeated fetches report
-    ``ground-asphalt-2`` etc. in summaries.
+    ``ground-asphalt-2`` etc. in summaries. When any material fails to save,
+    the others are still added and :class:`IncompleteGroundDownload` is
+    raised, so the download cannot be shown as complete.
     """
     from ..services.ground_materials import (
         GROUND_LAYER_PREFIX,
@@ -156,6 +164,7 @@ def display_ground_materials(ground_materials):
         for ly in QgsProject.instance().mapLayers().values()
     }
     created: dict = {}
+    failed: dict = {}
     gpkg_path = ground_package_path()
     for material, collection in sorted((ground_materials or {}).items()):
         base = f"{GROUND_LAYER_PREFIX}{material}"
@@ -165,7 +174,12 @@ def display_ground_materials(ground_materials):
             name = f"{base}-{n}"
             n += 1
         existing.add(name.lower())
-        layer = _save_material_layer(name, collection, gpkg_path)
+        try:
+            layer = _save_material_layer(name, collection, gpkg_path)
+        except Exception as e:
+            logger.error("%s: not saved to %s: %s", name, gpkg_path, e, exc_info=True)
+            failed[name] = str(e)
+            continue
         if layer is not None:
             try:
                 layer.renderer().symbol().setColor(QColor(*material_color(material)))
@@ -187,7 +201,9 @@ def display_ground_materials(ground_materials):
             created[name] = layer.featureCount()
     if created:
         logger.info("Ground materials saved to %s", gpkg_path)
-    else:
+    if failed:
+        raise IncompleteGroundDownload(created, failed, gpkg_path)
+    if not created:
         logger.warning("No ground material layers were created (no features in response)")
     return created
 

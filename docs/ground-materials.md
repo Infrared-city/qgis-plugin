@@ -25,8 +25,8 @@ Listed bottom → top in the stacking order (see *Overlaps and stacking* below):
 | `vegetation` | **Green surfaces** — grass, lawns, parks |
 
 The list is registry-driven: the plugin refreshes it from the materials
-registry when you save your API key, so new backend materials appear without
-a plugin update. These five are the whole set — the download returns nothing
+registry each time it starts, so new backend materials appear without a
+plugin update. These five are the whole set — the download returns nothing
 else, and the run dialog offers nothing else.
 
 > **A `ground-*` layer naming a material that isn't on this list is ignored**
@@ -112,10 +112,11 @@ one table per `ground-*` layer), next to the downloaded buildings. They are file
 not QGIS scratch layers: no "Temporary scratch layer only!" warning, they
 survive a QGIS restart, and a saved project opens them again. Edit them freely
 before running a simulation (reshape polygons, delete wrong areas, add new
-ones) — edits are written back to the file. Like the building files, a file
-there that has not been modified for 30 days is deleted when the plugin starts;
-to keep a set for longer, save it next to your project (*Export → Save
-Features As…*). You can also create a layer from scratch: any polygon layer named
+ones) — edits are written back to the file. The plugin never deletes these
+files (nor the downloaded buildings next to them), because a saved project may
+load them at any time; remove old ones from that folder by hand when no project
+needs them. To keep a set with a project you share, save it next to the
+project (*Export → Save Features As…*). You can also create a layer from scratch: any polygon layer named
 `ground-<material>` participates automatically, so a hand-drawn
 `ground-water` (or a future registry material) works without any plugin
 support.

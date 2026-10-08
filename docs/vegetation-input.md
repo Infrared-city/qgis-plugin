@@ -87,7 +87,7 @@ Provide `height` / `crownDiameter` per tree to override any default.
 
 The registry species — each is an **exact mesh**, not required for a run but
 available when you want a specific tree. Also listed live in the plugin's
-**Tree Catalog** dialog (fetched when you save your API key):
+**Tree Catalog** dialog (refreshed each time the plugin starts):
 
 | Species (Latin name) | Default height | Default crown diameter |
 |---|---|---|

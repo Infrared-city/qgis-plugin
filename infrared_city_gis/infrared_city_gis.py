@@ -48,7 +48,7 @@ from .services.fetch_from_registry import fetch_from_registry
 from .services.key_check import verify_api_key
 from .services.sdk_runner import clear_layer_selections
 from .services.secret_manager import get_api_key
-from .utils.helper import cleanup_old_data
+from .utils.helper import cleanup_old_logs
 
 _ICON_DIR = os.path.join(os.path.dirname(__file__), 'icons')
 
@@ -102,8 +102,8 @@ class InfraredCityGIS:
         self.actions = []
         self.menu = self.tr(u'&infrared.city GIS')
 
-        # cleanup old data
-        cleanup_old_data()
+        # Prune old log files (never the downloaded data — see utils.helper)
+        cleanup_old_logs()
 
         # Refresh the registries on startup so that colormaps, the tree catalog
         # and the ground-material palette reflect the latest published

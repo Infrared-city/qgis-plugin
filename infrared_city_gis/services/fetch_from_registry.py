@@ -29,9 +29,10 @@ Public API:
     ``vegetation_registry.json``.
   - ``fetch_registry_materials()`` GETs the materials mirror and overwrites
     ``materials_registry.json``.
-  - ``fetch_from_registry()`` runs all three. Called on plugin init and after
-    the user saves a new API key (the documents are versioned server-side, so a
-    refresh is how a new release's colormaps reach an installed plugin).
+  - ``fetch_from_registry()`` runs all three. Called once, at plugin start
+    (the documents are versioned server-side, so a refresh is how a new
+    release's colormaps reach an installed plugin). Saving an API key does not
+    refresh them: the mirror is public and needs no key.
 """
 
 import json

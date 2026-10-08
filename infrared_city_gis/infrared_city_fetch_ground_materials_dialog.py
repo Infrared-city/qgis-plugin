@@ -29,6 +29,7 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
 )
 
+from .exceptions import IncompleteGroundDownload
 from .infrared_logger import logger
 from .services import single_tile_selection
 from .services.ground_material_reader import GroundMaterialReader, read_in_progress
@@ -264,7 +265,24 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             )
             return
 
-        self.created_layers = display_ground_materials(area_gm.layers)
+        try:
+            self.created_layers = display_ground_materials(area_gm.layers)
+        except IncompleteGroundDownload as e:
+            # The saved layers are in the project; the missing ones would run
+            # as the default surface. Say so, and stay open for a retry.
+            self.created_layers = e.created
+            self._set_fetch_enabled(True)
+            saved = ", ".join(sorted(e.created)) or "none"
+            missing = "\n".join(f"• {name}: {why}" for name, why in sorted(e.failed.items()))
+            QMessageBox.warning(
+                self, "Download Incomplete",
+                f"These ground material layers could not be saved:\n{missing}\n\n"
+                f"Saved and added: {saved}.\n\n"
+                "A simulation would treat the missing surfaces as the default "
+                "material. Check the free disk space, then press Download to "
+                "try again.",
+            )
+            return
         summary = ", ".join(
             f"{name}: {count}" for name, count in sorted(self.created_layers.items())
         )
