@@ -194,19 +194,14 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
 
         # Ground materials: one checkable row per ground-* layer in the
         # project (created by the Fetch Ground Materials dialog or drawn by
-        # hand), plus an auto-fetch option that pulls Infrared City's own ground
-        # materials at submit time and ignores the layers. The whole section
-        # hides for analyses that don't use surface materials (wind, PWC,
-        # SVF).
+        # hand). The whole section hides for analyses that don't use surface
+        # materials (wind, PWC, SVF). There is no fetch-at-submit option: it
+        # froze QGIS for the whole read and re-downloaded every run (#47).
         self._ground_layers = {}
-        self.use_infrared_ground_materials = False
         try:
             self._populate_ground_materials()
             self.ground_materials_list.itemChanged.connect(
                 self._on_ground_item_changed
-            )
-            self.use_infrared_ground_checkbox.toggled.connect(
-                self._on_use_infrared_ground_toggled
             )
         except AttributeError:
             pass  # older .ui without the ground-material widgets
@@ -433,10 +428,6 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         lst.blockSignals(False)
         self._revalidate_ground_materials()
 
-    def _on_use_infrared_ground_toggled(self, checked):
-        self.use_infrared_ground_materials = bool(checked)
-        self._revalidate_ground_materials()
-
     def _on_ground_item_changed(self, changed_item):
         """Enforce one ticked layer per material, then revalidate.
 
@@ -485,14 +476,12 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         """Refresh ground-material widgets for the current analysis + area.
 
         Visibility: the whole section hides for analyses that ignore surface
-        materials (wind, PWC, SVF). The auto-fetch checkbox is always shown
-        for supported analyses (it needs no layers); the layer list only
-        when ground-* layers exist, and disabled while auto-fetch is ticked.
+        materials (wind, PWC, SVF); the layer list shows only when ground-*
+        layers exist, and the label says how to get them otherwise.
         """
         try:
             label = self.ground_validation_label
             lst = self.ground_materials_list
-            checkbox = self.use_infrared_ground_checkbox
         except AttributeError:
             return
 
@@ -500,25 +489,16 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
             self.analysis_type_dropdown.currentData()
         )
         self.label_ground_materials.setVisible(supported)
-        checkbox.setVisible(supported)
         lst.setVisible(supported and bool(self._ground_layers))
         label.setVisible(supported)
         if not supported:
             label.setText("")
             return
 
-        lst.setEnabled(not self.use_infrared_ground_materials)
-        if self.use_infrared_ground_materials:
-            label.setText(
-                "Infrared City ground materials will be fetched automatically for "
-                "the selected area at submit; ground-* layers are ignored."
-            )
-            return
-
         if not self._ground_layers:
             label.setText(
-                "No ground-* layers in the project — fetch them with "
-                "'Fetch ground materials', or tick the auto-fetch option."
+                "No ground-* layers in the project — fetch them with the "
+                "'Fetch ground materials' dialog first, or draw your own."
             )
             return
         if self.polygon is None:

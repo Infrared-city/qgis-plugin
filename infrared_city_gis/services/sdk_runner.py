@@ -27,11 +27,9 @@ from qgis.core import Qgis
 from qgis.PyQt.QtWidgets import QApplication
 from qgis.utils import iface
 
-from ..constants import GROUND_AUTO_FETCH_TIMEOUT_S
 from ..infrared_logger import logger
 from ..services.area_poller import AreaPoller
 from ..services.geotiff import generate_geotiff
-from ..services.ground_material_reader import timed_out
 from ..services.ground_materials import (
     collect_ground_materials,
     has_ground_material_support,
@@ -363,96 +361,33 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
             )
             vegetation = None
 
-    # Ground materials — only for analyses that use surface materials.
-    # Auto-fetch mode pulls Infrared City's own layers for the polygon at submit
-    # time (ignoring ground-* layers); otherwise the ticked ground-* layers
-    # are collected into the SDK's {material_name: FeatureCollection}
+    # Ground materials — only for analyses that use surface materials: the
+    # ticked ground-* layers (fetched with the Ground Materials dialog, or drawn
+    # by hand), collected into the SDK's {material_name: FeatureCollection}
     # mapping. Empty/failed → None → the run carries no ground materials
     # (server default emissivity). No properties.material stamping here:
     # run_area stamps it per feature from the dict key while assigning
     # tiles (SDK assign_ground_materials_to_tiles) — only the single-tile
     # path, which bypasses that orchestration, stamps in the plugin.
-    # Either the SDK's own AreaGroundMaterials (auto-fetch) or a plain
-    # {material: FeatureCollection} map (the user's ground-* layers). run_area
-    # accepts both; the difference is that the acquired OBJECT records the read
-    # margin it was read with, and a bare map "records nothing, makes no claim
-    # and is never refused" (SDK _area/_layers.unwrap_acquired_layers).
+    # Nothing is fetched at submit: that read froze QGIS for its whole
+    # duration and downloaded the same area again on every run (#47).
     ground_materials: Optional[Any] = None
     if has_ground_material_support(dlg.analysis_type):
-        if getattr(dlg, "use_infrared_ground_materials", False):
-            _status(
-                "InfraredCity: reading ground materials from Overture — "
-                f"QGIS may not respond for up to "
-                f"{GROUND_AUTO_FETCH_TIMEOUT_S // 60} minutes…"
-            )
+        try:
+            gm_layers = dlg.selected_ground_material_layers()
+        except AttributeError:
+            gm_layers = {}
+        if gm_layers:
             try:
-                with make_client(dlg.api_key) as gm_client:
-                    # analysis_type narrows the read margin: 363 m for wind and
-                    # PWC against the 544 m the widest (default) read uses, so a
-                    # wind run stops paying for context it cannot use. Every
-                    # analysis tiles at the same 512 m inference size, so only
-                    # the margin moves.
-                    area_gm = gm_client.ground_materials.get_area(
-                        polygon, analysis_type=payload.analysis_type,
-                        # Explicit, and bounded: this blocks the main thread,
-                        # so the budget is also how long QGIS can freeze. On
-                        # timeout the run goes on without materials (#47).
-                        timeout=GROUND_AUTO_FETCH_TIMEOUT_S,
-                        total_timeout=GROUND_AUTO_FETCH_TIMEOUT_S,
-                    )
-                # The OBJECT, not `.layers`: it carries the margin it was read
-                # with, which is what lets run_area refuse a mismatch up front
-                # instead of running with the outer context band missing — at
-                # full charge, and casting no shadow from it.
-                ground_materials = area_gm if area_gm.layers else None
-                logger.info(
-                    "Auto-fetched ground materials for %s: %d features, "
-                    "%d layer(s), read margin %s m",
-                    payload.analysis_type, area_gm.total_features,
-                    len(area_gm.layers), getattr(area_gm, "read_margin_m", "?"),
+                ground_materials = (
+                    collect_ground_materials(polygon, gm_layers) or None
                 )
             except Exception as e:
                 logger.warning(
-                    "Ground materials auto-fetch failed — running without: %s",
-                    e, exc_info=True,
+                    "Failed to collect ground materials: %s", e,
+                    exc_info=True,
                 )
-                # The user ASKED for Infrared City ground materials, and the run is
-                # about to proceed without them — a materially different
-                # result, not a cosmetic degradation. duration=0 so the warning
-                # stays until dismissed: a 10-second toast during a long submit
-                # is trivially missed, and then the result looks like the one
-                # that was asked for.
-                if timed_out(e):
-                    _status(
-                        "InfraredCity: ground materials did not download "
-                        f"within {GROUND_AUTO_FETCH_TIMEOUT_S // 60} minutes — "
-                        "this simulation is running WITHOUT them. Fetch them "
-                        "with the Ground Materials dialog (no freeze, longer "
-                        "limit) and run again with the ground-* layers.",
-                        level=Qgis.Warning, duration=0,
-                    )
-                else:
-                    _status(
-                        "InfraredCity: ground materials could not be fetched — "
-                        "this simulation is running WITHOUT them.",
-                        level=Qgis.Warning, duration=0,
-                    )
-        else:
-            try:
-                gm_layers = dlg.selected_ground_material_layers()
-            except AttributeError:
-                gm_layers = {}
-            if gm_layers:
-                try:
-                    ground_materials = (
-                        collect_ground_materials(polygon, gm_layers) or None
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "Failed to collect ground materials: %s", e,
-                        exc_info=True,
-                    )
-                    ground_materials = None
+                ground_materials = None
 
     poller = AreaPoller(
         client=make_client(dlg.api_key),

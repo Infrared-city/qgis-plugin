@@ -35,7 +35,7 @@ import os
 from pathlib import Path
 
 import pytest
-from _baseline import DRIFT_LIMIT, compare_to_baseline, record
+from _baseline import compare_to_baseline, record
 from _sim_runner import (
     AREA_SIZE_M,
     BASELINE,
@@ -359,41 +359,3 @@ def test_utci_ground_materials_change_the_result(
         "adding a water surface changed nothing in the UTCI result — the ground "
         "materials are not reaching the model"
     )
-
-
-@requires_simulations
-def test_utci_auto_fetch_matches_manual_layers(
-        key, project_buildings, saved_ground_layers, weather_file):
-    """The two ways of supplying ground materials must agree.
-
-    Auto-fetch pulls the layers from the platform at submit time; the manual
-    path collects the ground-* layers already in the project. Both are cropped
-    server-side to the same tile bbox, so the results should land on top of each
-    other. They are NOT bit-identical — the manual collector ships a 100 m
-    context margin the server then discards, and the layers made a round trip
-    through QGIS — hence a relative tolerance rather than equality.
-
-    This is the assertion worth keeping long-term: it compares two code paths
-    against each other, so it survives data refreshes and model updates that
-    would invalidate any absolute number. It is also the one place a live fetch
-    still feeds a simulation — that is what the auto path *is*, and it is why
-    this test can drift when the recorded materials no longer match prod.
-    """
-    auto = run_single_tile(key, UTCI, weather_file=weather_file, ground="auto")
-    manual = run_single_tile(
-        key, UTCI, weather_file=weather_file, ground=saved_ground_layers)
-
-    record("utci.auto", "ok", f"min {auto['min']:.3f} max {auto['max']:.3f}")
-    record("utci.manual", "ok", f"min {manual['min']:.3f} max {manual['max']:.3f}")
-
-    for field in ("min", "max"):
-        a, m = auto[field], manual[field]
-        drift = abs(a - m) / max(abs(m), 1e-9)
-        status = "ok" if drift <= DRIFT_LIMIT else "FAIL"
-        record(f"utci.{field} auto vs manual", status, f"Δ {a - m:+.3f} ({drift:.2%})")
-        assert drift <= DRIFT_LIMIT, (
-            f"UTCI {field} differs by {drift:.1%} between auto-fetched and manually "
-            f"supplied ground materials ({a:.3f} vs {m:.3f}). The two paths should "
-            "produce the same surface — one of them is dropping or mis-ordering "
-            "material layers."
-        )

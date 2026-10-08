@@ -29,7 +29,6 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
 )
 
-from .constants import GROUND_FETCH_TOTAL_TIMEOUT_S
 from .infrared_logger import logger
 from .services import single_tile_selection
 from .services.ground_material_reader import GroundMaterialReader, read_in_progress
@@ -167,8 +166,7 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             f"Note: 'ground-vegetation' is green surfaces (grass, "
             f"parks) — trees are separate 'tree-*' point layers.\n\n"
             f"The fetch downloads Overture map data and can take a few "
-            f"minutes on a slow connection (at most "
-            f"{GROUND_FETCH_TOTAL_TIMEOUT_S // 60} minutes)."
+            f"minutes on a slow connection."
         )
         self._init_ok = True
 

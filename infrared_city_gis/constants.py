@@ -53,7 +53,3 @@ FETCH_HTTP_TIMEOUT = (10, 30)           # weather / OSM / EPW metadata
 # stays usable and the budget can be generous.
 GROUND_FETCH_TIMEOUT_S = 300            # per read
 GROUND_FETCH_TOTAL_TIMEOUT_S = 600      # whole site (large areas read in chunks)
-# Auto-fetch at submit ("Use Infrared City ground materials"): runs on the main
-# thread, so this is also the longest QGIS can stop responding. On timeout the
-# run continues without ground materials and the user is told.
-GROUND_AUTO_FETCH_TIMEOUT_S = 120       # per read AND whole site

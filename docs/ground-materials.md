@@ -116,21 +116,12 @@ support.
 ## Using them in a simulation
 
 For the analyses that use surface materials, the Run Simulation dialog shows
-a **Ground materials** section with two ways to provide them:
+a **Ground materials** section listing the `ground-*` layers in the project —
+fetched with the dialog above, or drawn yourself. The run never downloads
+anything itself: an earlier "fetch at submit" option froze QGIS for the whole
+read and downloaded the same area again on every run, so it was removed (#47).
+Fetch once, then run as many analyses as you like on the same layers.
 
-- **Use Infrared City ground materials (auto-fetch)** — tick this to skip the
-  layer workflow entirely: the plugin fetches Infrared City's own surface layers
-  for your selected area at submit time and ignores any `ground-*` layers.
-  The fetch is told which analysis it is for, so a wind or PWC run reads a
-  363 m margin around each tile instead of the 544 m every other analysis
-  needs — less data over the wire for the same result.
-  The read runs just before submission, on QGIS's main thread, so **QGIS does
-  not respond while it runs — for at most 2 minutes**
-  (`GROUND_AUTO_FETCH_TIMEOUT_S`). If it does not finish in time, or fails,
-  the simulation runs **without** ground materials and a warning stays on the
-  message bar until you close it. On a slow connection or for a large area,
-  fetch with the dialog instead (no freeze, a longer limit) and tick the
-  `ground-*` layers.
 - **Layer list** — when the project contains `ground-*` layers, one
   checkable row per layer (`asphalt — ground-asphalt`). Nothing is ticked by
   default: tick the layers you want to include. **One layer per material** —
@@ -147,8 +138,9 @@ a **Ground materials** section with two ways to provide them:
   *"No ground material data found on the selected area — the ticked layer
   has no features inside your selection."* (or *"…the ticked layers
   have…"* when several are ticked).
-- With no `ground-*` layers in the project the list is hidden (the
-  auto-fetch option stays available).
+- With no `ground-*` layers in the project the list is hidden and the
+  section says to fetch them with the *Fetch ground materials* dialog first,
+  or draw your own.
 
 At submission each ticked layer is read into its material's
 FeatureCollection. Features are never merged across materials — the
@@ -175,8 +167,8 @@ Two consequences for hand-drawn layers:
   pond would win instead. Trim the vegetation polygon if that's not what you
   want.
 - The order is the platform's own (`_CANONICAL_Z_ORDER` in the
-  utilities-service), and the plugin emits the payload in it so a manual run
-  stacks identically to an auto-fetched one.
+  utilities-service), and the plugin emits the payload in it so a run on
+  your layers stacks the way the platform's own does.
 
 ## Size limits
 

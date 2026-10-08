@@ -89,7 +89,7 @@ User → Auth Dialog → key VERIFIED against the API before saving
      → Select bbox / Select tile → Fetch buildings (POST /v2/buildings, GeoJson)
        (optional) Fetch ground materials → editable ground-* layers
      → Configure simulation (analysis, time frame, EPW, tree-* layer,
-       ground-* layers or auto-fetch)
+       ticked ground-* layers)
      → SDK run_area + poll + merge_area_jobs (area) / analyses.execute (single tile)
        → poll job status → download result → render as raster layer
 ```

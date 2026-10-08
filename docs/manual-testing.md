@@ -93,7 +93,6 @@ charge. Submitting a simulation ends the mode; a ground-material fetch does not.
 - ☐ Arm a tile with **Select tile**, then Run Simulation. Expect the title to read **1 tile · ~10 tokens**, and no area tiling.
 - ☐ Run it through: expect a result raster loaded and styled.
 
-- ☐ **A failed auto-fetch is not silent** — tick *Use Infrared City ground materials*, run with the network blocked or a very slow connection. Expect the status line to warn that QGIS may not respond for up to 2 minutes, then a message-bar warning that STAYS (no auto-hide) saying the simulation is running WITHOUT them and, after a timeout, pointing to the Ground Materials dialog. QGIS must respond again within ~2 minutes, and the run itself should still complete. Check both single-tile and area.
 
 ### 5b. Area (multiple tiles)
 
@@ -150,8 +149,8 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 - ☐ **Opt-in list** — the Ground materials list opens with **nothing ticked**; one row per `ground-*` layer (`material — layer name`).
 - ☐ **One per material** — ticking a second `asphalt` layer unticks the first (radio-like).
 - ☐ **Validation (ticked only)** — a ticked layer with no features in the selection is reported (*"Not found on the selected area: …"*); silence otherwise.
-- ☐ **Auto-fetch** — tick *"Use Infrared City ground materials"*: the list disables; Infrared City's own layers are fetched at submit.
-- ☐ **No layers** — with no `ground-*` layers, the list is hidden but the auto-fetch option remains.
+- ☐ **No fetch option** — the section has no "fetch at submit" checkbox; a run never downloads ground materials itself.
+- ☐ **No layers** — with no `ground-*` layers, the list is hidden and the section says to fetch them with the *Fetch ground materials* dialog first.
 
 ### 5g. Combined / negative runs
 

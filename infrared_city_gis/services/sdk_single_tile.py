@@ -32,16 +32,13 @@ from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import QApplication, QMessageBox
 from qgis.utils import iface
 
-from ..constants import GROUND_AUTO_FETCH_TIMEOUT_S
 from ..infrared_logger import logger
 from ..utils.client_identity import make_client
 from ..visualization.display import add_result_raster
 from .geotiff import generate_geotiff, map_categories
-from .ground_material_reader import timed_out
 from .ground_materials import (
     collect_ground_materials,
     has_ground_material_support,
-    stamp_material_properties,
 )
 from .qgis_area_vegetation import collect_qgis_area_vegetation
 from .render_state import AreaRenderState
@@ -429,75 +426,24 @@ def run_sdk_single_tile_async(dlg, polygon: dict, area) -> "Optional[SingleTileP
     # Every feature must carry a properties.material stamp: run_area's tile
     # assignment would add it, but analyses.execute sends the payload as-is
     # and the Lambda's emissivity lookup needs it. The collector stamps its
-    # own output; auto-fetched layers are stamped here.
+    # own output. Nothing is fetched at submit (#47; see sdk_runner).
     ground_materials: Optional[dict] = None
     if has_ground_material_support(dlg.analysis_type):
-        if getattr(dlg, "use_infrared_ground_materials", False):
-            _status(
-                "InfraredCity: reading ground materials from Overture — "
-                f"QGIS may not respond for up to "
-                f"{GROUND_AUTO_FETCH_TIMEOUT_S // 60} minutes…"
-            )
+        try:
+            gm_layers = dlg.selected_ground_material_layers()
+        except AttributeError:
+            gm_layers = {}
+        if gm_layers:
             try:
-                with make_client(dlg.api_key) as gm_client:
-                    # Narrower read margin for wind/PWC (363 m vs the widest
-                    # 544 m). `.layers` rather than the acquired object here:
-                    # this path embeds the materials in the payload and submits
-                    # through analyses.execute, which has no margin check to
-                    # feed — and cannot drift, since the read and the run take
-                    # their analysis from the same payload.
-                    area_gm = gm_client.ground_materials.get_area(
-                        polygon, analysis_type=payload.analysis_type,
-                        # Explicit, and bounded: this blocks the main thread,
-                        # so the budget is also how long QGIS can freeze. On
-                        # timeout the run goes on without materials (#47).
-                        timeout=GROUND_AUTO_FETCH_TIMEOUT_S,
-                        total_timeout=GROUND_AUTO_FETCH_TIMEOUT_S,
-                    )
-                if area_gm.layers:
-                    ground_materials = stamp_material_properties(area_gm.layers)
+                ground_materials = (
+                    collect_ground_materials(polygon, gm_layers) or None
+                )
             except Exception as e:
                 logger.warning(
-                    "Single-tile: ground materials auto-fetch failed — running without: %s",
+                    "Single-tile: ground material collection failed: %s",
                     e, exc_info=True,
                 )
-                # The user ASKED for Infrared City ground materials, and the run is
-                # about to proceed without them — a materially different
-                # result, not a cosmetic degradation. duration=0 so the warning
-                # stays until dismissed: a 10-second toast during a long submit
-                # is trivially missed, and then the result looks like the one
-                # that was asked for.
-                if timed_out(e):
-                    _status(
-                        "InfraredCity: ground materials did not download "
-                        f"within {GROUND_AUTO_FETCH_TIMEOUT_S // 60} minutes — "
-                        "this simulation is running WITHOUT them. Fetch them "
-                        "with the Ground Materials dialog (no freeze, longer "
-                        "limit) and run again with the ground-* layers.",
-                        level=Qgis.Warning, duration=0,
-                    )
-                else:
-                    _status(
-                        "InfraredCity: ground materials could not be fetched — "
-                        "this simulation is running WITHOUT them.",
-                        level=Qgis.Warning, duration=0,
-                    )
-        else:
-            try:
-                gm_layers = dlg.selected_ground_material_layers()
-            except AttributeError:
-                gm_layers = {}
-            if gm_layers:
-                try:
-                    ground_materials = (
-                        collect_ground_materials(polygon, gm_layers) or None
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "Single-tile: ground material collection failed: %s",
-                        e, exc_info=True,
-                    )
-                    ground_materials = None
+                ground_materials = None
     if ground_materials:
         payload = payload.model_copy(
             update={"ground_materials": ground_materials}, deep=True,

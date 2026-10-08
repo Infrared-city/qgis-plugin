@@ -65,11 +65,10 @@ def run_single_tile(api_key, analysis_type, *, weather_file, ground):
     recorded configuration because it changes the result:
 
     * ``None``   — none at all
-    * ``"auto"`` — fetched from the platform at submit time (the auto path)
     * a ``{material: [QgsVectorLayer]}`` mapping — collected from those layers
 
     Goes through the plugin's own builders — ``build_sdk_payload``,
-    ``collect_qgis_area_buildings``, the two ground-material paths and
+    ``collect_qgis_area_buildings``, the ground-material collector and
     ``grid_from_result`` — so a regression in any of them shows up here. The
     submit/poll/download sequence is the SDK's own (see ``_await_result``);
     only the plugin's production path re-implements it, and only because Qt
@@ -80,7 +79,6 @@ def run_single_tile(api_key, analysis_type, *, weather_file, ground):
 
     from infrared_city_gis.services.ground_materials import (
         collect_ground_materials,
-        stamp_material_properties,
     )
     from infrared_city_gis.services.qgis_area_buildings import (
         collect_qgis_area_buildings,
@@ -93,7 +91,6 @@ def run_single_tile(api_key, analysis_type, *, weather_file, ground):
 
     tile = polygon(LON, LAT, TILE_SIZE_M)
     ring = tile["coordinates"][0]
-    auto = ground == "auto"
 
     dlg = FakeRunDialog(
         analysis_type,
@@ -101,8 +98,7 @@ def run_single_tile(api_key, analysis_type, *, weather_file, ground):
         bbox=(ring[0][0], ring[0][1], ring[2][0], ring[2][1]),
         crs="EPSG:4326",
         weather_file=weather_file if analysis_type in NEEDS_WEATHER else "",
-        use_infrared_ground_materials=auto,
-        ground_material_layers=None if auto or ground is None else ground,
+        ground_material_layers=ground,
     )
 
     payload = build_sdk_payload(dlg)
@@ -113,12 +109,7 @@ def run_single_tile(api_key, analysis_type, *, weather_file, ground):
     assert geometries, "no building meshes collected for the tile"
     payload = payload.model_copy(update={"geometries": geometries}, deep=True)
 
-    if auto:
-        with InfraredClient(api_key=api_key) as client:
-            area_gm = client.ground_materials.get_area(tile)
-        materials = stamp_material_properties(area_gm.layers)
-        ground_label = "auto-fetch"
-    elif ground is None:
+    if ground is None:
         materials = {}
         ground_label = "none"
     else:

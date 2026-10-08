@@ -145,13 +145,13 @@ folder it finds, which is why the loop above seeds both.
 
 ### The two cost gates
 
-13 tests are skipped by default, deliberately — all of them in
+12 tests are skipped by default, deliberately — all of them in
 `tests/test_e2e_workflow.py`:
 
 | gate | tests | what they would do |
 |---|---|---|
 | `INFRARED_API_KEY` | 3 | real prod reads: buildings, ground materials, weather stations |
-| `INFRARED_RUN_SIMULATIONS=1` | 10 | **submit paid runs** — one single tile per analysis (8), plus two UTCI ground-material checks |
+| `INFRARED_RUN_SIMULATIONS=1` | 9 | **submit paid runs** — one single tile per analysis (8), plus a UTCI check that ground materials change the result |
 
 ```bash
 INFRARED_API_KEY=… INFRARED_RUN_SIMULATIONS=1 ./scripts/run_qgis_tests.sh -m e2e -s

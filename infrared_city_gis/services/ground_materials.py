@@ -478,29 +478,3 @@ def has_ground_material_support(analysis_type) -> bool:
         AnalysisType.THERMAL_COMFORT_INDEX,
         AnalysisType.THERMAL_COMFORT_STATISTICS,
     }
-
-
-def stamp_material_properties(layers: Dict[str, dict]) -> Dict[str, dict]:
-    """Return ``layers`` with ``properties.material`` stamped per feature.
-
-    ``run_area``'s tile assignment stamps the material itself, but the
-    single-tile path embeds the payload as-is — auto-fetched layers (which
-    come straight from the SDK, unstamped) need this before embedding or
-    the Lambda's emissivity lookup falls back to the 0.97 default.
-
-    The result is also re-keyed into :data:`MATERIAL_Z_ORDER`. The SDK hands
-    back whatever key order ``/ground-material/collect`` produced; that is
-    canonical today (``merge_fgb_layers``), but the order decides the server's
-    z re-stamp, so don't depend on it silently — an asphalt key that drifted
-    last would put the full-bbox backdrop on top of the whole stack.
-    """
-    stamped: Dict[str, dict] = {}
-    for material, fc in layers.items():
-        features = []
-        for feat in (fc or {}).get("features", []):
-            features.append({
-                **feat,
-                "properties": {**(feat.get("properties") or {}), "material": material},
-            })
-        stamped[material] = {"type": "FeatureCollection", "features": features}
-    return _in_z_order(stamped)

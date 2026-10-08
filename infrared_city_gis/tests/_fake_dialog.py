@@ -129,8 +129,7 @@ class FakeRunDialog:
     """
 
     def __init__(self, analysis_type, *, api_key, bbox, crs, weather_file="",
-                 tree_layer=None, ground_material_layers=None,
-                 use_infrared_ground_materials=False, **params):
+                 tree_layer=None, ground_material_layers=None, **params):
         self.analysis_type = analysis_type
         self.sub_analysis_type = None
         self.api_key = api_key
@@ -205,7 +204,6 @@ class FakeRunDialog:
 
         # Vegetation + ground materials
         self.tree_layer_dropdown = _Combo(data=tree_layer)
-        self.use_infrared_ground_materials = use_infrared_ground_materials
         self._ground_material_layers = ground_material_layers or {}
 
     def selected_ground_material_layers(self):

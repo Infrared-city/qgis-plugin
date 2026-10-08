@@ -38,7 +38,6 @@ NON_WIDGET_ATTRS = {
     "_epw_paths",
     "min_legend_value",
     "max_legend_value",
-    "use_infrared_ground_materials",
 }
 
 

@@ -1,10 +1,11 @@
 """Every Overture ground-material read in the plugin passes an explicit budget.
 
 Without ``timeout=`` the SDK's 60 s per-read default applies, and a single tile
-already takes 39-64 s on a good line and over 150 s on a slow one (#47). The
-three call sites live in three modules, so a new one, or a refactor that drops
-the keyword from an old one, would only show up as fetches failing in the
-field. Read with ``ast``: a call is a call, wherever it is.
+already takes 39-64 s on a good line and over 150 s on a slow one (#47). Today
+the only call is the Ground Materials dialog's worker (the run dialog's
+fetch-at-submit option was removed), so a new call site, or a refactor that
+drops the keyword, would only show up as fetches failing in the field. Read
+with ``ast``: a call is a call, wherever it is.
 """
 
 import ast
@@ -48,6 +49,6 @@ def test_every_ground_read_has_an_explicit_budget():
     assert missing == [], "get_area without timeout/total_timeout: " + ", ".join(missing)
 
 
-def test_the_scan_still_sees_the_three_call_sites():
+def test_the_scan_still_sees_the_call_site():
     """If this drops, the scan stopped matching, not the code getting safer."""
-    assert len(_all_reads()) == 3
+    assert len(_all_reads()) == 1
