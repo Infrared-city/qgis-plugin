@@ -85,10 +85,10 @@ User → Auth Dialog → key VERIFIED against the API before saving
                      (GET /v2/binary/v1/capabilities: 401 →
                       not saved + "contact connectors@infrared.city";
                       2xx with the capabilities document → saved;
-                      403 with the API's problem-details error → saved,
-                      plus an "API Key Saved With Limited Access" note
-                      with the server's reason;
-                      anything else (unreachable, any other 2xx/403 body,
+                      any 403 → NOT saved, "API Key Not Saved (403)" with
+                      the server's reason; a key saved earlier is kept;
+                      anything else (unreachable, 5xx, 404, other 4xx,
+                      a 2xx that is not the capabilities document,
                       proxy/portal page or JSON) → not saved,
                       "Could Not Verify")
                    → API key stored in QGIS settings
@@ -104,19 +104,22 @@ All toolbar actions except **Save API Key** are greyed out (with an
 explanatory tooltip) until a key is stored and not known-bad. A startup
 `key_check.saved_key_rejected` (a wrapper over `verify_api_key`) re-checks a
 saved key: a confirmed 401 locks the actions and pushes a message-bar
-warning; a 403 or a mere outage does NOT — a recognised key stays usable,
-and an already-saved key keeps working offline. (This check used to be a
+warning; a 403 or a mere outage does NOT — an already-saved key stays
+usable, and keeps working offline. (This check used to be a
 side effect of the registry refresh, back when the registries were read from
 the utilities service with the key attached.)
 
-The key check trusts only the API's own answer: a 2xx must carry the
-capabilities document (`inputFormat` and `resultFormat` both `"irbf"`, an
-integer `wireVersion` — the shape the SDK checks before every run), and a
-403 must carry the API's problem-details error (`status` 403, a `title`).
-Any other 2xx or 403 body — a captive-portal or proxy page, or a
-middlebox's own JSON — is "Could Not Verify", never a verdict on the key,
-and is not saved, so a key already saved is never overwritten by an
-unverified one. A 401 is a rejection whatever the body.
+Only a verified answer saves a key: a 2xx that carries the capabilities
+document (`inputFormat` and `resultFormat` both `"irbf"`, an integer
+`wireVersion` — the shape the SDK checks before every run). A 403 proves
+nothing about the key — a proxy or firewall can send one, whatever its
+body — so it is never saved and never locks the toolbar: the dialog says
+"API Key Not Saved (403)" with the server's reason, and any key saved
+earlier is unchanged. Any other 2xx body (a captive-portal or proxy page,
+or a middlebox's own JSON) is "Could Not Verify", not saved, so a key
+already saved is never overwritten by an unverified one. A 401 is a
+rejection whatever the body. The server's reason is masked, capped at 200
+characters, and dropped if it contains `<` or `>`.
 
 Weather comes from the SDK weather client's static public catalog
 (`geo.infrared.city/weather`, no API key sent) — both the station list for
