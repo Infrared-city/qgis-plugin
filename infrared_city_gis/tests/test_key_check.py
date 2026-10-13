@@ -14,6 +14,7 @@ not tell" (False). The server's reason is surfaced, with the key masked.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -302,3 +303,18 @@ def test_api_key_restricted_is_an_api_error():
 
 def test_simulation_403_text_is_unchanged():
     assert InfraredAPIError(403).title == "Access Denied (403)"
+
+
+# ---------------------------------------------------------------------------
+# The startup gate in the plugin class
+# ---------------------------------------------------------------------------
+
+
+def test_startup_gate_locks_only_on_a_401():
+    source = (Path(__file__).resolve().parents[1] / "infrared_city_gis.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "saved_key_rejected(" in source
+    assert "(401, 403)" not in source
+    assert "in (401, 403)" not in source
