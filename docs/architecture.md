@@ -84,11 +84,13 @@ Plugin start → registries fetched from the public mirror
 User → Auth Dialog → key VERIFIED against the API before saving
                      (GET /v2/binary/v1/capabilities: 401 →
                       not saved + "contact connectors@infrared.city";
-                      403 (the API's own JSON) → saved, plus an "API Key
-                      Saved With Limited Access" note with the server's
-                      reason;
-                      anything else (unreachable, proxy/portal page) →
-                      not saved, "Could Not Verify")
+                      2xx with the capabilities document → saved;
+                      403 with the API's problem-details error → saved,
+                      plus an "API Key Saved With Limited Access" note
+                      with the server's reason;
+                      anything else (unreachable, any other 2xx/403 body,
+                      proxy/portal page or JSON) → not saved,
+                      "Could Not Verify")
                    → API key stored in QGIS settings
      → Select bbox / Select tile → Download buildings (POST /v2/buildings, GeoJson)
        (optional) Download ground materials → editable ground-* layers
@@ -107,9 +109,14 @@ and an already-saved key keeps working offline. (This check used to be a
 side effect of the registry refresh, back when the registries were read from
 the utilities service with the key attached.)
 
-Only the API's own JSON answer is trusted by the key check: a 403 or 2xx
-that is not that JSON (a captive-portal or proxy page) is "Could Not
-Verify", never a verdict on the key.
+The key check trusts only the API's own answer: a 2xx must carry the
+capabilities document (`inputFormat` and `resultFormat` both `"irbf"`, an
+integer `wireVersion` — the shape the SDK checks before every run), and a
+403 must carry the API's problem-details error (`status` 403, a `title`).
+Any other 2xx or 403 body — a captive-portal or proxy page, or a
+middlebox's own JSON — is "Could Not Verify", never a verdict on the key,
+and is not saved, so a key already saved is never overwritten by an
+unverified one. A 401 is a rejection whatever the body.
 
 Weather comes from the SDK weather client's static public catalog
 (`geo.infrared.city/weather`, no API key sent) — both the station list for
