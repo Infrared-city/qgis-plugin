@@ -125,3 +125,36 @@ class InfraredAPIError(Exception):
             self.detail += f"\n\nServer message: {server_message}"
 
         super().__init__(f"[HTTP {status_code}] {self.title}")
+
+
+class ApiKeyRestricted(InfraredAPIError):
+    """The server recognised the API key, but refused this request (HTTP 403).
+
+    Raised by the key check. A 403 is not a rejection: the key is valid and the
+    plan or permissions simply do not cover the probe (#53), whereas a 401 means
+    the key is unknown. A caller must therefore SAVE the key and show
+    :attr:`title` / :attr:`detail` as a note, never as an error.
+    """
+
+    #: Dialog title for the "valid key, limited access" note.
+    KEY_CHECK_TITLE = "API Key Saved With Limited Access"
+    #: Body of that note; deliberately not the simulation 403 text in ``_STATUS_MAP``.
+    KEY_CHECK_DETAIL = (
+        "Your API key is valid and has been saved.\n\n"
+        "The Infrared City server recognised the key but refused the access "
+        "check, so some features may not be included in your plan. "
+        "Visit infrared.city to review your plan or contact "
+        f"{SUPPORT_EMAIL} for help."
+    )
+
+    def __init__(self, status_code=403, server_message=None):
+        # No server_message to the base: it would append it to the simulation
+        # wording this class replaces. It is appended once, below.
+        super().__init__(status_code=status_code)
+        self.server_message = server_message
+        self.title = self.KEY_CHECK_TITLE
+        self.detail = self.KEY_CHECK_DETAIL
+        if server_message:
+            self.detail += f"\n\nServer message: {server_message}"
+        # Re-run so str(exc) reflects the final title.
+        Exception.__init__(self, f"[HTTP {status_code}] {self.title}")
