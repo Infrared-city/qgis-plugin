@@ -130,9 +130,9 @@ class InfraredAPIError(Exception):
 class ApiKeyRestricted(InfraredAPIError):
     """The server recognised the API key, but refused this request (HTTP 403).
 
-    Raised by the key check. A 403 is not a rejection: the key is valid and the
-    plan or permissions simply do not cover the probe (#53), whereas a 401 means
-    the key is unknown. A caller must therefore SAVE the key and show
+    Raised by the key check. A 403 is not a rejection: the key was recognised and
+    the plan or permissions simply do not cover the probe (#53), whereas a 401
+    means the key is unknown. A caller must therefore SAVE the key and show
     :attr:`title` / :attr:`detail` as a note, never as an error.
     """
 
@@ -140,9 +140,9 @@ class ApiKeyRestricted(InfraredAPIError):
     KEY_CHECK_TITLE = "API Key Saved With Limited Access"
     #: Body of that note; deliberately not the simulation 403 text in ``_STATUS_MAP``.
     KEY_CHECK_DETAIL = (
-        "Your API key is valid and has been saved.\n\n"
-        "The Infrared City server recognised the key but refused the access "
-        "check, so some features may not be included in your plan. "
+        "Your API key was recognised and has been saved.\n\n"
+        "The Infrared City server refused the access check, so some features "
+        "may not be included in your plan. "
         "Visit infrared.city to review your plan or contact "
         f"{SUPPORT_EMAIL} for help."
     )

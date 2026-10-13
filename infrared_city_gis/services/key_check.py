@@ -17,9 +17,10 @@ honours the proxy configured in QGIS Options → Network.
 
 Four outcomes, matching what the callers distinguish:
 
-    verified    -> True
-    restricted  -> ApiKeyRestricted (403): the key IS recognised but this
-                   request was refused, so the caller saves it and shows a note
+    verified    -> True (a 2xx carrying the API's JSON object)
+    restricted  -> ApiKeyRestricted (403 with the API's JSON body): the key IS
+                   recognised but this request was refused, so the caller saves
+                   it and shows a note
     rejected    -> InfraredAPIError with status_code 401: the key is unknown
     unreachable -> False
 
@@ -27,6 +28,13 @@ The last one is deliberately not an exception. An outage must not be presented
 to the user as a bad key, and it must not lock an already-saved key out of the
 plugin. For the same reason only a 401 ever counts as a rejection of a key that
 is already saved (see :func:`saved_key_rejected`).
+
+A 2xx or 403 is only trusted when its body is the API's JSON object. A captive
+portal, corporate proxy or firewall answers with its own page (usually HTML),
+and that must neither verify a key that was never checked nor claim the server
+recognised one, so a non-JSON 2xx or 403 counts as unreachable. A 401 is
+rejected whatever its body: failing closed on a key check is safe, because the
+user is only asked to re-enter the key.
 """
 
 from __future__ import annotations
@@ -57,14 +65,32 @@ def _mask_key(api_key: str) -> str:
     return "•" * len(api_key)
 
 
+def _json_object(response) -> dict | None:
+    """Return the parsed JSON body of ``response`` if it is an object, else None.
+
+    The API answers with JSON objects; anything else (an HTML page from a
+    proxy, an empty body, a bare list or string) is not the API talking.
+    Never raises.
+    """
+    try:
+        body = response.json()
+    except Exception:  # not JSON, empty, or no json() at all
+        return None
+    return body if isinstance(body, dict) else None
+
+
 def _server_reason(response, api_key: str) -> str | None:
     """Return a short, key-free reason from an error ``response``, or None.
 
-    Takes the first of ``message`` / ``detail`` / ``title`` from a JSON object
-    body, else the body text. Whitespace is collapsed, the API key is masked if
-    the server echoed it, and the result is cut to ``_REASON_MAX_CHARS``. The
-    key is masked BEFORE the cut so a truncation cannot leave part of it behind.
-    Never raises.
+    A body that parses as JSON yields the first non-empty string among
+    ``message`` / ``detail`` / ``title`` when it is an object, and nothing
+    otherwise; the raw text is never used for valid JSON. Only a body that is
+    not JSON at all falls back to its stripped text. Whitespace is collapsed,
+    the API key is masked if the server echoed it, and the result is cut to
+    ``_REASON_MAX_CHARS``. The key is masked BEFORE the cut so a truncation
+    cannot leave part of it behind. A reason that starts with ``<`` is markup
+    (a proxy's HTML page) and is dropped, so it never reaches a Qt message box,
+    which renders rich text. Never raises.
     """
     try:
         if response is None:
@@ -73,17 +99,18 @@ def _server_reason(response, api_key: str) -> str | None:
         try:
             body = response.json()
         except ValueError:
-            body = None
-        if isinstance(body, dict):
-            for field in _REASON_FIELDS:
-                value = body.get(field)
-                if isinstance(value, str) and value.strip():
-                    reason = value
-                    break
-        if reason is None:
             reason = response.text.strip()
+        else:
+            if isinstance(body, dict):
+                for field in _REASON_FIELDS:
+                    value = body.get(field)
+                    if isinstance(value, str) and value.strip():
+                        reason = value
+                        break
+        if reason is None:
+            return None
         reason = re.sub(r"\s+", " ", reason).strip()
-        if not reason:
+        if not reason or reason.startswith("<"):
             return None
         key = (api_key or "").strip()
         if key:
@@ -100,14 +127,17 @@ def verify_api_key(api_key: str) -> bool:
 
     Raises:
         ApiKeyRestricted: the server recognised the key but refused this
-            request (403, e.g. plan or permissions). The key is valid: callers
-            save it and show the exception's ``title`` / ``detail`` as a note.
+            request (403 with the API's JSON body, e.g. plan or permissions).
+            Callers save the key and show the exception's ``title`` /
+            ``detail`` as a note.
         InfraredAPIError: the server does not recognise the key (401).
 
     Returns:
-        bool: True when the key was accepted, False when the server could not
-            be reached or gave no usable answer (offline, DNS, 5xx, other 4xx,
-            timeout, malformed response).
+        bool: True when the key was accepted (a 2xx with the API's JSON
+            object). False when the server could not be reached or gave no
+            usable answer: offline, DNS, 5xx, other 4xx, timeout, or a 2xx or
+            403 whose body is not the API's JSON (a proxy or captive portal
+            answering instead, so nothing was verified).
     """
     if not api_key:
         logger.warning("verify_api_key: no api-key given")
@@ -120,6 +150,13 @@ def verify_api_key(api_key: str) -> bool:
             VERIFY_API_KEY_URL, headers=headers, timeout=_VERIFY_TIMEOUT_SEC
         )
         r.raise_for_status()
+        if _json_object(r) is None:
+            logger.warning(
+                "API key verification got an unexpected HTTP %s answer (not the API's JSON); "
+                "treating as unreachable",
+                r.status_code,
+            )
+            return False
         return True
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else None
@@ -130,6 +167,12 @@ def verify_api_key(api_key: str) -> bool:
         if status == 401:
             raise InfraredAPIError(status_code=401, server_message=reason) from e
         if status == 403:
+            if _json_object(e.response) is None:
+                logger.warning(
+                    "API key verification got a 403 that is not the API's JSON "
+                    "(a proxy or firewall?); treating as unreachable"
+                )
+                return False
             raise ApiKeyRestricted(status_code=403, server_message=reason) from e
         return False
     except Exception as e:

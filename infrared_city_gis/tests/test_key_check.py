@@ -8,9 +8,11 @@ drift back onto a plan-restricted route (or the retiring ``/v2/utils`` service)
 unnoticed.
 
 They also pin how the answer is read: a 401 means the key is unknown
-(``InfraredAPIError``), a 403 means the key is recognised but this request was
-refused (``ApiKeyRestricted``, so callers save the key), anything else is "could
-not tell" (False). The server's reason is surfaced, with the key masked.
+(``InfraredAPIError``), a 403 carrying the API's JSON means the key is
+recognised but this request was refused (``ApiKeyRestricted``, so callers save
+the key), anything else is "could not tell" (False). A 2xx or 403 whose body is
+not the API's JSON (a proxy or captive portal answering) is "could not tell"
+too. The server's reason is surfaced, with the key masked and markup dropped.
 """
 
 import json
@@ -27,6 +29,9 @@ class _Response:
     """Minimal stand-in for a qgis_http response that was accepted."""
 
     status_code = 200
+
+    def json(self):
+        return {"wireVersion": 1}
 
     def raise_for_status(self):
         return None
@@ -72,7 +77,7 @@ _MASKED_KEY = "ik_a…mnop"
 class _FakeResponse:
     """A qgis_http-shaped response: status, text, headers and a strict json()."""
 
-    def __init__(self, status_code, body=""):
+    def __init__(self, status_code, body):
         self.status_code = status_code
         self.text = body if isinstance(body, str) else json.dumps(body)
         self.headers = {}
@@ -112,7 +117,14 @@ class _Transport:
         return self.response
 
 
-def _use(monkeypatch, status=None, body="", error=None):
+def _use(monkeypatch, status=None, body=None, error=None):
+    """Install a transport answering ``status``; ``body=None`` means a normal one.
+
+    A normal body is the API's JSON object on success and empty on an error,
+    so tests only spell out a body when the body is what they are about.
+    """
+    if body is None:
+        body = {"wireVersion": 1} if status is not None and status < 400 else ""
     transport = _Transport(
         response=None if status is None else _FakeResponse(status, body), error=error
     )
@@ -121,8 +133,25 @@ def _use(monkeypatch, status=None, body="", error=None):
 
 
 def test_accepted_key_is_true(monkeypatch):
-    _use(monkeypatch, 200, {"ok": True})
+    _use(monkeypatch, 200, {"wireVersion": 1})
     assert key_check.verify_api_key(_KEY) is True
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "<html><body>Please sign in to the network</body></html>",
+        ["not", "an", "object"],
+        "",
+        "null",
+        "plain text",
+    ],
+    ids=["html", "json-list", "empty", "json-null", "text"],
+)
+def test_a_2xx_that_is_not_the_apis_json_is_unreachable(monkeypatch, body):
+    # A captive portal or proxy answers 200 with its own page: nothing was verified.
+    _use(monkeypatch, 200, body)
+    assert key_check.verify_api_key(_KEY) is False
 
 
 def test_401_is_a_rejection_with_the_server_reason(monkeypatch):
@@ -148,7 +177,7 @@ def test_403_means_key_recognised_but_restricted(monkeypatch):
     assert exc.status_code == 403
     assert exc.server_message == "Forbidden"
     assert exc.title == ApiKeyRestricted.KEY_CHECK_TITLE
-    assert "valid and has been saved" in exc.detail
+    assert "recognised and has been saved" in exc.detail
     assert "Forbidden" in exc.detail
     assert "Access Denied" not in str(exc)
 
@@ -170,17 +199,29 @@ def test_reason_prefers_message_then_detail_then_title(monkeypatch):
     assert caught.value.server_message == "T"
 
 
-def test_403_with_a_text_body_uses_the_stripped_text(monkeypatch):
-    _use(monkeypatch, 403, "  <html>\n  <body>Forbidden</body>\n</html>  ")
+@pytest.mark.parametrize(
+    "body",
+    ["  <html>\n  <body>Forbidden</body>\n</html>  ", "", "Forbidden", "[1, 2]"],
+    ids=["html", "empty", "text", "json-list"],
+)
+def test_a_403_without_the_apis_json_object_is_unreachable(monkeypatch, body):
+    # Not the API talking (proxy, firewall): the key was not recognised by anyone.
+    _use(monkeypatch, 403, body)
+    assert key_check.verify_api_key(_KEY) is False
+
+
+def test_403_with_a_json_object_lacking_reason_fields(monkeypatch):
+    _use(monkeypatch, 403, {"status": 403, "code": 7})
 
     with pytest.raises(ApiKeyRestricted) as caught:
         key_check.verify_api_key(_KEY)
 
-    assert caught.value.server_message == "<html> <body>Forbidden</body> </html>"
+    assert caught.value.server_message is None
+    assert "Server message" not in caught.value.detail
 
 
-def test_a_long_body_is_truncated(monkeypatch):
-    _use(monkeypatch, 403, "<html>" + "x" * 5000 + "</html>")
+def test_a_long_reason_is_truncated(monkeypatch):
+    _use(monkeypatch, 403, {"message": "x" * 5000})
 
     with pytest.raises(ApiKeyRestricted) as caught:
         key_check.verify_api_key(_KEY)
@@ -190,14 +231,44 @@ def test_a_long_body_is_truncated(monkeypatch):
     assert message.endswith("…")
 
 
-def test_403_with_an_empty_body_has_no_server_message(monkeypatch):
-    _use(monkeypatch, 403, "")
+def test_401_with_an_html_body_is_still_a_rejection_without_markup(monkeypatch):
+    _use(monkeypatch, 401, "<html><body>Sign in</body></html>")
 
-    with pytest.raises(ApiKeyRestricted) as caught:
+    with pytest.raises(InfraredAPIError) as caught:
+        key_check.verify_api_key(_KEY)
+
+    assert caught.value.status_code == 401
+    assert caught.value.server_message is None
+    assert "<" not in caught.value.detail
+
+
+def test_401_with_a_plain_text_body_uses_the_text(monkeypatch):
+    _use(monkeypatch, 401, "Unauthorized")
+
+    with pytest.raises(InfraredAPIError) as caught:
+        key_check.verify_api_key(_KEY)
+
+    assert caught.value.server_message == "Unauthorized"
+
+
+@pytest.mark.parametrize("body", ["null", "5", '["a"]', '"text"'], ids=["null", "number", "list", "string"])
+def test_401_with_json_that_is_not_an_object_has_no_reason(monkeypatch, body):
+    _use(monkeypatch, 401, body)
+
+    with pytest.raises(InfraredAPIError) as caught:
+        key_check.verify_api_key(_KEY)
+
+    assert caught.value.status_code == 401
+    assert caught.value.server_message is None
+
+
+def test_401_with_a_json_object_lacking_reason_fields_has_no_reason(monkeypatch):
+    _use(monkeypatch, 401, {"status": 401})
+
+    with pytest.raises(InfraredAPIError) as caught:
         key_check.verify_api_key(_KEY)
 
     assert caught.value.server_message is None
-    assert "Server message" not in caught.value.detail
 
 
 def test_an_echoed_key_is_masked_everywhere(monkeypatch):
@@ -214,7 +285,7 @@ def test_an_echoed_key_is_masked_everywhere(monkeypatch):
 
 def test_a_key_straddling_the_truncation_point_does_not_leak(monkeypatch):
     # The key starts 195 characters in, so a cut at 200 would split it.
-    _use(monkeypatch, 403, "x" * 195 + _KEY + "y" * 50)
+    _use(monkeypatch, 403, {"message": "x" * 195 + _KEY + "y" * 50})
 
     with pytest.raises(ApiKeyRestricted) as caught:
         key_check.verify_api_key(_KEY)
@@ -275,6 +346,11 @@ def test_saved_key_kept_on_everything_but_401(monkeypatch, status):
     assert key_check.saved_key_rejected(_KEY) is False
 
 
+def test_saved_key_kept_on_a_non_api_403(monkeypatch):
+    _use(monkeypatch, 403, "<html><body>Blocked by policy</body></html>")
+    assert key_check.saved_key_rejected(_KEY) is False
+
+
 def test_saved_key_kept_on_network_error(monkeypatch):
     _use(monkeypatch, error=qgis_http.RequestException("offline"))
     assert key_check.saved_key_rejected(_KEY) is False
@@ -303,6 +379,14 @@ def test_api_key_restricted_is_an_api_error():
 
 def test_simulation_403_text_is_unchanged():
     assert InfraredAPIError(403).title == "Access Denied (403)"
+    assert (
+        InfraredAPIError(403, server_message="x").detail
+        == InfraredAPIError._STATUS_MAP[403][1] + "\n\nServer message: x"
+    )
+
+
+def test_limited_access_note_says_the_key_was_recognised():
+    assert ApiKeyRestricted().detail.startswith("Your API key was recognised")
 
 
 # ---------------------------------------------------------------------------
