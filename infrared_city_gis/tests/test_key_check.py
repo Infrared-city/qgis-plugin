@@ -8,12 +8,11 @@ drift back onto a plan-restricted route (or the retiring ``/v2/utils`` service)
 unnoticed.
 
 They also pin how the answer is read: a 401 means the key is unknown
-(``InfraredAPIError``), a 403 carrying the API's problem-details JSON means the key is
-recognised but this request was refused (``ApiKeyRestricted``, so callers save
-the key), anything else is "could not tell" (False). A 2xx is only a verified
-key when its body is the capabilities document, and a 403 is only "recognised"
-when its body is the API's problem-details error with status 403. Any other body
-(a proxy or captive portal answering, even with JSON of its own) is "could not
+(``InfraredAPIError``), a 403 is refused whatever its body (``ApiKeyCheckRefused``:
+a proxy can send problem-details JSON too, so it proves nothing and the key is
+never saved), anything else is "could not tell" (False). A 2xx is only a
+verified key when its body is the capabilities document; any other body (a
+proxy or captive portal answering, even with JSON of its own) is "could not
 tell" too, so an unverified key never replaces a saved one. How the server's
 reason text is surfaced lives in ``test_key_check_reason.py``.
 """
@@ -23,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from infrared_city_gis.constants import VERIFY_API_KEY_URL
-from infrared_city_gis.exceptions import ApiKeyRestricted, InfraredAPIError
+from infrared_city_gis.exceptions import ApiKeyCheckRefused, InfraredAPIError
 from infrared_city_gis.services import key_check, qgis_http
 from infrared_city_gis.tests._key_check_fakes import CAPABILITIES, KEY, problem, use
 
@@ -70,7 +69,7 @@ def test_verify_api_key_requests_the_probe_url(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Outcomes: 401 rejected, 403 restricted, everything else "could not tell"
+# Outcomes: 401 rejected, 403 refused, everything else "could not tell"
 # ---------------------------------------------------------------------------
 
 def test_accepted_key_is_true(monkeypatch):
@@ -129,69 +128,61 @@ def test_401_is_a_rejection_with_the_server_reason(monkeypatch):
     with pytest.raises(InfraredAPIError) as caught:
         key_check.verify_api_key(KEY)
 
-    assert not isinstance(caught.value, ApiKeyRestricted)
+    assert not isinstance(caught.value, ApiKeyCheckRefused)
     assert caught.value.status_code == 401
-    assert caught.value.server_message == detail
-
-
-def test_403_means_key_recognised_but_restricted(monkeypatch):
-    use(monkeypatch, 403, problem(403, "Forbidden"))
-
-    with pytest.raises(ApiKeyRestricted) as caught:
-        key_check.verify_api_key(KEY)
-
-    exc = caught.value
-    assert isinstance(exc, InfraredAPIError)
-    assert exc.status_code == 403
-    assert exc.server_message == "Forbidden"
-    assert exc.title == ApiKeyRestricted.KEY_CHECK_TITLE
-    assert "recognised and has been saved" in exc.detail
-    assert "Forbidden" in exc.detail
-    assert "Access Denied" not in str(exc)
-
-
-@pytest.mark.parametrize(
-    "body",
-    ["  <html>\n  <body>Forbidden</body>\n</html>  ", "", "Forbidden", "[1, 2]"],
-    ids=["html", "empty", "text", "json-list"],
-)
-def test_a_403_without_the_apis_json_object_is_unreachable(monkeypatch, body):
-    # Not the API talking (proxy, firewall): the key was not recognised by anyone.
-    use(monkeypatch, 403, body)
-    assert key_check.verify_api_key(KEY) is False
-
-
-def test_a_403_with_a_proxys_own_json_is_unreachable_not_restricted(monkeypatch):
-    # JSON, but not the API's problem-details shape: must not be saved as "recognised".
-    use(monkeypatch, 403, {"message": "Blocked by policy"})
-    assert key_check.verify_api_key(KEY) is False
-
-
-def test_a_403_problem_carries_the_detail_as_the_server_message(monkeypatch):
-    detail = "Your plan does not include this route."
-    use(monkeypatch, 403, problem(403, detail))
-
-    with pytest.raises(ApiKeyRestricted) as caught:
-        key_check.verify_api_key(KEY)
-
-    assert caught.value.status_code == 403
     assert caught.value.server_message == detail
 
 
 @pytest.mark.parametrize(
     "body",
     [
+        {"message": "Blocked by policy"},
+        problem(403, "Forbidden"),
         {**problem(403, "x"), "status": "403"},
         problem(401, "x"),
-        {**problem(403, "x"), "status": True},
         {"status": 403, "detail": "x"},
-        {**problem(403, "x"), "title": 5},
+        "  <html>\n  <body>Forbidden</body>\n</html>  ",
+        "",
+        "Forbidden",
+        "[1, 2]",
+        "null",
     ],
-    ids=["status-as-string", "status-401", "status-bool", "no-title", "title-not-a-string"],
+    ids=[
+        "proxy-json",
+        "problem-details",
+        "status-as-string",
+        "problem-for-401",
+        "no-title",
+        "html",
+        "empty",
+        "text",
+        "json-list",
+        "json-null",
+    ],
 )
-def test_a_403_that_is_not_a_403_problem_is_unreachable(monkeypatch, body):
+def test_any_403_is_refused_not_saved(monkeypatch, body):
+    # A 403 proves nothing about the key (a proxy can send problem-details too).
     use(monkeypatch, 403, body)
-    assert key_check.verify_api_key(KEY) is False
+
+    with pytest.raises(ApiKeyCheckRefused) as caught:
+        key_check.verify_api_key(KEY)
+
+    exc = caught.value
+    assert isinstance(exc, InfraredAPIError)
+    assert exc.status_code == 403
+    assert exc.title == ApiKeyCheckRefused.KEY_CHECK_TITLE
+    assert "Access Denied" not in str(exc)
+
+
+def test_a_403_carries_the_servers_reason(monkeypatch):
+    detail = "Blocked by policy"
+    use(monkeypatch, 403, problem(403, detail))
+
+    with pytest.raises(ApiKeyCheckRefused) as caught:
+        key_check.verify_api_key(KEY)
+
+    assert caught.value.server_message == detail
+    assert detail in caught.value.detail
 
 
 @pytest.mark.parametrize("status", [400, 404, 429, 500, 502, 503, 0])
@@ -230,24 +221,24 @@ def test_saved_key_rejected_on_401(monkeypatch):
     assert key_check.saved_key_rejected(KEY) is True
 
 
-@pytest.mark.parametrize("status", [403, 500, 200])
+@pytest.mark.parametrize("status", [500, 200])
 def test_saved_key_kept_on_everything_but_401(monkeypatch, status):
     use(monkeypatch, status, {"message": "x"})
     assert key_check.saved_key_rejected(KEY) is False
 
 
-def test_saved_key_kept_on_a_restricted_403(monkeypatch):
-    use(monkeypatch, 403, problem(403, "Forbidden"))
-    assert key_check.saved_key_rejected(KEY) is False
-
-
-def test_saved_key_kept_on_a_non_api_403(monkeypatch):
-    use(monkeypatch, 403, "<html><body>Blocked by policy</body></html>")
-    assert key_check.saved_key_rejected(KEY) is False
-
-
-def test_saved_key_kept_on_a_proxys_json_403(monkeypatch):
-    use(monkeypatch, 403, {"message": "Blocked by policy"})
+@pytest.mark.parametrize(
+    "body",
+    [
+        problem(403, "Forbidden"),
+        {"message": "Blocked by policy"},
+        "<html><body>Blocked by policy</body></html>",
+        "",
+    ],
+    ids=["problem-details", "proxy-json", "html", "empty"],
+)
+def test_saved_key_kept_on_any_403(monkeypatch, body):
+    use(monkeypatch, 403, body)
     assert key_check.saved_key_rejected(KEY) is False
 
 
@@ -269,12 +260,13 @@ def test_saved_key_kept_on_an_unexpected_error(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_api_key_restricted_is_an_api_error():
-    assert issubclass(ApiKeyRestricted, InfraredAPIError)
+def test_api_key_check_refused_is_an_api_error():
+    assert issubclass(ApiKeyCheckRefused, InfraredAPIError)
 
-    exc = ApiKeyRestricted()
+    exc = ApiKeyCheckRefused()
     assert exc.status_code == 403
-    assert str(exc) == "[HTTP 403] API Key Saved With Limited Access"
+    assert str(exc) == "[HTTP 403] API Key Not Saved (403)"
+    assert "unchanged" in exc.detail
 
 
 def test_simulation_403_text_is_unchanged():
@@ -283,10 +275,6 @@ def test_simulation_403_text_is_unchanged():
         InfraredAPIError(403, server_message="x").detail
         == InfraredAPIError._STATUS_MAP[403][1] + "\n\nServer message: x"
     )
-
-
-def test_limited_access_note_says_the_key_was_recognised():
-    assert ApiKeyRestricted().detail.startswith("Your API key was recognised")
 
 
 # ---------------------------------------------------------------------------

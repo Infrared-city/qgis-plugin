@@ -117,8 +117,8 @@ class InfraredCityGIS:
 
         # Separately, check the SAVED key. A 401 means the server does not
         # recognise it, so initGui() greys out every action except "Save API
-        # Key". A 403 (key recognised, access restricted, #53), an outage or a
-        # timeout never locks the key out.
+        # Key".
+        # A 403 (#53), an outage or a timeout never locks a saved key.
         #
         # This used to be a side effect of the registry refresh above, back
         # when the registries came from the utilities service with the key

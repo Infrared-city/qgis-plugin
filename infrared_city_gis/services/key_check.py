@@ -18,27 +18,28 @@ honours the proxy configured in QGIS Options → Network.
 Four outcomes, matching what the callers distinguish:
 
     verified    -> True (a 2xx carrying the API's capabilities document)
-    restricted  -> ApiKeyRestricted (403 carrying the API's problem-details
-                   error with status 403): the key IS recognised but this
-                   request was refused, so the caller saves it and shows a note
+    refused     -> ApiKeyCheckRefused (any 403): proves nothing about the key,
+                   so it is never saved and never locks a saved key
     rejected    -> InfraredAPIError with status_code 401: the key is unknown
     unreachable -> False
 
-The last one is deliberately not an exception. An outage must not be presented
+Unreachable is deliberately not an exception. An outage must not be presented
 to the user as a bad key, and it must not lock an already-saved key out of the
 plugin. For the same reason only a 401 ever counts as a rejection of a key that
 is already saved (see :func:`saved_key_rejected`).
 
-A 2xx or 403 is only trusted when its body has the shape the API itself sends:
-the capabilities document for a 2xx, the problem-details error whose ``status``
-is 403 for a 403. A captive portal, corporate proxy or firewall answers with
-its own page or its own JSON (``{"message": "Blocked by policy"}``,
-``{"status": "ok"}``), and that must neither verify a key that was never
-checked nor claim the server recognised one, so any other 2xx or 403 body (other
-JSON, HTML, empty) counts as unreachable and the key already saved is never
-overwritten by an unverified one. A 401 is rejected whatever its body: failing
-closed on a key check is safe, because the user is only asked to re-enter the
-key.
+Only a verified 2xx saves a key, and a 2xx is only trusted when its body is the
+capabilities document the API itself sends. A captive portal, corporate proxy or
+firewall answers with its own page or its own JSON (``{"message": "Blocked by
+policy"}``, ``{"status": "ok"}``), and that must not verify a key that was never
+checked, so any other 2xx body (other JSON, HTML, empty) counts as unreachable
+and the key already saved is never overwritten by an unverified one.
+
+A 403 is not trusted whatever its body. Problem-details JSON is a generic
+standard (RFC 7807), so a proxy can send a convincing one, and a 403 therefore
+cannot show that the server recognised the key. It raises ApiKeyCheckRefused
+and the key is not saved. A 401 is rejected whatever its body: failing closed
+on a key check is safe, because the user is only asked to re-enter the key.
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ from __future__ import annotations
 import re
 
 from ..constants import VERIFY_API_KEY_URL
-from ..exceptions import ApiKeyRestricted, InfraredAPIError
+from ..exceptions import ApiKeyCheckRefused, InfraredAPIError
 from ..infrared_logger import logger
 from ..utils.client_identity import client_headers
 from . import qgis_http as requests
@@ -93,20 +94,6 @@ def _is_capabilities(body) -> bool:
     if body.get("inputFormat") != "irbf" or body.get("resultFormat") != "irbf":
         return False
     return type(body.get("wireVersion")) is int
-
-
-def _is_api_problem(body, status: int) -> bool:
-    """Return True if ``body`` is the API's problem-details error for ``status``.
-
-    The API reports errors as RFC 7807 problem-details JSON whose ``status``
-    repeats the HTTP status and which carries a ``title``. A proxy's own 403
-    JSON does not have that shape.
-    """
-    if not isinstance(body, dict):
-        return False
-    if type(body.get("status")) is not int or body["status"] != status:
-        return False
-    return isinstance(body.get("title"), str)
 
 
 def _server_reason(response, api_key: str) -> str | None:
@@ -159,19 +146,18 @@ def verify_api_key(api_key: str) -> bool:
     """Return True if the server accepts ``api_key``.
 
     Raises:
-        ApiKeyRestricted: the server recognised the key but refused this
-            request (a 403 whose body is the API's problem-details response
-            with status 403, e.g. plan or permissions). Callers save the key
-            and show the exception's ``title`` / ``detail`` as a note.
+        ApiKeyCheckRefused: the check was answered with a 403, whatever its
+            body (a proxy or firewall can send one, so it proves nothing about
+            the key). Callers must not save the key.
         InfraredAPIError: the server does not recognise the key (401).
 
     Returns:
         bool: True when the key was accepted (a 2xx whose body is the API's
             capabilities document). False when the server could not be reached
             or gave no usable answer: offline, DNS, 5xx, other 4xx, timeout, or
-            a 2xx or 403 whose body is not what the API sends (any other JSON,
-            HTML, empty: a proxy or captive portal answering instead, so
-            nothing was verified and a saved key is never overwritten by it).
+            a 2xx whose body is not what the API sends (any other JSON, HTML,
+            empty: a proxy or captive portal answering instead, so nothing was
+            verified and a saved key is never overwritten by it).
     """
     if not api_key:
         logger.warning("verify_api_key: no api-key given")
@@ -201,13 +187,7 @@ def verify_api_key(api_key: str) -> bool:
         if status == 401:
             raise InfraredAPIError(status_code=401, server_message=reason) from e
         if status == 403:
-            if not _is_api_problem(_parse_json(e.response), 403):
-                logger.warning(
-                    "API key verification got a 403 that is not the API's own error response "
-                    "(a proxy or firewall?); treating as unreachable"
-                )
-                return False
-            raise ApiKeyRestricted(status_code=403, server_message=reason) from e
+            raise ApiKeyCheckRefused(status_code=403, server_message=reason) from e
         return False
     except Exception as e:
         logger.warning("API key verification could not complete: %s", e)
@@ -218,13 +198,14 @@ def saved_key_rejected(api_key: str) -> bool:
     """Return True only if the server says it does not recognise ``api_key``.
 
     For the startup gate, which decides whether an already-saved key is dropped.
-    An outage, a timeout or a plan-restricted 403 must never lock a saved key
-    out of the plugin, so every outcome other than a 401 returns False.
+    An outage, a timeout or a 403 (which proves nothing about the key) must
+    never lock a saved key out of the plugin, so every outcome other than a 401
+    returns False.
     """
     try:
         verify_api_key(api_key)
-    except ApiKeyRestricted as e:
-        logger.info("Saved API key kept: HTTP %s, key recognised but access restricted", e.status_code)
+    except ApiKeyCheckRefused as e:
+        logger.info("Saved API key kept: HTTP %s, the key check was refused", e.status_code)
         return False
     except InfraredAPIError as e:
         rejected = e.status_code == 401

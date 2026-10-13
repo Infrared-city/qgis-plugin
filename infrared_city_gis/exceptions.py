@@ -127,24 +127,24 @@ class InfraredAPIError(Exception):
         super().__init__(f"[HTTP {status_code}] {self.title}")
 
 
-class ApiKeyRestricted(InfraredAPIError):
-    """The server recognised the API key, but refused this request (HTTP 403).
+class ApiKeyCheckRefused(InfraredAPIError):
+    """The key check was answered with HTTP 403, which proves nothing about the key.
 
-    Raised by the key check. A 403 is not a rejection: the key was recognised and
-    the plan or permissions simply do not cover the probe (#53), whereas a 401
-    means the key is unknown. A caller must therefore SAVE the key and show
-    :attr:`title` / :attr:`detail` as a note, never as an error.
+    Raised by the key check for ANY 403, whatever its body: the refusal may come
+    from a proxy or firewall, and problem-details JSON is a generic format that
+    anything can send, so it cannot show that the server recognised the key.
+    Callers must therefore NOT save the key, and the startup gate must not lock
+    a saved key on it either (#53). Show :attr:`title` / :attr:`detail` as an
+    error.
     """
 
-    #: Dialog title for the "valid key, limited access" note.
-    KEY_CHECK_TITLE = "API Key Saved With Limited Access"
-    #: Body of that note; deliberately not the simulation 403 text in ``_STATUS_MAP``.
+    #: Dialog title for the refused key check.
+    KEY_CHECK_TITLE = "API Key Not Saved (403)"
+    #: Body of that error; deliberately not the simulation 403 text in ``_STATUS_MAP``.
     KEY_CHECK_DETAIL = (
-        "Your API key was recognised and has been saved.\n\n"
-        "The Infrared City server refused the access check, so some features "
-        "may not be included in your plan. "
-        "Visit infrared.city to review your plan or contact "
-        f"{SUPPORT_EMAIL} for help."
+        "The Infrared City server refused the key check (HTTP 403), "
+        "so this key could not be verified.\n\n"
+        "Any API key you saved earlier is unchanged."
     )
 
     def __init__(self, status_code=403, server_message=None):

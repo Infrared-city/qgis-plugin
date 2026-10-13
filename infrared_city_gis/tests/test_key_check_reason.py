@@ -4,7 +4,7 @@ key-free and markup-free (#53).
 
 import pytest
 
-from infrared_city_gis.exceptions import ApiKeyRestricted, InfraredAPIError
+from infrared_city_gis.exceptions import ApiKeyCheckRefused, InfraredAPIError
 from infrared_city_gis.services import key_check
 from infrared_city_gis.tests._key_check_fakes import KEY, MASKED_KEY, problem, use
 
@@ -29,7 +29,7 @@ def test_reason_prefers_message_then_detail_then_title(monkeypatch):
 def test_403_with_a_problem_lacking_reason_fields(monkeypatch):
     use(monkeypatch, 403, problem(403, title=" "))
 
-    with pytest.raises(ApiKeyRestricted) as caught:
+    with pytest.raises(ApiKeyCheckRefused) as caught:
         key_check.verify_api_key(KEY)
 
     assert caught.value.server_message is None
@@ -39,7 +39,7 @@ def test_403_with_a_problem_lacking_reason_fields(monkeypatch):
 def test_a_long_reason_is_truncated(monkeypatch):
     use(monkeypatch, 403, problem(403, "x" * 5000))
 
-    with pytest.raises(ApiKeyRestricted) as caught:
+    with pytest.raises(ApiKeyCheckRefused) as caught:
         key_check.verify_api_key(KEY)
 
     message = caught.value.server_message
@@ -82,10 +82,10 @@ def test_a_reason_with_markup_anywhere_is_dropped(monkeypatch, body, expected):
     assert caught.value.server_message == expected
 
 
-def test_a_403_problem_with_markup_in_detail_is_still_restricted_without_a_reason(monkeypatch):
+def test_a_403_problem_with_markup_in_detail_is_still_refused_without_a_reason(monkeypatch):
     use(monkeypatch, 403, problem(403, "Upgrade at <a href='http://x'>portal</a>"))
 
-    with pytest.raises(ApiKeyRestricted) as caught:
+    with pytest.raises(ApiKeyCheckRefused) as caught:
         key_check.verify_api_key(KEY)
 
     assert caught.value.server_message is None
@@ -137,7 +137,7 @@ def test_a_key_straddling_the_truncation_point_does_not_leak(monkeypatch):
     # The key starts 195 characters in, so a cut at 200 would split it.
     use(monkeypatch, 403, problem(403, "x" * 195 + KEY + "y" * 50))
 
-    with pytest.raises(ApiKeyRestricted) as caught:
+    with pytest.raises(ApiKeyCheckRefused) as caught:
         key_check.verify_api_key(KEY)
 
     message = caught.value.server_message
@@ -148,7 +148,17 @@ def test_a_key_straddling_the_truncation_point_does_not_leak(monkeypatch):
 def test_a_short_echoed_key_is_fully_hidden(monkeypatch):
     use(monkeypatch, 403, problem(403, "bad key abc123"))
 
-    with pytest.raises(ApiKeyRestricted) as caught:
+    with pytest.raises(ApiKeyCheckRefused) as caught:
         key_check.verify_api_key("abc123")
 
     assert caught.value.server_message == "bad key ••••••"
+
+
+def test_a_proxys_403_reason_is_still_carried(monkeypatch):
+    use(monkeypatch, 403, {"message": f"Blocked by policy for {KEY}"})
+
+    with pytest.raises(ApiKeyCheckRefused) as caught:
+        key_check.verify_api_key(KEY)
+
+    assert caught.value.server_message == f"Blocked by policy for {MASKED_KEY}"
+    assert KEY not in caught.value.detail

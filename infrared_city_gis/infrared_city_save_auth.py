@@ -5,7 +5,7 @@ from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QApplication, QDialog, QLineEdit, QMessageBox
 
 from .constants import SUPPORT_EMAIL
-from .exceptions import ApiKeyRestricted, InfraredAPIError
+from .exceptions import InfraredAPIError
 from .infrared_logger import logger
 from .services.key_check import verify_api_key
 from .services.secret_manager import get_api_key, set_api_key
@@ -33,8 +33,8 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         """``saved_key_rejected``: the plugin's startup check got a 401 for
         the stored key — the dialog then opens with a red "not valid
         anymore" status instead of the green format check, until the user
-        types a different key. (A 403 does not count: the key is recognised,
-        see #53.)
+        types a different key. (A 403 does not count: it proves nothing about
+        the key, see #53.)
         """
         super().__init__(parent)
         self.setupUi(self)
@@ -151,9 +151,10 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         # Validate the key with a real authenticated call BEFORE saving.
         # Only a recognised key is saved:
         #   - 2xx   -> key verified, save + accept
-        #   - 403   -> key recognised but the check request was refused
-        #              (ApiKeyRestricted): save + accept, with a note (#53)
         #   - 401   -> key not recognised, do NOT save
+        #   - 403   -> not saved, existing key unchanged (#53): a 403 proves
+        #              nothing about the key (ApiKeyCheckRefused, handled below
+        #              with the other InfraredAPIError cases)
         #   - anything else (offline, 5xx, timeout) -> do NOT save either,
         #     but tell the user it was a connection problem, not a bad key
         #     ("could not verify").
@@ -161,7 +162,6 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         # was already saved keeps working through outages (the startup check
         # in infrared_city_gis.py only locks the UI on a confirmed 401).
         self.key_verified = False
-        restricted = None
         self.status_label.setText("Verifying API key…")
         self.status_label.setStyleSheet("color: orange;")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -170,12 +170,6 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         QApplication.processEvents()
         try:
             self.key_verified = verify_api_key(api_key)
-        except ApiKeyRestricted as e:
-            # Must precede InfraredAPIError, its base class. The server knows
-            # this key, so it is saved; the note is shown once it is stored.
-            logger.warning("API key recognised but access restricted: %s", e)
-            self.key_verified = True
-            restricted = e
         except InfraredAPIError as e:
             logger.warning("API key validation failed: %s", e)
             self.update_status()
@@ -218,17 +212,11 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
         # Saved: drop the orange "Verifying…" before the (modal) box is shown.
         self.update_status()
 
-        if restricted is not None:
-            QMessageBox.information(
-                self, restricted.title,
-                f"{restricted.detail}\n\nStored key: {self._mask_key(api_key)}",
-            )
-        else:
-            QMessageBox.information(
-                self, "Success",
-                f"API key verified and saved successfully!\n"
-                f"Stored key: {self._mask_key(api_key)}",
-            )
+        QMessageBox.information(
+            self, "Success",
+            f"API key verified and saved successfully!\n"
+            f"Stored key: {self._mask_key(api_key)}",
+        )
         super().accept()
 
     def reject(self) -> None:
