@@ -84,9 +84,11 @@ Plugin start → registries fetched from the public mirror
 User → Auth Dialog → key VERIFIED against the API before saving
                      (GET /v2/binary/v1/capabilities: 401 →
                       not saved + "contact connectors@infrared.city";
-                      403 → saved, plus an "API Key Saved With Limited
-                      Access" note with the server's reason;
-                      server unreachable → not saved, "Could Not Verify")
+                      403 (the API's own JSON) → saved, plus an "API Key
+                      Saved With Limited Access" note with the server's
+                      reason;
+                      anything else (unreachable, proxy/portal page) →
+                      not saved, "Could Not Verify")
                    → API key stored in QGIS settings
      → Select bbox / Select tile → Download buildings (POST /v2/buildings, GeoJson)
        (optional) Download ground materials → editable ground-* layers
@@ -104,6 +106,10 @@ warning; a 403 or a mere outage does NOT — a recognised key stays usable,
 and an already-saved key keeps working offline. (This check used to be a
 side effect of the registry refresh, back when the registries were read from
 the utilities service with the key attached.)
+
+Only the API's own JSON answer is trusted by the key check: a 403 or 2xx
+that is not that JSON (a captive-portal or proxy page) is "Could Not
+Verify", never a verdict on the key.
 
 Weather comes from the SDK weather client's static public catalog
 (`geo.infrared.city/weather`, no API key sent) — both the station list for
