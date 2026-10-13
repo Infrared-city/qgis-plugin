@@ -180,3 +180,47 @@ def test_the_input_is_trimmed_before_it_is_verified_and_saved(harness):
 
     assert verified == [KEY]
     assert saved == [KEY]
+
+
+def test_an_unexpected_error_in_the_check_does_not_save(harness):
+    make_dialog, boxes, saved = harness
+    dialog = make_dialog(verify=_raises(RuntimeError("boom")))
+
+    dialog.accept()
+
+    assert saved == []
+    assert dialog.key_verified is False
+    assert [title for title, _ in boxes.warning_calls] == ["Could Not Verify API Key"]
+    assert not boxes.information_calls and not boxes.critical_calls
+
+
+@pytest.mark.parametrize(
+    "verify",
+    [
+        lambda key: True,
+        _raises(ApiKeyRestricted(status_code=403, server_message="Forbidden")),
+        _raises(InfraredAPIError(status_code=401)),
+        lambda key: False,
+        _raises(RuntimeError("boom")),
+    ],
+    ids=["2xx", "403", "401", "unreachable", "unexpected-error"],
+)
+def test_the_wait_cursor_is_restored_on_every_path(harness, verify):
+    from qgis.PyQt.QtWidgets import QApplication
+
+    make_dialog, boxes, saved = harness
+    dialog = make_dialog(verify=verify)
+
+    dialog.accept()
+
+    assert QApplication.overrideCursor() is None
+
+
+def test_the_status_label_is_reset_after_a_successful_save(harness):
+    make_dialog, boxes, saved = harness
+    dialog = make_dialog(verify=lambda key: True)
+
+    dialog.accept()
+
+    assert saved == [KEY]
+    assert "Verifying" not in dialog.status_label.text()

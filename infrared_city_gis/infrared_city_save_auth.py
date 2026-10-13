@@ -215,6 +215,9 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
             )
             return
 
+        # Saved: drop the orange "Verifying…" before the (modal) box is shown.
+        self.update_status()
+
         if restricted is not None:
             QMessageBox.information(
                 self, restricted.title,
