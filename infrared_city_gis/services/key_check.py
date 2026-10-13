@@ -7,10 +7,13 @@ key. The registries moved to a public mirror that takes no credentials
 the auth half — the key-save dialog and the startup gate — with nothing to
 check, so the check lives here on its own now.
 
-``GET /v2/webhooks`` is the probe: an authenticated route that lists rather than
-creates, so it costs nothing, has no side effects, and answers 401/403 for a key
-the server rejects. It goes through ``services.qgis_http`` like every other
-direct call, so it honours the proxy configured in QGIS Options → Network.
+``GET /v2/binary/v1/capabilities`` is the probe: an authenticated, read-only
+route, so it costs nothing and has no side effects. It is the same document the
+SDK reads before every simulation run, so a key that can read it can run
+simulations, and it is not plan-restricted. The probe used to be ``/v2/webhooks``,
+which answers 403 for Trial-plan keys and made valid keys look rejected (#53).
+It goes through ``services.qgis_http`` like every other direct call, so it
+honours the proxy configured in QGIS Options → Network.
 
 Three outcomes, matching what the callers have always distinguished:
 
