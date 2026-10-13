@@ -118,9 +118,11 @@ def _server_reason(response, api_key: str) -> str | None:
     not JSON at all falls back to its stripped text. Whitespace is collapsed,
     the API key is masked if the server echoed it, and the result is cut to
     ``_REASON_MAX_CHARS``. The key is masked BEFORE the cut so a truncation
-    cannot leave part of it behind. A reason that starts with ``<`` is markup
-    (a proxy's HTML page) and is dropped, so it never reaches a Qt message box,
-    which renders rich text. Never raises.
+    cannot leave part of it behind. A reason containing ``<`` or ``>``
+    anywhere is markup (a proxy's HTML page, or a link inside a sentence) and
+    is dropped, so server text can never render as rich text in a Qt message
+    box, which auto-detects it. The API's own reasons never contain either
+    character. Never raises.
     """
     try:
         if response is None:
@@ -140,7 +142,8 @@ def _server_reason(response, api_key: str) -> str | None:
         if reason is None:
             return None
         reason = re.sub(r"\s+", " ", reason).strip()
-        if not reason or reason.startswith("<"):
+        # Markup anywhere is dropped: a QMessageBox auto-detects rich text.
+        if not reason or "<" in reason or ">" in reason:
             return None
         key = (api_key or "").strip()
         if key:

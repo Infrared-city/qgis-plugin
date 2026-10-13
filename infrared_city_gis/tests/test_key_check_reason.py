@@ -58,6 +58,40 @@ def test_401_with_an_html_body_is_still_a_rejection_without_markup(monkeypatch):
     assert "<" not in caught.value.detail
 
 
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ({"detail": "Please sign in at <a href='http://x'>portal</a>"}, None),
+        ("Sign in at <a href=x>portal</a>", None),
+        ("value > limit", None),
+        ("<b>bold</b>", None),
+        (
+            {"detail": "Missing or invalid authentication credentials."},
+            "Missing or invalid authentication credentials.",
+        ),
+    ],
+    ids=["json-link-mid-sentence", "text-link-mid-sentence", "bare-gt", "leading-tag", "normal-reason-kept"],
+)
+def test_a_reason_with_markup_anywhere_is_dropped(monkeypatch, body, expected):
+    use(monkeypatch, 401, body)
+
+    with pytest.raises(InfraredAPIError) as caught:
+        key_check.verify_api_key(KEY)
+
+    assert caught.value.status_code == 401
+    assert caught.value.server_message == expected
+
+
+def test_a_403_problem_with_markup_in_detail_is_still_restricted_without_a_reason(monkeypatch):
+    use(monkeypatch, 403, problem(403, "Upgrade at <a href='http://x'>portal</a>"))
+
+    with pytest.raises(ApiKeyRestricted) as caught:
+        key_check.verify_api_key(KEY)
+
+    assert caught.value.server_message is None
+    assert "Server message" not in caught.value.detail
+
+
 def test_401_with_a_plain_text_body_uses_the_text(monkeypatch):
     use(monkeypatch, 401, "Unauthorized")
 
