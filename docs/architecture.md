@@ -22,7 +22,7 @@ infrared_city_gis/
 ├── services/                # API + I/O helpers
 │   ├── fetch.py             # Building fetch (Infrared City /v2/buildings)
 │   ├── fetch_from_registry.py # Registry fetch on startup (models, vegetation, materials)
-│   ├── key_check.py         # Verifies an API key (GET /v2/webhooks)
+│   ├── key_check.py         # Verifies an API key (GET /v2/binary/v1/capabilities)
 │   ├── sdk_runner.py        # Area simulation via SDK run_area (+ area_poller, merge_area_jobs)
 │   ├── sdk_payloads.py      # Builds the typed SDK payload from the dialog state
 │   ├── sdk_single_tile.py   # Single-tile simulation via SDK analyses.execute
@@ -82,9 +82,11 @@ Plugin start → registries fetched from the public mirror
                 (models, vegetation, materials — no key needed)
 
 User → Auth Dialog → key VERIFIED against the API before saving
-                     (GET /v2/webhooks: 401/403 →
+                     (GET /v2/binary/v1/capabilities: 401 →
                       not saved + "contact connectors@infrared.city";
-                      server unreachable → not saved either)
+                      403 → saved, plus an "API Key Saved With Limited
+                      Access" note with the server's reason;
+                      server unreachable → not saved, "Could Not Verify")
                    → API key stored in QGIS settings
      → Select bbox / Select tile → Download buildings (POST /v2/buildings, GeoJson)
        (optional) Download ground materials → editable ground-* layers
@@ -96,11 +98,12 @@ User → Auth Dialog → key VERIFIED against the API before saving
 
 All toolbar actions except **Save API Key** are greyed out (with an
 explanatory tooltip) until a key is stored and not known-bad. A startup
-`key_check.verify_api_key` re-checks a saved key: a confirmed 401/403 locks
-the actions and pushes a message-bar warning; a mere outage does NOT — an
-already-saved key keeps working offline. (This check used to be a side
-effect of the registry refresh, back when the registries were read from the
-utilities service with the key attached.)
+`key_check.saved_key_rejected` (a wrapper over `verify_api_key`) re-checks a
+saved key: a confirmed 401 locks the actions and pushes a message-bar
+warning; a 403 or a mere outage does NOT — a recognised key stays usable,
+and an already-saved key keeps working offline. (This check used to be a
+side effect of the registry refresh, back when the registries were read from
+the utilities service with the key attached.)
 
 Weather comes from the SDK weather client's static public catalog
 (`geo.infrared.city/weather`, no API key sent) — both the station list for

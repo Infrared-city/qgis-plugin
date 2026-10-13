@@ -37,10 +37,11 @@ The plugin adds these actions (left to right):
 
 - ☐ **Save a valid key** — Save API Key → paste key → save. Expect "verified and saved" success message, dialog closes, all toolbar icons enabled.
 - ☐ **Change the key** — reopen Save API Key, paste a different valid key, save. Expect the new key to take effect (subsequent downloads/simulations use it). The registries are not re-fetched — they refresh at plugin start and need no key.
-- ☐ **Invalid key** — save a bogus key. Expect a rejection dialog referencing connectors@infrared.city, the key is NOT saved, and (if no valid key was stored before) the other toolbar icons stay greyed out.
+- ☐ **Invalid key** — save a bogus key (the API answers 401). Expect a rejection dialog referencing connectors@infrared.city, the key is NOT saved, and (if no valid key was stored before) the other toolbar icons stay greyed out.
+- ☐ **Trial-plan key** — save a valid Trial-plan key. Expect the key to be SAVED, an "API Key Saved With Limited Access" note showing the server's reason, and all toolbar icons enabled. Restart QGIS: the toolbar stays enabled (a 403 never locks a saved key).
 - ☐ **No key** — with no key saved, all toolbar icons except Save API Key are greyed out.
-- ☐ **Offline save** — disconnect network, save a plausible key. Expect a "could not verify / NOT saved" warning distinct from the invalid-key rejection; the key is not stored.
-- ☐ **Startup with revoked saved key** — a bad stored key can no longer be *saved* (save validates first); it arises when a key is revoked/expires *after* saving. Setup: save a valid key, then revoke that key (delete it in the infrared.city dashboard) — or overwrite it unvalidated from the QGIS Python console: `QSettings().setValue("infrared_city/api_key", "bogus")`. Restart QGIS. Expect a message-bar warning, icons greyed out except Save API Key, and a hover tooltip on the greyed icons explaining a valid key is required.
+- ☐ **Offline save** — disconnect network, save a plausible key. Expect a "Could Not Verify" / NOT saved warning distinct from the invalid-key rejection; the key is not stored. A 5xx or a timeout behaves the same.
+- ☐ **Startup with revoked saved key** — a bad stored key can no longer be *saved* (save validates first); it arises when a key is revoked/expires *after* saving, and only a 401 from the API locks the plugin. Setup: save a valid key, then revoke that key (delete it in the infrared.city dashboard) — or overwrite it unvalidated from the QGIS Python console: `QSettings().setValue("infrared_city/api_key", "bogus")`. Restart QGIS. Expect a message-bar warning, icons greyed out except Save API Key, and a hover tooltip on the greyed icons explaining a valid key is required.
 - ☐ **Startup offline with good saved key** — restart QGIS with a valid key stored but no network. Expect icons to stay ENABLED (an outage must not lock the plugin); calls fail later with connection errors.
 
 ## 2. Download building geometry
