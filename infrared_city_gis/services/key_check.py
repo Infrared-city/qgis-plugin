@@ -17,10 +17,10 @@ honours the proxy configured in QGIS Options → Network.
 
 Four outcomes, matching what the callers distinguish:
 
-    verified    -> True (a 2xx carrying the API's JSON object)
-    restricted  -> ApiKeyRestricted (403 with the API's JSON body): the key IS
-                   recognised but this request was refused, so the caller saves
-                   it and shows a note
+    verified    -> True (a 2xx carrying the API's capabilities document)
+    restricted  -> ApiKeyRestricted (403 carrying the API's problem-details
+                   error with status 403): the key IS recognised but this
+                   request was refused, so the caller saves it and shows a note
     rejected    -> InfraredAPIError with status_code 401: the key is unknown
     unreachable -> False
 
@@ -29,12 +29,16 @@ to the user as a bad key, and it must not lock an already-saved key out of the
 plugin. For the same reason only a 401 ever counts as a rejection of a key that
 is already saved (see :func:`saved_key_rejected`).
 
-A 2xx or 403 is only trusted when its body is the API's JSON object. A captive
-portal, corporate proxy or firewall answers with its own page (usually HTML),
-and that must neither verify a key that was never checked nor claim the server
-recognised one, so a non-JSON 2xx or 403 counts as unreachable. A 401 is
-rejected whatever its body: failing closed on a key check is safe, because the
-user is only asked to re-enter the key.
+A 2xx or 403 is only trusted when its body has the shape the API itself sends:
+the capabilities document for a 2xx, the problem-details error whose ``status``
+is 403 for a 403. A captive portal, corporate proxy or firewall answers with
+its own page or its own JSON (``{"message": "Blocked by policy"}``,
+``{"status": "ok"}``), and that must neither verify a key that was never
+checked nor claim the server recognised one, so any other 2xx or 403 body (other
+JSON, HTML, empty) counts as unreachable and the key already saved is never
+overwritten by an unverified one. A 401 is rejected whatever its body: failing
+closed on a key check is safe, because the user is only asked to re-enter the
+key.
 """
 
 from __future__ import annotations
@@ -65,18 +69,44 @@ def _mask_key(api_key: str) -> str:
     return "•" * len(api_key)
 
 
-def _json_object(response) -> dict | None:
-    """Return the parsed JSON body of ``response`` if it is an object, else None.
+def _parse_json(response):
+    """Return the parsed JSON body of ``response``, or None if it has none.
 
-    The API answers with JSON objects; anything else (an HTML page from a
-    proxy, an empty body, a bare list or string) is not the API talking.
-    Never raises.
+    None covers an HTML page from a proxy, an empty body and a response with no
+    ``json()`` at all. Never raises.
     """
     try:
-        body = response.json()
+        return response.json()
     except Exception:  # not JSON, empty, or no json() at all
         return None
-    return body if isinstance(body, dict) else None
+
+
+def _is_capabilities(body) -> bool:
+    """Return True if ``body`` is the API's capabilities document.
+
+    This is the shape the SDK checks before every run, so a proxy's own JSON
+    cannot pass as a verified key. ``wireVersion`` must be a real int: ``True``
+    is an int to Python, but not what the API sends.
+    """
+    if not isinstance(body, dict):
+        return False
+    if body.get("inputFormat") != "irbf" or body.get("resultFormat") != "irbf":
+        return False
+    return type(body.get("wireVersion")) is int
+
+
+def _is_api_problem(body, status: int) -> bool:
+    """Return True if ``body`` is the API's problem-details error for ``status``.
+
+    The API reports errors as RFC 7807 problem-details JSON whose ``status``
+    repeats the HTTP status and which carries a ``title``. A proxy's own 403
+    JSON does not have that shape.
+    """
+    if not isinstance(body, dict):
+        return False
+    if type(body.get("status")) is not int or body["status"] != status:
+        return False
+    return isinstance(body.get("title"), str)
 
 
 def _server_reason(response, api_key: str) -> str | None:
@@ -127,17 +157,18 @@ def verify_api_key(api_key: str) -> bool:
 
     Raises:
         ApiKeyRestricted: the server recognised the key but refused this
-            request (403 with the API's JSON body, e.g. plan or permissions).
-            Callers save the key and show the exception's ``title`` /
-            ``detail`` as a note.
+            request (a 403 whose body is the API's problem-details response
+            with status 403, e.g. plan or permissions). Callers save the key
+            and show the exception's ``title`` / ``detail`` as a note.
         InfraredAPIError: the server does not recognise the key (401).
 
     Returns:
-        bool: True when the key was accepted (a 2xx with the API's JSON
-            object). False when the server could not be reached or gave no
-            usable answer: offline, DNS, 5xx, other 4xx, timeout, or a 2xx or
-            403 whose body is not the API's JSON (a proxy or captive portal
-            answering instead, so nothing was verified).
+        bool: True when the key was accepted (a 2xx whose body is the API's
+            capabilities document). False when the server could not be reached
+            or gave no usable answer: offline, DNS, 5xx, other 4xx, timeout, or
+            a 2xx or 403 whose body is not what the API sends (any other JSON,
+            HTML, empty: a proxy or captive portal answering instead, so
+            nothing was verified and a saved key is never overwritten by it).
     """
     if not api_key:
         logger.warning("verify_api_key: no api-key given")
@@ -150,9 +181,9 @@ def verify_api_key(api_key: str) -> bool:
             VERIFY_API_KEY_URL, headers=headers, timeout=_VERIFY_TIMEOUT_SEC
         )
         r.raise_for_status()
-        if _json_object(r) is None:
+        if not _is_capabilities(_parse_json(r)):
             logger.warning(
-                "API key verification got an unexpected HTTP %s answer (not the API's JSON); "
+                "API key verification got an unexpected HTTP %s answer (not the API's capabilities document); "
                 "treating as unreachable",
                 r.status_code,
             )
@@ -167,9 +198,9 @@ def verify_api_key(api_key: str) -> bool:
         if status == 401:
             raise InfraredAPIError(status_code=401, server_message=reason) from e
         if status == 403:
-            if _json_object(e.response) is None:
+            if not _is_api_problem(_parse_json(e.response), 403):
                 logger.warning(
-                    "API key verification got a 403 that is not the API's JSON "
+                    "API key verification got a 403 that is not the API's own error response "
                     "(a proxy or firewall?); treating as unreachable"
                 )
                 return False

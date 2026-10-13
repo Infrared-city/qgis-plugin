@@ -8,11 +8,14 @@ drift back onto a plan-restricted route (or the retiring ``/v2/utils`` service)
 unnoticed.
 
 They also pin how the answer is read: a 401 means the key is unknown
-(``InfraredAPIError``), a 403 carrying the API's JSON means the key is
+(``InfraredAPIError``), a 403 carrying the API's problem-details JSON means the key is
 recognised but this request was refused (``ApiKeyRestricted``, so callers save
-the key), anything else is "could not tell" (False). A 2xx or 403 whose body is
-not the API's JSON (a proxy or captive portal answering) is "could not tell"
-too. The server's reason is surfaced, with the key masked and markup dropped.
+the key), anything else is "could not tell" (False). A 2xx is only a verified
+key when its body is the capabilities document, and a 403 is only "recognised"
+when its body is the API's problem-details error with status 403. Any other body
+(a proxy or captive portal answering, even with JSON of its own) is "could not
+tell" too, so an unverified key never replaces a saved one. The server's reason
+is surfaced, with the key masked and markup dropped.
 """
 
 import json
@@ -24,6 +27,25 @@ from infrared_city_gis.constants import VERIFY_API_KEY_URL
 from infrared_city_gis.exceptions import ApiKeyRestricted, InfraredAPIError
 from infrared_city_gis.services import key_check, qgis_http
 
+#: What the API answers on a 2xx: the document the SDK validates before every run.
+_CAPABILITIES = {
+    "inputFormat": "irbf",
+    "resultFormat": "irbf",
+    "wireVersion": 1,
+    "geometrySchemas": [1],
+    "models": {},
+    "limits": {},
+}
+
+
+def _problem(status, detail=None, title="Forbidden"):
+    """Build the API's problem-details error body (``detail`` omitted when None)."""
+    body = {"type": f"https://httpstatuses.io/{status}", "title": title, "status": status}
+    if detail is not None:
+        body["detail"] = detail
+    body["instance"] = "req-1"
+    return body
+
 
 class _Response:
     """Minimal stand-in for a qgis_http response that was accepted."""
@@ -31,7 +53,7 @@ class _Response:
     status_code = 200
 
     def json(self):
-        return {"wireVersion": 1}
+        return _CAPABILITIES
 
     def raise_for_status(self):
         return None
@@ -120,11 +142,11 @@ class _Transport:
 def _use(monkeypatch, status=None, body=None, error=None):
     """Install a transport answering ``status``; ``body=None`` means a normal one.
 
-    A normal body is the API's JSON object on success and empty on an error,
+    A normal body is the capabilities document on success and empty on an error,
     so tests only spell out a body when the body is what they are about.
     """
     if body is None:
-        body = {"wireVersion": 1} if status is not None and status < 400 else ""
+        body = _CAPABILITIES if status is not None and status < 400 else ""
     transport = _Transport(
         response=None if status is None else _FakeResponse(status, body), error=error
     )
@@ -133,8 +155,35 @@ def _use(monkeypatch, status=None, body=None, error=None):
 
 
 def test_accepted_key_is_true(monkeypatch):
-    _use(monkeypatch, 200, {"wireVersion": 1})
+    _use(monkeypatch, 200, _CAPABILITIES)
     assert key_check.verify_api_key(_KEY) is True
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"status": "ok"},
+        {key: value for key, value in _CAPABILITIES.items() if key != "wireVersion"},
+        {**_CAPABILITIES, "wireVersion": True},
+        {**_CAPABILITIES, "wireVersion": "1"},
+        {**_CAPABILITIES, "inputFormat": "other"},
+        {**_CAPABILITIES, "resultFormat": "other"},
+        {},
+    ],
+    ids=[
+        "status-ok",
+        "no-wire-version",
+        "bool-wire-version",
+        "str-wire-version",
+        "other-input-format",
+        "other-result-format",
+        "empty-object",
+    ],
+)
+def test_a_2xx_json_that_is_not_the_capabilities_document_is_unreachable(monkeypatch, body):
+    # A proxy can answer 200 with JSON of its own: that verifies nothing.
+    _use(monkeypatch, 200, body)
+    assert key_check.verify_api_key(_KEY) is False
 
 
 @pytest.mark.parametrize(
@@ -167,7 +216,7 @@ def test_401_is_a_rejection_with_the_server_reason(monkeypatch):
 
 
 def test_403_means_key_recognised_but_restricted(monkeypatch):
-    _use(monkeypatch, 403, {"message": "Forbidden"})
+    _use(monkeypatch, 403, _problem(403, "Forbidden"))
 
     with pytest.raises(ApiKeyRestricted) as caught:
         key_check.verify_api_key(_KEY)
@@ -210,8 +259,41 @@ def test_a_403_without_the_apis_json_object_is_unreachable(monkeypatch, body):
     assert key_check.verify_api_key(_KEY) is False
 
 
-def test_403_with_a_json_object_lacking_reason_fields(monkeypatch):
-    _use(monkeypatch, 403, {"status": 403, "code": 7})
+def test_a_403_with_a_proxys_own_json_is_unreachable_not_restricted(monkeypatch):
+    # JSON, but not the API's problem-details shape: must not be saved as "recognised".
+    _use(monkeypatch, 403, {"message": "Blocked by policy"})
+    assert key_check.verify_api_key(_KEY) is False
+
+
+def test_a_403_problem_carries_the_detail_as_the_server_message(monkeypatch):
+    detail = "Your plan does not include this route."
+    _use(monkeypatch, 403, _problem(403, detail))
+
+    with pytest.raises(ApiKeyRestricted) as caught:
+        key_check.verify_api_key(_KEY)
+
+    assert caught.value.status_code == 403
+    assert caught.value.server_message == detail
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {**_problem(403, "x"), "status": "403"},
+        _problem(401, "x"),
+        {**_problem(403, "x"), "status": True},
+        {"status": 403, "detail": "x"},
+        {**_problem(403, "x"), "title": 5},
+    ],
+    ids=["status-as-string", "status-401", "status-bool", "no-title", "title-not-a-string"],
+)
+def test_a_403_that_is_not_a_403_problem_is_unreachable(monkeypatch, body):
+    _use(monkeypatch, 403, body)
+    assert key_check.verify_api_key(_KEY) is False
+
+
+def test_403_with_a_problem_lacking_reason_fields(monkeypatch):
+    _use(monkeypatch, 403, _problem(403, title=" "))
 
     with pytest.raises(ApiKeyRestricted) as caught:
         key_check.verify_api_key(_KEY)
@@ -221,7 +303,7 @@ def test_403_with_a_json_object_lacking_reason_fields(monkeypatch):
 
 
 def test_a_long_reason_is_truncated(monkeypatch):
-    _use(monkeypatch, 403, {"message": "x" * 5000})
+    _use(monkeypatch, 403, _problem(403, "x" * 5000))
 
     with pytest.raises(ApiKeyRestricted) as caught:
         key_check.verify_api_key(_KEY)
@@ -285,7 +367,7 @@ def test_an_echoed_key_is_masked_everywhere(monkeypatch):
 
 def test_a_key_straddling_the_truncation_point_does_not_leak(monkeypatch):
     # The key starts 195 characters in, so a cut at 200 would split it.
-    _use(monkeypatch, 403, {"message": "x" * 195 + _KEY + "y" * 50})
+    _use(monkeypatch, 403, _problem(403, "x" * 195 + _KEY + "y" * 50))
 
     with pytest.raises(ApiKeyRestricted) as caught:
         key_check.verify_api_key(_KEY)
@@ -296,7 +378,7 @@ def test_a_key_straddling_the_truncation_point_does_not_leak(monkeypatch):
 
 
 def test_a_short_echoed_key_is_fully_hidden(monkeypatch):
-    _use(monkeypatch, 403, {"message": "bad key abc123"})
+    _use(monkeypatch, 403, _problem(403, "bad key abc123"))
 
     with pytest.raises(ApiKeyRestricted) as caught:
         key_check.verify_api_key("abc123")
@@ -346,8 +428,18 @@ def test_saved_key_kept_on_everything_but_401(monkeypatch, status):
     assert key_check.saved_key_rejected(_KEY) is False
 
 
+def test_saved_key_kept_on_a_restricted_403(monkeypatch):
+    _use(monkeypatch, 403, _problem(403, "Forbidden"))
+    assert key_check.saved_key_rejected(_KEY) is False
+
+
 def test_saved_key_kept_on_a_non_api_403(monkeypatch):
     _use(monkeypatch, 403, "<html><body>Blocked by policy</body></html>")
+    assert key_check.saved_key_rejected(_KEY) is False
+
+
+def test_saved_key_kept_on_a_proxys_json_403(monkeypatch):
+    _use(monkeypatch, 403, {"message": "Blocked by policy"})
     assert key_check.saved_key_rejected(_KEY) is False
 
 
