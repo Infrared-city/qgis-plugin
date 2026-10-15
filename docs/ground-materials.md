@@ -46,6 +46,17 @@ else, and the run dialog offers nothing else.
 
 Use the **Download ground materials** toolbar action:
 
+> **Known limitation (2026-10-15).** The download reads Overture parquet in the
+> QGIS process, through pyarrow. QGIS loads its own NumPy and Arrow before any
+> plugin, so the versions the plugin installs are not always the ones used. On
+> **macOS QGIS 4.2** the bundled Arrow has no `dataset` module and the download
+> cannot run at all — add your own `ground-*` layers there instead. No pin fixes
+> this one, and neither does an out-of-process read: macOS code signing stops a
+> child of the bundled interpreter from loading the plugin's own wheels. It
+> needs a dataset-free read in the SDK (Infrared-city/infrared-core#1000).
+> Tracked in #55.
+
+
 1. Select features on your **building layer** first — the selection defines
    the download area (the dialog asks you to *"select a building area first"*
    otherwise). If the **Select tile** toolbar button is pressed, that takes
