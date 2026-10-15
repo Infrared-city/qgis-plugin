@@ -92,6 +92,26 @@ def _is_connection_error(exc: BaseException) -> bool:
     })
 
 
+#: ImportError texts that mean the HOST's own NumPy/Arrow won, not that a
+#: package is missing. QGIS imports both before any plugin loads, so the copy
+#: the bootstrap installed is never used and no reinstall can change it:
+#: pyarrow >= 26 refuses QGIS 3's NumPy 1.26 ("requires NumPy 2.0 or newer"),
+#: Windows OSGeo4W resolves its own arrow.dll under the wheel ("DLL load
+#: failed"), and QGIS 4 ships an Arrow build without the dataset and S3
+#: components ("not built with support for"). See issue #55.
+_HOST_LIBRARY_CLASH = (
+    "requires numpy",
+    "dll load failed",
+    "not built with support for",
+)
+
+
+def _is_host_library_clash(exc: BaseException) -> bool:
+    return isinstance(exc, ImportError) and any(
+        marker in str(exc).lower() for marker in _HOST_LIBRARY_CLASH
+    )
+
+
 def _server_not_ready(text: str) -> bool:
     # NOTE: the SDK raises a bare ValueError for these (binary_capability.py),
     # so the text is the only thing to match. Both mean the gateway is older
@@ -168,6 +188,24 @@ def describe_error(exc: BaseException) -> UserError:
             "Do not resubmit straight away — a second run could be charged "
             f"again. Check your runs on infrared.city or contact {SUPPORT_EMAIL}.",
             detail=detail,
+        )
+
+    if any(_is_host_library_clash(e) for e in chain):
+        # Before the generic ImportError branch: the component is installed,
+        # it just cannot load next to the libraries QGIS loaded first, so
+        # "restart QGIS, then reinstall the plugin" would send the user after
+        # a fix that does not exist on this QGIS build.
+        return UserError(
+            "Ground Materials Not Available in This QGIS",
+            "QGIS loads its own copy of the libraries that read Overture map "
+            "data (NumPy and Apache Arrow) before the plugin starts, and this "
+            "QGIS build's copy cannot be used for the download. Restarting "
+            "QGIS or reinstalling the plugin does not change that.",
+            "Simulations still run: add your own ground-* layers, or run "
+            "without ground materials. Please send the plugin log and your "
+            f"QGIS version to {SUPPORT_EMAIL} — which QGIS build you use "
+            "decides the fix.",
+            charged=False, detail=detail,
         )
 
     if any(isinstance(e, ImportError) for e in chain):

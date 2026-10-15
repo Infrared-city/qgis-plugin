@@ -240,7 +240,9 @@ def test_the_overture_read_class_alone_is_not_a_timeout():
 
     Seen on Windows QGIS 3.44.12, whose bundled pyarrow has no S3 support: the
     read failed in under ten seconds and the dialog said the connection was
-    too slow. The real cause is the ImportError underneath.
+    too slow. The real cause is the ImportError underneath — and since #55 it
+    is named for what it is: the host's own Arrow build won, which no restart
+    or reinstall can change.
     """
     try:
         try:
@@ -257,7 +259,9 @@ def test_the_overture_read_class_alone_is_not_a_timeout():
             raise RuntimeError("1 of 1 site read chunks failed") from cause
     except RuntimeError as wrapped:
         assert not gmr.timed_out(wrapped)
-        assert gmr.describe_read_failure(wrapped).title == "Plugin Component Missing"
+        failure = gmr.describe_read_failure(wrapped)
+        assert failure.title == "Ground Materials Not Available in This QGIS"
+        assert "reinstall" not in failure.advice.lower()
 
 
 def test_a_timeout_is_recognised_through_the_wrapper():
