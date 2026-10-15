@@ -157,3 +157,34 @@ def test_a_more_specific_cause_under_an_overture_read_still_wins():
     assert missing.title == "Plugin Component Missing"
     assert offline.title == "Connection Error"
 
+
+
+def test_a_host_library_clash_is_not_reported_as_a_missing_component():
+    """The component IS installed; QGIS's own NumPy/Arrow loaded first (#55).
+
+    Each text below is from a real failure: pyarrow 26 under macOS QGIS 3.44
+    (NumPy 1.26.4), the OSGeo4W arrow.dll clash on Windows QGIS 3.44.15, and
+    macOS QGIS 4.2.0's bundled Arrow build. "Restart QGIS, then reinstall the
+    plugin" cannot fix any of them, so the message must not say it.
+    """
+    for text in (
+        "pyarrow requires NumPy 2.0 or newer, found 1.26.4",
+        "DLL load failed while importing lib: The specified procedure could "
+        "not be found.",
+        "The pyarrow installation is not built with support for 'dataset' "
+        "(No module named 'pyarrow._dataset')",
+    ):
+        err = describe_error(_overture_failure(ImportError(text)))
+
+        assert err.title == "Ground Materials Not Available in This QGIS", text
+        assert err.charged is False
+        assert "reinstall" not in err.advice.lower(), text
+        assert "ground-*" in err.advice
+        assert SUPPORT_EMAIL in err.advice
+
+
+def test_a_genuinely_missing_module_still_says_component_missing():
+    """Only the host-clash texts reroute; a plain missing module does not."""
+    err = describe_error(_overture_failure(ImportError("No module named 'shapely'")))
+
+    assert err.title == "Plugin Component Missing"
