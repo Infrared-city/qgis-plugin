@@ -8,3 +8,16 @@ structlog>=24.0.0
 # (released v1.1.3 had >=0.4.11 and stopped loading the day 1.0.0 shipped).
 # A new SDK reaches users only through a new plugin release.
 infrared-sdk[geodata]==1.0.0
+
+# pyarrow comes from the SDK's [geodata] extra, which carries `pyarrow>=14`
+# with NO ceiling — so a fresh deps folder installs whatever is newest. 26.0.0
+# (PyPI 2026-10-09) dropped NumPy 1 support and then cannot load inside QGIS 3
+# at all: macOS 3.44 bundles NumPy 1.26.4, and Windows OSGeo4W resolves its own
+# arrow.dll under the wheel ("DLL load failed while importing lib"). QGIS
+# imports both before any plugin loads, so the deps folder never wins and no
+# restart or reinstall helps. 24.0.0 is the newest release verified on BOTH
+# QGIS 3 LTR hosts.
+# NOTE: macOS QGIS 4 stays broken whatever we pin here — its bundled pyarrow
+# has no `dataset` module, which the SDK needs on every transport. See #55 and
+# Infrared-city/infrared-core#1000.
+pyarrow==24.0.0
