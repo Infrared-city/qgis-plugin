@@ -22,7 +22,7 @@ infrared_city_gis/
 ├── services/                # API + I/O helpers
 │   ├── fetch.py             # Building fetch (Infrared City /v2/buildings)
 │   ├── fetch_from_registry.py # Registry fetch on startup (models, vegetation, materials)
-│   ├── key_check.py         # Verifies an API key (GET /v2/webhooks)
+│   ├── key_check.py         # Verifies an API key (GET /v2/binary/v1/capabilities)
 │   ├── sdk_runner.py        # Area simulation via SDK run_area (+ area_poller, merge_area_jobs)
 │   ├── sdk_payloads.py      # Builds the typed SDK payload from the dialog state
 │   ├── sdk_single_tile.py   # Single-tile simulation via SDK analyses.execute
@@ -82,9 +82,15 @@ Plugin start → registries fetched from the public mirror
                 (models, vegetation, materials — no key needed)
 
 User → Auth Dialog → key VERIFIED against the API before saving
-                     (GET /v2/webhooks: 401/403 →
+                     (GET /v2/binary/v1/capabilities: 401 →
                       not saved + "contact connectors@infrared.city";
-                      server unreachable → not saved either)
+                      2xx with the capabilities document → saved;
+                      any 403 → NOT saved, "API Key Not Saved (403)" with
+                      the server's reason; a key saved earlier is kept;
+                      anything else (unreachable, 5xx, 404, other 4xx,
+                      a 2xx that is not the capabilities document,
+                      proxy/portal page or JSON) → not saved,
+                      "Could Not Verify")
                    → API key stored in QGIS settings
      → Select bbox / Select tile → Download buildings (POST /v2/buildings, GeoJson)
        (optional) Download ground materials → editable ground-* layers
@@ -96,11 +102,24 @@ User → Auth Dialog → key VERIFIED against the API before saving
 
 All toolbar actions except **Save API Key** are greyed out (with an
 explanatory tooltip) until a key is stored and not known-bad. A startup
-`key_check.verify_api_key` re-checks a saved key: a confirmed 401/403 locks
-the actions and pushes a message-bar warning; a mere outage does NOT — an
-already-saved key keeps working offline. (This check used to be a side
-effect of the registry refresh, back when the registries were read from the
-utilities service with the key attached.)
+`key_check.saved_key_rejected` (a wrapper over `verify_api_key`) re-checks a
+saved key: a confirmed 401 locks the actions and pushes a message-bar
+warning; a 403 or a mere outage does NOT — an already-saved key stays
+usable, and keeps working offline. (This check used to be a
+side effect of the registry refresh, back when the registries were read from
+the utilities service with the key attached.)
+
+Only a verified answer saves a key: a 2xx that carries the capabilities
+document (`inputFormat` and `resultFormat` both `"irbf"`, an integer
+`wireVersion` — the shape the SDK checks before every run). A 403 proves
+nothing about the key — a proxy or firewall can send one, whatever its
+body — so it is never saved and never locks the toolbar: the dialog says
+"API Key Not Saved (403)" with the server's reason, and any key saved
+earlier is unchanged. Any other 2xx body (a captive-portal or proxy page,
+or a middlebox's own JSON) is "Could Not Verify", not saved, so a key
+already saved is never overwritten by an unverified one. A 401 is a
+rejection whatever the body. The server's reason is masked, capped at 200
+characters, and dropped if it contains `<` or `>`.
 
 Weather comes from the SDK weather client's static public catalog
 (`geo.infrared.city/weather`, no API key sent) — both the station list for

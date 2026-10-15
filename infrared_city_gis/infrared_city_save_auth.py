@@ -30,10 +30,11 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
     """
 
     def __init__(self, parent=None, saved_key_rejected=False):
-        """``saved_key_rejected``: the plugin's startup check got a 401/403
-        for the stored key — the dialog then opens with a red "not valid
+        """``saved_key_rejected``: the plugin's startup check got a 401 for
+        the stored key — the dialog then opens with a red "not valid
         anymore" status instead of the green format check, until the user
-        types a different key.
+        types a different key. (A 403 does not count: it proves nothing about
+        the key, see #53.)
         """
         super().__init__(parent)
         self.setupUi(self)
@@ -148,14 +149,18 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
                 return
 
         # Validate the key with a real authenticated call BEFORE saving.
-        # Only a verified key is saved:
-        #   - 2xx        -> key verified, save + accept
-        #   - 401 / 403  -> key rejected by the server, do NOT save
+        # Only a recognised key is saved:
+        #   - 2xx   -> key verified, save + accept
+        #   - 401   -> key not recognised, do NOT save
+        #   - 403   -> not saved, existing key unchanged (#53): a 403 proves
+        #              nothing about the key (ApiKeyCheckRefused, handled below
+        #              with the other InfraredAPIError cases)
         #   - anything else (offline, 5xx, timeout) -> do NOT save either,
-        #     but tell the user it was a connection problem, not a bad key.
+        #     but tell the user it was a connection problem, not a bad key
+        #     ("could not verify").
         # Note this strictness only applies to SAVING a new key — a key that
         # was already saved keeps working through outages (the startup check
-        # in infrared_city_gis.py only locks the UI on a confirmed 401/403).
+        # in infrared_city_gis.py only locks the UI on a confirmed 401).
         self.key_verified = False
         self.status_label.setText("Verifying API key…")
         self.status_label.setStyleSheet("color: orange;")
@@ -203,6 +208,9 @@ class InfraredCitySaveAuthDialog(QDialog, FORM_CLASS):
                 f"contact {SUPPORT_EMAIL}.\n\nSee the plugin log for more.",
             )
             return
+
+        # Saved: drop the orange "Verifying…" before the (modal) box is shown.
+        self.update_status()
 
         QMessageBox.information(
             self, "Success",

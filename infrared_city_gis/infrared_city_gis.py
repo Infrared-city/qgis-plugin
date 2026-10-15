@@ -29,7 +29,6 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
 from .constants import SUPPORT_EMAIL
-from .exceptions import InfraredAPIError
 
 # Import the code for the dialog
 from .infrared_city_fetch_geometry_dialog import InfraredCityFetchGeometryDialog
@@ -45,7 +44,7 @@ from .infrared_city_tree_catalog_dialog import InfraredCityTreeCatalogDialog
 from .infrared_logger import logger
 from .services import single_tile_selection
 from .services.fetch_from_registry import fetch_from_registry
-from .services.key_check import verify_api_key
+from .services.key_check import saved_key_rejected
 from .services.sdk_runner import clear_layer_selections
 from .services.secret_manager import get_api_key
 from .utils.helper import cleanup_old_logs
@@ -116,25 +115,19 @@ class InfraredCityGIS:
         except Exception as e:
             logger.warning("Startup registry refresh failed: %s", e)
 
-        # Separately, check the SAVED key. A 401/403 means the server rejected
-        # it and initGui() greys out every action except "Save API Key".
-        # Transient failures (offline, 5xx) do NOT flag the key — an outage
-        # must not lock the user out of the plugin.
+        # Separately, check the SAVED key. A 401 means the server does not
+        # recognise it, so initGui() greys out every action except "Save API
+        # Key".
+        # A 403 (#53), an outage or a timeout never locks a saved key.
         #
         # This used to be a side effect of the registry refresh above, back
         # when the registries came from the utilities service with the key
         # attached. The public mirror cannot reject a key, so the check is now
         # its own call (services.key_check).
         self._saved_key_rejected = False
-        if get_api_key():
-            try:
-                verify_api_key(get_api_key())
-            except InfraredAPIError as e:
-                if e.status_code in (401, 403):
-                    self._saved_key_rejected = True
-                logger.warning("Startup API key check failed: %s", e)
-            except Exception as e:
-                logger.warning("Startup API key check failed: %s", e)
+        saved_key = get_api_key()
+        if saved_key:
+            self._saved_key_rejected = saved_key_rejected(saved_key)
 
     # noinspection PyMethodMayBeStatic
 
@@ -318,8 +311,8 @@ class InfraredCityGIS:
         # Grey out everything but "Save API Key" until a key is present and
         # not known-bad. New keys are only ever saved after verification
         # (see InfraredCitySaveAuthDialog.accept); an ALREADY-saved key is
-        # only locked out on a confirmed 401/403 from the startup registry
-        # check above — a mere outage keeps the plugin usable.
+        # only locked out on a confirmed 401 from the startup key check
+        # above — a 403 or a mere outage keeps the plugin usable.
         if not get_api_key():
             self._set_authed_actions_enabled(False)
         elif self._saved_key_rejected:

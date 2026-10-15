@@ -17,10 +17,12 @@ SUPPORT_EMAIL = "connectors@infrared.city"
 # client.buildings.get_area uses).
 FETCH_BUILDINGS_URL = f"{INFRARED_API_V2_URL}/buildings"
 
-# The cheapest authenticated GET on the API, used only to verify an API key.
-# A list route rather than a dedicated one: there is no /whoami, and this
-# answers 401/403 for a bad key without costing tokens or creating anything.
-VERIFY_API_KEY_URL = f"{INFRARED_API_V2_URL}/webhooks"
+# Used only to verify an API key: an authenticated, read-only GET with no side
+# effects and no cost. It is the capabilities document the SDK reads before
+# every simulation run, so a key that can read it can run simulations. Not
+# plan-restricted, unlike /webhooks, which answered 403 for Trial-plan keys and
+# made valid keys look rejected (#53). Must not point at /v2/utils (see above).
+VERIFY_API_KEY_URL = f"{INFRARED_API_V2_URL}/binary/v1/capabilities"
 
 # Model / vegetation / material registries.
 #

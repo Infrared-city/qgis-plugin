@@ -125,3 +125,36 @@ class InfraredAPIError(Exception):
             self.detail += f"\n\nServer message: {server_message}"
 
         super().__init__(f"[HTTP {status_code}] {self.title}")
+
+
+class ApiKeyCheckRefused(InfraredAPIError):
+    """The key check was answered with HTTP 403, which proves nothing about the key.
+
+    Raised by the key check for ANY 403, whatever its body: the refusal may come
+    from a proxy or firewall, and problem-details JSON is a generic format that
+    anything can send, so it cannot show that the server recognised the key.
+    Callers must therefore NOT save the key, and the startup gate must not lock
+    a saved key on it either (#53). Show :attr:`title` / :attr:`detail` as an
+    error.
+    """
+
+    #: Dialog title for the refused key check.
+    KEY_CHECK_TITLE = "API Key Not Saved (403)"
+    #: Body of that error; deliberately not the simulation 403 text in ``_STATUS_MAP``.
+    KEY_CHECK_DETAIL = (
+        "The Infrared City server refused the key check (HTTP 403), "
+        "so this key could not be verified.\n\n"
+        "Any API key you saved earlier is unchanged."
+    )
+
+    def __init__(self, status_code=403, server_message=None):
+        # No server_message to the base: it would append it to the simulation
+        # wording this class replaces. It is appended once, below.
+        super().__init__(status_code=status_code)
+        self.server_message = server_message
+        self.title = self.KEY_CHECK_TITLE
+        self.detail = self.KEY_CHECK_DETAIL
+        if server_message:
+            self.detail += f"\n\nServer message: {server_message}"
+        # Re-run so str(exc) reflects the final title.
+        Exception.__init__(self, f"[HTTP {status_code}] {self.title}")
