@@ -158,7 +158,6 @@ def test_a_more_specific_cause_under_an_overture_read_still_wins():
     assert offline.title == "Connection Error"
 
 
-
 def test_a_host_library_clash_is_not_reported_as_a_missing_component():
     """The component IS installed; QGIS's own NumPy/Arrow loaded first (#55).
 

@@ -44,8 +44,6 @@ else, and the run dialog offers nothing else.
 
 ## Downloading ground materials
 
-Use the **Download ground materials** toolbar action:
-
 > **Known limitation (2026-10-15).** The download reads Overture parquet in the
 > QGIS process, through pyarrow. QGIS loads its own NumPy and Arrow before any
 > plugin, so the versions the plugin installs are not always the ones used. On
@@ -56,6 +54,7 @@ Use the **Download ground materials** toolbar action:
 > needs a dataset-free read in the SDK (Infrared-city/infrared-core#1000).
 > Tracked in #55.
 
+Use the **Download ground materials** toolbar action:
 
 1. Select features on your **building layer** first — the selection defines
    the download area (the dialog asks you to *"select a building area first"*
