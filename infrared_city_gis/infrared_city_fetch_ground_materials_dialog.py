@@ -34,6 +34,7 @@ from .infrared_logger import logger
 from .services import single_tile_selection
 from .services.ground_material_reader import GroundMaterialReader, read_in_progress
 from .services.polygon_from_selection import (
+    active_layer_note,
     create_wgs84_geojson_polygon_from_selection,
 )
 from .services.secret_manager import get_api_key
@@ -114,12 +115,25 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
         else:
             selection = create_wgs84_geojson_polygon_from_selection()
             if selection is None:
-                logger.info("Ground materials fetch refused: no selection")
-                QMessageBox.warning(
-                    self, "No selection",
-                    "Please select a building area first — select features on "
-                    "your building layer, then reopen this dialog.",
+                # `note` is empty when the active layer really is a vector
+                # layer with nothing selected. It is not empty when the
+                # active layer cannot hold a selection at all — the result
+                # raster of the last run, say, which QGIS made current when
+                # it was added. Without naming that, "select a building area
+                # first" reads as a lie: the user HAS a selection, just not
+                # on the layer the plugin is looking at.
+                note = active_layer_note()
+                logger.info(
+                    "Ground materials fetch refused: no selection%s",
+                    f" — {note}" if note else "",
                 )
+                text = (
+                    "Please select a building area first — select features on "
+                    "your building layer, then reopen this dialog."
+                )
+                if note:
+                    text = f"{text}\n\n{note}"
+                QMessageBox.warning(self, "No selection", text)
                 return
             self.polygon = selection
             try:
