@@ -54,6 +54,16 @@ else, and the run dialog offers nothing else.
 > needs a dataset-free read in the SDK (Infrared-city/infrared-core#1000).
 > Tracked in #55.
 
+> **The download covers more than you select.** Every simulation tile reads
+> ground material up to 544 m beyond itself, and where that ground is missing
+> the server composes its default asphalt — which is why the edge of a result
+> used to look as if the surfaces had been ignored. The plugin therefore asks
+> for your selection's bounding box grown by that 544 m, so the band the edge
+> tiles read is really there. It downloads more data and takes longer than the
+> selection alone would (on a 1.1 x 1.2 km site, 1.3 km² of selection becomes
+> 5.0 km² of read), and the `ground-*` layers you get back are correspondingly
+> larger than the area you picked.
+
 Use the **Download ground materials** toolbar action:
 
 1. Select features on your **building layer** first — the selection defines

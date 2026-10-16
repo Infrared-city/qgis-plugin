@@ -33,6 +33,7 @@ from qgis.PyQt.QtCore import QObject, QThread, pyqtSignal
 from ..constants import GROUND_FETCH_TIMEOUT_S, GROUND_FETCH_TOTAL_TIMEOUT_S
 from ..infrared_logger import logger
 from ..utils.client_identity import make_client
+from .ground_materials import fetch_polygon_with_context
 from .user_errors import UserError, describe_error
 
 #: Read Overture over HTTPS instead of S3.
@@ -187,8 +188,13 @@ class GroundMaterialReader(QObject):
     def __init__(self, api_key: str, polygon: dict, analysis_type=None,
                  parent: Optional[QObject] = None):
         super().__init__(parent)
+        # Download the selection PLUS the distance a tile reads ground beyond
+        # itself — without it the border band of the run is composed with no
+        # ground at all and falls back to asphalt. See
+        # `fetch_polygon_with_context` for the measurement.
+        fetch_polygon = fetch_polygon_with_context(polygon)
         self._thread = QThread()
-        self._worker = _Worker(api_key, polygon, analysis_type)
+        self._worker = _Worker(api_key, fetch_polygon, analysis_type)
         self._worker.moveToThread(self._thread)
         self._detached = False
 

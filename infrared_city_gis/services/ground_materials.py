@@ -332,22 +332,92 @@ def validate_ground_material_layers(
 _M_PER_DEG = 6_371_000.0 * math.pi / 180.0
 
 
-def ground_envelope(polygon: dict) -> Tuple[float, float, float, float]:
-    """``(west, south, east, north)`` that holds everything the SDK's read keeps.
+def ground_read_margin_m() -> float:
+    """How far beyond itself one simulation tile reads ground material.
 
-    The SDK's ground read crops to a CIRCLE around the polygon's bbox centre,
-    radius half the bbox diagonal and never less than the widest read distance
-    (``cleaning_extent``, 544 m today; ground materials only feed UTCI/TCS, the
-    widest preset). On a 1 km square that reaches ~210 m past the selection.
-    Filtering to anything narrower dropped context the SDK had fetched for the
-    edge tiles: those surfaces ran as the default asphalt instead. This is the
-    circle's bounding square plus 1 m, so a downloaded layer passes whole and
-    run_area still crops per tile.
+    ``ground_read_distance_m(None)`` — the widest preset, 544 m today (363 m on
+    the wind one). Ground that far outside a tile still decides that tile's
+    result, and where it is missing the server falls back to its default
+    asphalt.
     """
-    from infrared_sdk.ground_materials.cleaning import cleaning_extent
     from infrared_sdk.tiling.read_margin import ground_read_distance_m
 
-    extent = cleaning_extent(polygon, fetch_distance=ground_read_distance_m(None))
+    return float(ground_read_distance_m(None))
+
+
+def fetch_polygon_with_context(polygon: dict) -> dict:
+    """The area to DOWNLOAD for a run over *polygon*: its bbox plus the margin.
+
+    ``get_area`` crops its read to a circle around the polygon's bbox centre,
+    radius ``max(half the bbox diagonal, the read margin)``
+    (``cleaning_extent``). That circle circumscribes the bbox, so it touches
+    the corners: on the 1113 x 1185 m site measured on 2026-10-16 the download
+    reached 257 m past the east and west edges, 220 m past north and south,
+    and **0 m past the corners** — while every tile reads ground 544 m around
+    itself. The border band of the run was therefore composed with up to 544 m
+    of context missing, and ran as default asphalt: "at the edges it is as if
+    the ground materials were not there".
+
+    Asking for the bbox grown by the margin makes the circle cover the
+    selection plus the full read distance everywhere, corners included. It
+    downloads more than the user selected — on that site 1.32 km2 -> 5.0 km2 —
+    which is why the dialog says so.
+
+    The right long-term home for this is the SDK, where the same formula is
+    duplicated for every client (``cleaning_extent`` in Python,
+    ``cleaningExtent`` in ``public/typescript/src/internal/ground-merge.ts``):
+    ``half_diagonal + fetch_distance`` instead of ``max`` of the two.
+    """
+    ring = (polygon or {}).get("coordinates") or [[]]
+    if not ring[0]:
+        # Nothing to grow. The SDK's own validation is the right place to
+        # refuse this, so pass it through rather than raising here.
+        logger.warning(
+            "ground context margin skipped: the polygon has no outer ring"
+        )
+        return polygon
+    margin_m = ground_read_margin_m()
+    west, south, east, north = _polygon_wgs84_bbox_with_margin(polygon, margin_m)
+    logger.info(
+        "Ground-material download area: selection + %.0f m of context "
+        "(bbox %.6f, %.6f -> %.6f, %.6f)",
+        margin_m, west, south, east, north,
+    )
+    return {
+        "type": "Polygon",
+        "coordinates": [[
+            [west, south], [east, south], [east, north], [west, north],
+            [west, south],
+        ]],
+    }
+
+
+def ground_envelope(polygon: dict) -> Tuple[float, float, float, float]:
+    """``(west, south, east, north)`` that holds everything a run can use.
+
+    Two reaches, whichever is wider:
+
+    * The SDK's ground read crops to a CIRCLE around the polygon's bbox centre,
+      radius half the bbox diagonal and never less than the widest read
+      distance (``cleaning_extent``, 544 m today; ground materials only feed
+      UTCI/TCS, the widest preset). On a 1 km square that reaches ~210 m past
+      the selection. Filtering to anything narrower dropped context the SDK had
+      fetched for the edge tiles: those surfaces ran as the default asphalt
+      instead.
+    * The selection's bbox plus :func:`ground_read_margin_m` — what
+      :func:`fetch_polygon_with_context` now downloads, and what the edge tiles
+      actually read. Without this the collector would clip the extra context
+      straight back off before the run.
+
+    Plus 1 m, so a downloaded layer passes whole and run_area still crops per
+    tile.
+    """
+    from infrared_sdk.ground_materials.cleaning import cleaning_extent
+
+    margin_box = _polygon_wgs84_bbox_with_margin(
+        polygon, ground_read_margin_m() + 1.0
+    )
+    extent = cleaning_extent(polygon, fetch_distance=ground_read_margin_m())
     if extent is None:
         # Empty outer ring: fall back to the old envelope rather than nothing.
         return _polygon_wgs84_bbox_with_margin(polygon, _DEFAULT_CONTEXT_MARGIN_M)
@@ -355,7 +425,11 @@ def ground_envelope(polygon: dict) -> Tuple[float, float, float, float]:
     reach = distance + 1.0
     dlat = reach / _M_PER_DEG
     dlon = reach / (_M_PER_DEG * max(math.cos(math.radians(lat)), 1e-6))
-    return lon - dlon, lat - dlat, lon + dlon, lat + dlat
+    circle_box = (lon - dlon, lat - dlat, lon + dlon, lat + dlat)
+    return (
+        min(circle_box[0], margin_box[0]), min(circle_box[1], margin_box[1]),
+        max(circle_box[2], margin_box[2]), max(circle_box[3], margin_box[3]),
+    )
 
 
 def collect_ground_materials(

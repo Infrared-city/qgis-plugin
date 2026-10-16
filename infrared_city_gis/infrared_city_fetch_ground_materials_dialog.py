@@ -33,6 +33,7 @@ from .exceptions import IncompleteGroundDownload
 from .infrared_logger import logger
 from .services import single_tile_selection
 from .services.ground_material_reader import GroundMaterialReader, read_in_progress
+from .services.ground_materials import ground_read_margin_m
 from .services.polygon_from_selection import (
     active_layer_note,
     create_wgs84_geojson_polygon_from_selection,
@@ -45,6 +46,11 @@ from .visualization.layers import display_ground_materials
 # Same cap as the Run Simulation dialog — and the SDK's own
 # MAX_NON_EMPTY_TILES, so the plugin-side gate always fires first.
 _MAX_TILES = 100
+
+#: How far past the selection the download reaches, for the dialog text. The
+#: tile count and the cap above stay on the user's OWN selection: that is the
+#: size of the simulation, and the context band is not theirs to budget for.
+_CONTEXT_M = ground_read_margin_m()
 
 
 class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
@@ -180,8 +186,12 @@ class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):
             f"surface type (asphalt, concrete, vegetation, soil, water). "
             f"Note: 'ground-vegetation' is green surfaces (grass, "
             f"parks) — trees are separate 'tree-*' point layers.\n\n"
-            f"The download reads Overture map data and can take a few "
-            f"minutes on a slow connection."
+            f"The layers will cover about {_CONTEXT_M:.0f} m MORE than your "
+            f"selection on every side: a simulation reads ground that far "
+            f"around each tile, and without it the tiles at the edge of your "
+            f"area run on default asphalt. That also makes the download "
+            f"bigger than the selection alone — it reads Overture map data "
+            f"and can take a few minutes on a slow connection."
         )
         self._init_ok = True
 
