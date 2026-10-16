@@ -25,7 +25,7 @@ import os.path
 import sys
 
 from qgis.core import Qgis, QgsApplication
-from qgis.PyQt.QtCore import QCoreApplication, QSettings, QTranslator
+from qgis.PyQt.QtCore import QCoreApplication, QSettings, Qt, QTranslator
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
@@ -283,9 +283,14 @@ class InfraredCityGIS:
 
         # See _finalize_arrow_s3: pyarrow's own atexit hook never runs under
         # QGIS, so the one chance to shut its S3 stack down cleanly is this
-        # signal.
+        # signal. UniqueConnection because `unload` deliberately does NOT
+        # disconnect it any more (2026-10-16: QGIS unloads plugins BEFORE
+        # aboutToQuit, so the disconnect was taking the slot off the signal
+        # before it could ever fire).
         try:
-            QgsApplication.instance().aboutToQuit.connect(self._finalize_arrow_s3)
+            QgsApplication.instance().aboutToQuit.connect(
+                self._finalize_arrow_s3, Qt.ConnectionType.UniqueConnection
+            )
             logger.info("Arrow S3 finalization hooked to aboutToQuit")
         except Exception as e:  # noqa: BLE001 - never block initGui
             logger.warning("could not hook Arrow S3 finalization: %s", e)
@@ -409,21 +414,16 @@ class InfraredCityGIS:
 
         # A reload would otherwise connect a second time, and the old plugin
         # object would be kept alive by the connection.
-        # The order of these two lines against "aboutToQuit: ..." is the whole
-        # question: if unload runs first on a real quit, this disconnect is
-        # what stops the finalizer from ever running.
-        try:
-            closing = QgsApplication.instance().closingDown()
-        except Exception as e:  # noqa: BLE001 - never let teardown fail
-            closing = f"unknown ({e})"
-        logger.info("unload: disconnecting the Arrow S3 hook (closingDown=%s)", closing)
-        try:
-            QgsApplication.instance().aboutToQuit.disconnect(self._finalize_arrow_s3)
-        except Exception as e:  # noqa: BLE001 - not connected, or already gone
-            # Expected on a first unload or a torn-down application; logged
-            # rather than swallowed, so a teardown that fails for some OTHER
-            # reason leaves a trace instead of vanishing.
-            logger.debug("aboutToQuit was not connected: %s", e)
+        # The Arrow S3 hook is deliberately LEFT CONNECTED. It used to be
+        # disconnected here so that a plugin reload could not connect twice —
+        # but QGIS unloads its plugins BEFORE `aboutToQuit` is emitted, so on
+        # a real quit the disconnect ran first and the finalizer never fired
+        # at all. Measured on 2026-10-16: "unload: ..." in the log, no
+        # "aboutToQuit: ...", then a SIGSEGV in Arrow's AWS cleanup.
+        # The connection keeps this plugin object alive until the application
+        # goes; a reload is covered by UniqueConnection in `initGui`, and a
+        # second `ensure_s3_finalized()` would be a no-op anyway.
+        logger.info("unload: leaving the Arrow S3 hook connected for quit")
 
         for action in self.actions:
             self.iface.removePluginMenu(

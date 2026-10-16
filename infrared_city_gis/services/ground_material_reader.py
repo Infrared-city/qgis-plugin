@@ -25,6 +25,7 @@ Two things it deliberately does NOT do:
 
 from __future__ import annotations
 
+import os
 from typing import List, Optional
 
 from qgis.PyQt.QtCore import QObject, QThread, pyqtSignal
@@ -33,6 +34,27 @@ from ..constants import GROUND_FETCH_TIMEOUT_S, GROUND_FETCH_TOTAL_TIMEOUT_S
 from ..infrared_logger import logger
 from ..utils.client_identity import make_client
 from .user_errors import UserError, describe_error
+
+#: Read Overture over HTTPS instead of S3.
+#:
+#: Both transports return the same bytes (``parquet_cache.overture_transport``:
+#: auto | s3 | https). S3 is the SDK's default, and it starts an AWS event loop
+#: whose shutdown is asynchronous — which QGIS's exit does not wait for. The
+#: cleanup thread then calls a logger C++ has already destroyed and the process
+#: dies with SIGSEGV on quit, after a download that had in fact succeeded
+#: (2026-09-29 and again 2026-10-16). ``aboutToQuit`` cannot reliably win that
+#: race; not starting S3 at all takes the race away. ``setdefault``, so anyone
+#: who exports the variable themselves still decides.
+_TRANSPORT_ENV = "INFRARED_OVERTURE_TRANSPORT"
+
+
+def prefer_https_transport() -> None:
+    """Pick HTTPS unless this process was told otherwise. Called on import."""
+    os.environ.setdefault(_TRANSPORT_ENV, "https")
+
+
+prefer_https_transport()
+
 
 #: Readers still running. A QThread that is garbage collected while running
 #: takes QGIS down with it, so a reader whose caller has gone away stays here
