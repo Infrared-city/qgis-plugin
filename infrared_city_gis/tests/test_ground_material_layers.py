@@ -111,12 +111,17 @@ def test_a_second_fetch_is_numbered_in_its_own_file(saved, tmp_path, monkeypatch
 
 
 def test_two_downloads_in_the_same_second_get_their_own_files(tmp_path, monkeypatch):
-    """The name stamp is only unique to the second — stepping aside is not optional.
+    """The name stamp is only unique to the second — uniqueness cannot be optional.
 
     Two QGIS instances sharing a profile can save in the same second. The write
-    mode is CreateOrOverwriteLayer, so without this the second download would
-    replace the first one's tables — silent data loss in the one folder the
-    plugin promises never to delete from (INF-665).
+    mode for the second and later materials is CreateOrOverwriteLayer, so a
+    shared path means the second download replaces the first one's tables —
+    silent data loss in the one folder the plugin promises never to delete from
+    (INF-665).
+
+    NEITHER call writes anything here, which is the point: that is the window
+    two instances are actually in. An `os.path.exists` check would pass a test
+    that created the first file in between, and still lose data in this one.
     """
     from qgis.core import QgsApplication
 
@@ -125,20 +130,22 @@ def test_two_downloads_in_the_same_second_get_their_own_files(tmp_path, monkeypa
     monkeypatch.setattr(
         QgsApplication, "qgisSettingsDirPath", staticmethod(lambda: str(tmp_path))
     )
-    # Freeze the clock: both calls land in the same second, which is the case
-    # the suffix exists for and the one a real run almost never reaches.
+    # Freeze the clock so both calls share a stamp — the collision this guards.
     frozen = layers.datetime.now()
     monkeypatch.setattr(
         layers, "datetime", type("_Clock", (), {"now": staticmethod(lambda: frozen)})
     )
 
-    first = layers.ground_package_path()
-    open(first, "wb").close()          # the other instance got there first
-    second = layers.ground_package_path()
+    paths = [layers.ground_package_path() for _ in range(50)]
 
-    assert first != second, "the second download would have overwritten the first"
-    assert second.endswith("-2.gpkg")
-    assert not os.path.exists(second), "ground_package_path must not create the file"
+    assert len(set(paths)) == len(paths), (
+        "two downloads starting in the same second got the same path — the "
+        "second would overwrite the first one's tables"
+    )
+    for path in paths:
+        assert not os.path.exists(path), "ground_package_path must not create the file"
+        assert path.endswith(".gpkg")
+        assert os.path.dirname(path) == os.path.join(str(tmp_path), "infrared_city_gis", "data")
 
 
 # -- a download that cannot save every table (PR #51 review) -----------------

@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 from datetime import datetime
+from uuid import uuid4
 
 from qgis.core import (
     Qgis,
@@ -30,21 +31,27 @@ def ground_package_path():
     folder = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
     os.makedirs(folder, exist_ok=True)
     stamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    base = os.path.join(folder, f"infrared_city_ground_materials_{stamp}")
 
-    # The stamp is only unique to the SECOND, and the write mode is
-    # CreateOrOverwriteLayer — so two saves landing in the same second would
-    # pick the same path and the second would replace the first download's
-    # tables. One QGIS instance cannot do that to itself (the dialog refuses a
-    # second download while one runs, and a read takes minutes), but two
-    # instances sharing a profile can, and the plugin promises never to delete
-    # from this folder. Step aside rather than overwrite.
-    candidate = f"{base}.gpkg"
-    suffix = 1
-    while os.path.exists(candidate):
-        suffix += 1
-        candidate = f"{base}-{suffix}.gpkg"
-    return candidate
+    # The stamp alone is unique only to the SECOND, and the write mode for the
+    # second and later materials is CreateOrOverwriteLayer — so two saves
+    # landing in the same second would take the same path and the second would
+    # replace the first download's tables, in the one folder the plugin
+    # promises never to delete from. One QGIS instance cannot do that to itself
+    # (the dialog refuses a second download while one runs, and a read takes
+    # minutes), but two instances sharing a profile can.
+    #
+    # The token makes the name unique BY CONSTRUCTION rather than by checking.
+    # An `os.path.exists` loop here would be a time-of-check/time-of-use race,
+    # not a fix: both instances can see the same name free before either
+    # writes. Reserving it with an O_EXCL placeholder does not work either —
+    # `_save_material_layer` picks CreateOrOverwriteFile vs
+    # CreateOrOverwriteLayer by whether the path exists, so a 0-byte file would
+    # send the first material down the append path and into a file that is not
+    # a GeoPackage.
+    token = uuid4().hex[:8]
+    return os.path.join(
+        folder, f"infrared_city_ground_materials_{stamp}-{token}.gpkg"
+    )
 
 
 def _save_material_layer(name, collection, gpkg_path):
