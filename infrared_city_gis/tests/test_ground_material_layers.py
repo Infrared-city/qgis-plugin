@@ -7,6 +7,8 @@ same change fixed a quieter bug: the old builder kept only each polygon's outer
 ring, so a courtyard or a pond inside a polygon took that polygon's material.
 """
 
+import os
+
 import pytest
 
 pytestmark = pytest.mark.qgis
@@ -106,6 +108,37 @@ def test_a_second_fetch_is_numbered_in_its_own_file(saved, tmp_path, monkeypatch
 
     assert created == {"ground-concrete-2": 2}
     assert second.exists()
+
+
+def test_two_downloads_in_the_same_second_get_their_own_files(tmp_path, monkeypatch):
+    """The name stamp is only unique to the second — stepping aside is not optional.
+
+    Two QGIS instances sharing a profile can save in the same second. The write
+    mode is CreateOrOverwriteLayer, so without this the second download would
+    replace the first one's tables — silent data loss in the one folder the
+    plugin promises never to delete from (INF-665).
+    """
+    from qgis.core import QgsApplication
+
+    from infrared_city_gis.visualization import layers
+
+    monkeypatch.setattr(
+        QgsApplication, "qgisSettingsDirPath", staticmethod(lambda: str(tmp_path))
+    )
+    # Freeze the clock: both calls land in the same second, which is the case
+    # the suffix exists for and the one a real run almost never reaches.
+    frozen = layers.datetime.now()
+    monkeypatch.setattr(
+        layers, "datetime", type("_Clock", (), {"now": staticmethod(lambda: frozen)})
+    )
+
+    first = layers.ground_package_path()
+    open(first, "wb").close()          # the other instance got there first
+    second = layers.ground_package_path()
+
+    assert first != second, "the second download would have overwritten the first"
+    assert second.endswith("-2.gpkg")
+    assert not os.path.exists(second), "ground_package_path must not create the file"
 
 
 # -- a download that cannot save every table (PR #51 review) -----------------

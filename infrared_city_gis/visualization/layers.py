@@ -30,7 +30,21 @@ def ground_package_path():
     folder = os.path.join(QgsApplication.qgisSettingsDirPath(), "infrared_city_gis", "data")
     os.makedirs(folder, exist_ok=True)
     stamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    return os.path.join(folder, f"infrared_city_ground_materials_{stamp}.gpkg")
+    base = os.path.join(folder, f"infrared_city_ground_materials_{stamp}")
+
+    # The stamp is only unique to the SECOND, and the write mode is
+    # CreateOrOverwriteLayer — so two saves landing in the same second would
+    # pick the same path and the second would replace the first download's
+    # tables. One QGIS instance cannot do that to itself (the dialog refuses a
+    # second download while one runs, and a read takes minutes), but two
+    # instances sharing a profile can, and the plugin promises never to delete
+    # from this folder. Step aside rather than overwrite.
+    candidate = f"{base}.gpkg"
+    suffix = 1
+    while os.path.exists(candidate):
+        suffix += 1
+        candidate = f"{base}-{suffix}.gpkg"
+    return candidate
 
 
 def _save_material_layer(name, collection, gpkg_path):

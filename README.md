@@ -17,7 +17,7 @@ Download building geometry with the help of Infrared City platform, run microcli
 
 ## Requirements
 
-- QGIS 3.44 – 3.x and QGIS 4.x (one package serves both Qt5 and Qt6)
+- **QGIS 3.44 – 3.x.** The plugin's own code also runs on QGIS 4 (Qt6) — one package serves both — but the declared range stops at 3.x, and the Plugin Manager will not offer it on QGIS 4. Two things have to be fixed first: the dependency installer does not work on QGIS 4 on **Windows**, and on QGIS 4 **macOS** the QGIS bundle's own `pyarrow` takes precedence over ours and cannot read ground materials. Use QGIS 3.44 LTR until then.
 - An Infrared City API key
 
 ## Installation
