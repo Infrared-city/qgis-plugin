@@ -15,7 +15,8 @@ agree, or the collector clips the context straight back off before the run.
 
 Split out of ``ground_materials`` (2026-11-11): that module is part of the
 size-limit debt in #50, and this is the one coherent piece of it with its own
-subject. The names stay importable from ``ground_materials`` as well.
+subject. Import these names from HERE — ``ground_materials`` re-exports only
+``ground_envelope``, which its own collector needs.
 """
 
 from __future__ import annotations
@@ -106,8 +107,11 @@ def fetch_polygon_with_context(polygon: dict) -> dict:
 
     The right long-term home for this is the SDK, where the same formula is
     duplicated for every client (``cleaning_extent`` in Python,
-    ``cleaningExtent`` in ``public/typescript/src/internal/ground-merge.ts``):
-    ``half_diagonal + fetch_distance`` instead of ``max`` of the two.
+    ``cleaningExtent`` in ``public/typescript/src/internal/ground-merge.ts``,
+    ``CleaningExtent`` in the .NET SDK): ``half_diagonal + fetch_distance``
+    instead of ``max`` of the two. Tracked as **infrared-core#1652** — delete
+    this margin and go back to handing ``get_area`` the plain selection once
+    that lands.
     """
     ring = (polygon or {}).get("coordinates") or [[]]
     if not ring[0]:

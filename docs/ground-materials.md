@@ -180,10 +180,13 @@ At submission each ticked layer is read into its material's
 FeatureCollection. Features are never merged across materials — the
 material identity is the dict key the server's emissivity lookup uses, and
 it comes from the layer name. Surfaces outside the selection are sent too,
-as far as the download itself reaches: a circle around the selection's centre,
-half its bounding-box diagonal and at least 544 m (on a 1 km square, ~210 m
-past each side). The thermal model of the edge tiles uses that band, and the
-SDK still crops per tile. Buildings and trees use a 100 m band.
+as far as the download itself reaches: the selection's bounding box grown by
+800 m (`ground_context_margin_m()` — 544 m of tile read distance plus 256 m
+of tile-grid overhang, see "The download covers more than you select" above).
+`ground_envelope()` keeps the wider of that box and the SDK's own crop circle,
+so nothing the download brought is clipped off before the run. The thermal
+model of the edge tiles uses that band, and the SDK still crops per tile.
+Buildings and trees use a 100 m band.
 
 ## Overlaps and stacking
 

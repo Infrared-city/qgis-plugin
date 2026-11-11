@@ -412,8 +412,6 @@ class InfraredCityGIS:
         # Module-level state outlives the plugin object on a reload.
         single_tile_selection.clear()
 
-        # A reload would otherwise connect a second time, and the old plugin
-        # object would be kept alive by the connection.
         # The Arrow S3 hook is deliberately LEFT CONNECTED. It used to be
         # disconnected here so that a plugin reload could not connect twice —
         # but QGIS unloads its plugins BEFORE `aboutToQuit` is emitted, so on

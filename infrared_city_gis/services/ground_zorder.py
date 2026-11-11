@@ -6,8 +6,9 @@ display choice — it is the platform's own, and a run on hand-made layers has t
 stack the way the server's own fetch does.
 
 Split out of ``ground_materials`` (2026-11-11), which is part of the
-size-limit debt in #50. These names are private to the collector; nothing
-outside this package reads them.
+size-limit debt in #50. The underscore helpers are the collector's own;
+``MATERIAL_Z_ORDER`` is public — ``tests/test_e2e_workflow.py`` asserts a live
+fetch returns nothing outside it.
 """
 
 from __future__ import annotations
