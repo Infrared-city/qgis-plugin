@@ -18,6 +18,7 @@ reason text is surfaced lives in ``test_key_check_reason.py``.
 """
 
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -51,8 +52,18 @@ class _Recorder:
 
 
 def test_probe_is_the_capabilities_route():
-    assert VERIFY_API_KEY_URL.startswith("https://api.infrared.city")
-    assert VERIFY_API_KEY_URL.endswith("/v2/binary/v1/capabilities")
+    """Compared part by part, not as a prefix.
+
+    ``startswith("https://api.infrared.city")`` would also accept
+    ``https://api.infrared.city.example.com/...`` — a weaker claim than this
+    test means to make, and the pattern CodeQL flags as
+    ``py/incomplete-url-substring-sanitization`` (INF-664). The probe carries a
+    live API key, so the host it goes to is worth asserting exactly.
+    """
+    parts = urlsplit(VERIFY_API_KEY_URL)
+    assert parts.scheme == "https"
+    assert parts.netloc == "api.infrared.city"
+    assert parts.path == "/v2/binary/v1/capabilities"
 
 
 def test_probe_avoids_plan_restricted_and_retiring_routes():
