@@ -100,6 +100,9 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         self.setupUi(self)
 
         self._init_ok = False
+        #: True while `accept()` is submitting. See the guard there: tokens are
+        #: charged per job, so a re-entrant second click costs real money.
+        self._submitting = False
 
         self.dotbim_path = None
         self.geojson_path = None
@@ -806,6 +809,31 @@ class InfraredCityRunMultipleSimulationDialog(QtWidgets.QDialog, FORM_CLASS):
         btn.toggled.connect(on_toggled)
 
     def accept(self):
+        # RE-ENTRY GUARD. Submitting is not atomic: `_revalidate_trees`,
+        # `collect_qgis_area_buildings` and the submit helpers all reach
+        # `_status()`, which calls `QApplication.processEvents()` — so a click
+        # queued while the first submit is still in flight gets delivered and
+        # re-enters this method. The button stays enabled throughout (the
+        # dialog is modal, but modality does not stop its OWN widgets), so an
+        # impatient double-click submitted the same jobs twice and the user
+        # was charged twice. Tokens make this expensive rather than merely
+        # untidy, which is why it is a flag and not a disabled button: the
+        # flag covers every path back in, including a queued Return key.
+        if self._submitting:
+            logger.warning(
+                "Run simulation: ignoring a second accept() — a submit is "
+                "already in flight"
+            )
+            return
+        self._submitting = True
+        try:
+            self._accept()
+        finally:
+            # Cleared even when the submit failed: the dialog stays open on
+            # failure precisely so the user can fix the input and retry.
+            self._submitting = False
+
+    def _accept(self):
         try:
             logger.info("\n ✨ ✨ ✨ ✨ ✨ ✨ ✨ MULTIPLE SIMULATION RUN START ✨ ✨ ✨ ✨ ✨ ✨ ✨ ")
 

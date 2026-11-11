@@ -133,8 +133,10 @@ tick exactly the ones you want.
 ## Editing / drawing your own
 
 Each download is saved as one GeoPackage in the plugin's data folder
-(`<QGIS profile>/infrared_city_gis/data/infrared_city_ground_materials_<date-time>.gpkg`,
-one table per `ground-*` layer), next to the downloaded buildings. They are files,
+(`<QGIS profile>/infrared_city_gis/data/infrared_city_ground_materials_<date-time>-<token>.gpkg`,
+one table per `ground-*` layer), next to the downloaded buildings. The date-time
+is only unique to the second, so the short random token is what keeps two QGIS
+instances sharing a profile from writing over each other's download. They are files,
 not QGIS scratch layers: no "Temporary scratch layer only!" warning, they
 survive a QGIS restart, and a saved project opens them again. Edit them freely
 before running a simulation (reshape polygons, delete wrong areas, add new
