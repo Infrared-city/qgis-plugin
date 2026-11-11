@@ -71,7 +71,8 @@ charge. Submitting a simulation ends the mode; a ground-material download does n
 
 ## 4. Download ground materials
 
-- ☐ **Requires a building selection** — with no building features selected, open Download ground materials. Expect *"Please select a building area first"*.
+- ☐ **Requires a building selection** — release the **Select tile** toolbar button first (an armed tile takes precedence over the feature selection, and then the dialog does not ask for one), click your building layer in the Layers panel, and with nothing selected open Download ground materials. Expect *"Please select a building area first"*.
+- ☐ **Active layer that cannot hold a selection** — click a result raster (or any non-vector layer) in the Layers panel, then open Download ground materials. Expect the same message plus a line naming that layer, **not** a QGIS Python error box. Worth doing right after a simulation: QGIS makes the result raster the active layer when it is added.
 - ☐ **Tile-count preview** — select building features, open the dialog. Expect the selection size shown in tiles.
 - ☐ **>100 tiles rejected** — select a large area (> 100 tiles). Expect a "select a smaller area" message and the download **blocked**.
 - ☐ **Download succeeds** — select a reasonable area → Download. Expect one editable `ground-<material>` layer **per material** (asphalt, concrete, vegetation, soil, water — no building layer; buildings come from the Download building geometry dialog), added to the project.

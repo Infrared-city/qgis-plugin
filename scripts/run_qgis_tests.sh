@@ -57,7 +57,13 @@ PY="$RT/MacOS/python3.12"
 
 # --- paths -------------------------------------------------------------------
 
+# The bundle's stdlib directory is NOT always named after the interpreter:
+# QGIS 3.44.9 ships a 3.12 binary beside Resources/python3.11, while QGIS
+# 4.2 has Resources/python3.12. Probe instead of hardcoding, or the
+# interpreter starts without its own stdlib ("No module named 'encodings'").
 PYDIR="$CONTENTS/Resources/python3.12"
+[[ -d "$PYDIR" ]] || PYDIR="$(find "$CONTENTS/Resources" -maxdepth 1 -type d -name 'python3.*' | head -1)"
+printf 'stdlib: %s\n' "$PYDIR"
 PROFILE="$HOME/Library/Application Support/QGIS/QGIS4/profiles/default"
 [[ -d "$PROFILE" ]] || PROFILE="$HOME/Library/Application Support/QGIS/QGIS3/profiles/default"
 
