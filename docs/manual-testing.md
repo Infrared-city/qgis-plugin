@@ -11,7 +11,8 @@ key is set and building geometry exists.
 
 ## Prerequisites
 
-- QGIS 3.44 – 3.x **and** QGIS 4.x with the plugin installed (from ZIP or the repo folder). `metadata.txt` declares `qgisMaximumVersion=4.99`, and the Plugin Manager offers the plugin on that promise alone, so run the full round on **both** a QGIS 3 and a QGIS 4 install before every release.
+- **QGIS 3.44 – 3.x** with the plugin installed (from ZIP or the repo folder). This is the range `metadata.txt` declares (`qgisMaximumVersion=3.99`), and the Plugin Manager offers the plugin on that promise alone — so this round is the release gate.
+- **QGIS 4.x** as well, whenever you can. The plugin's Qt6 support is finished and maintained, and this round is what lets the declared cap go back up once infrared-sdk-installer works on QGIS 4.x Windows. Until then a failure here is a bug to file, not a release blocker. Note the dependency install itself is the known broken step on Windows.
 - An Infrared City API key with an active subscription.
 - Test data:
   - A **building** layer or coordinates to download one.

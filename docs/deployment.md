@@ -18,9 +18,16 @@ Cut every release to GitHub first, then promote to plugins.qgis.org after smoke-
 
 - `scripts/preflight.sh` is green — including the merge gate: `infrared-sdk`
   pinned **exactly** (`==`) and that version on PyPI.
-- The [`manual-testing.md`](manual-testing.md) round has passed on **QGIS 3
-  and QGIS 4**. `qgisMaximumVersion=4.99` is a promise the Plugin Manager
-  acts on before it loads any code.
+- The [`manual-testing.md`](manual-testing.md) round has passed on **QGIS 3** —
+  the range we declare, and therefore the gate. `qgisMaximumVersion` is a
+  promise the Plugin Manager acts on before it loads any code.
+- `qgisMaximumVersion=3.99` in `metadata.txt`, **not** `4.99`: the plugin's own
+  Qt6 support is finished, but infrared-sdk-installer 1.0.0 does not work on
+  QGIS 4.x on Windows. See the **Stack** section of
+  [`../CLAUDE.md`](../CLAUDE.md) before changing it back.
+- The QGIS 4 round is still worth running and keeping green — it is what lets
+  the cap go back up — but a failure there is a bug to file, not a blocker
+  while the cap is 3.99.
 
 ### 1. Version and tag (Release Please)
 
