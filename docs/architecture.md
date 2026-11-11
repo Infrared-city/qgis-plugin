@@ -1,5 +1,5 @@
 # Architecture
-_Last updated: 2026-07-14_
+_Last updated: 2026-11-11_
 
 ## Overview
 
@@ -33,6 +33,8 @@ infrared_city_gis/
 │   ├── qgis_area_vegetation.py  # Collect trees (OSM species/genus → registry modelId or archetype)
 │   ├── tree_validation.py   # Tree-layer validation against the registry
 │   ├── ground_materials.py  # Ground-material catalog, ground-* discovery/collect/validate
+│   ├── ground_extent.py     # How far past the selection a download must reach (read margin + grid overhang) and what the collector may keep
+│   ├── ground_zorder.py     # Canonical Z stacking of overlapping ground materials
 │   ├── ground_material_reader.py # Overture read on a worker thread, with a time budget
 │   ├── user_errors.py       # Failure → title / summary / advice / tokens charged
 │   ├── qgis_http.py         # Direct HTTP through QGIS's network stack (proxy settings apply)
@@ -60,6 +62,8 @@ infrared_city_gis/
 | `services/sdk_runner.py` | Submits area simulations through the SDK (`client.run_area`; `area_poller` then polls `check_area_state` and merges with `merge_area_jobs`), passing buildings + trees + ground materials |
 | `services/sdk_single_tile.py` | Single-tile simulation (`analyses.execute`) with the same inputs embedded in the payload |
 | `services/ground_materials.py` | Material catalog (registry-driven, hardcoded fallback), `ground-*` layer discovery, collect + validate for simulation |
+| `services/ground_extent.py` | The three margins that decide how far past the user's selection a ground download reaches — `ground_read_margin_m()` (how far a tile reads beyond its centre), `ground_grid_overhang_m()` (how far outside the selection a tile centre can sit) and their sum `ground_context_margin_m()` — plus `fetch_polygon_with_context()` (what we ask the SDK to download) and `ground_envelope()` (what the collector may keep). The two must agree or the context is clipped before the run. Belongs in the SDK: infrared-core#1652 |
+| `services/ground_zorder.py` | `MATERIAL_Z_ORDER` and the per-material Z offsets, mirroring the platform's canonical stacking — the UTCI model raycasts downward with `multiple_hits=False`, so the highest surface wins where layers overlap |
 | `services/area_poller.py` | Polls long-running simulation job status until done |
 | `services/ground_material_reader.py` | Runs the Overture ground-material read (`ground_materials.get_area`) on a worker thread, with an explicit time budget; refuses a second read while one still runs |
 | `services/user_errors.py` | Turns any failure into what the user sees: title, plain summary, advice, and whether tokens were charged |
@@ -70,7 +74,7 @@ infrared_city_gis/
 
 - **Infrared City API** (`api.infrared.city/v2`) — simulation backend and building geometry source (`/v2/buildings`, Mapbox-backed core-geometries-service; subscription required)
 - **Registry mirror** (`registry.infrared.city`) — the public models / vegetation / materials documents, served without credentials. Read on startup; these used to come from the utilities service (`/v2/utils/registry/*`), which is being retired.
-- **Overture Maps** (public bucket `overturemaps-us-west-2`) — ground-material source, read in-process by the SDK with no API key; over S3, or over plain HTTPS where QGIS's Arrow has no S3 support (Windows). See [`ground-materials.md`](ground-materials.md).
+- **Overture Maps** (public bucket `overturemaps-us-west-2`) — ground-material source, read in-process by the SDK with no API key, over plain HTTPS range requests on every platform (`INFRARED_OVERTURE_TRANSPORT=https`, set with `setdefault` so an exported value still wins). The S3 transport is not used: pyarrow's `S3FileSystem` starts an AWS event loop whose asynchronous shutdown segfaulted QGIS on quit, and Windows' bundled Arrow has no S3 support at all. See [`ground-materials.md`](ground-materials.md).
 - **QGIS / PyQGIS** — host application
 - **`infrared-sdk`** (==1.0.0, `[geodata]` extra) — Python SDK; pinned EXACTLY in `requirements.txt`, so a new SDK reaches users only through a new plugin release (a `>=` floor let fresh installs of v1.1.3 pull 1.0.0, which it cannot load). `scripts/preflight.sh` refuses a non-exact pin. The extra brings pyarrow + shapely, which `ground_materials.get_area` needs to read Overture parquet in-process.
 - **shapely**, **pyproj**, **mapbox_earcut**, **numpy**, **structlog**, **requests**

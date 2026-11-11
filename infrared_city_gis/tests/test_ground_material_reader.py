@@ -48,6 +48,7 @@ class _FakeClient:
 
     def get_area(self, polygon, on_progress=None, **kwargs):
         self.ran_on = threading.current_thread().name
+        self.polygon = polygon
         self.kwargs = kwargs
         for i in range(self._chunks):
             on_progress(type("P", (), {
@@ -153,6 +154,47 @@ def test_the_read_gets_an_explicit_time_budget(qgis_app, fake_client):
 
     assert client.kwargs["timeout"] == GROUND_FETCH_TIMEOUT_S > 60
     assert client.kwargs["total_timeout"] == GROUND_FETCH_TOTAL_TIMEOUT_S
+
+
+def test_the_sdk_is_asked_for_the_grown_polygon_not_the_selection(
+    qgis_app, fake_client,
+):
+    """The margin is only worth anything if the reader actually passes it on.
+
+    ``fetch_polygon_with_context`` has its own tests, but nothing checked that
+    ``GroundMaterialReader`` hands its result to the SDK rather than the raw
+    selection — so a revert of that one line would have left every test green
+    and quietly brought the default-asphalt border band back (#55).
+    """
+    import math
+
+    from infrared_city_gis.services.ground_extent import ground_context_margin_m
+
+    lon, lat, half_m = 16.373, 48.215, 512.0
+    d_lat = half_m / 111_320.0
+    d_lon = d_lat / math.cos(math.radians(lat))
+    selection = {"type": "Polygon", "coordinates": [[
+        [lon - d_lon, lat - d_lat], [lon + d_lon, lat - d_lat],
+        [lon + d_lon, lat + d_lat], [lon - d_lon, lat + d_lat],
+        [lon - d_lon, lat - d_lat],
+    ]]}
+
+    factory, _holder = fake_client
+    client = factory(_FakeClient())
+
+    _run(gmr.GroundMaterialReader("key", selection))
+
+    sent = client.polygon["coordinates"][0]
+    grew_south_m = ((lat - d_lat) - min(p[1] for p in sent)) * 111_320.0
+    grew_north_m = (max(p[1] for p in sent) - (lat + d_lat)) * 111_320.0
+    margin = ground_context_margin_m()
+
+    assert margin > 0, "a zero margin would make this test vacuous"
+    for grew_m in (grew_south_m, grew_north_m):
+        assert abs(grew_m - margin) < 20, (
+            f"the SDK was asked for {grew_m:.0f} m past the selection, "
+            f"not {margin:.0f} m — is fetch_polygon_with_context still wired in?"
+        )
 
 
 def test_a_running_read_is_visible_until_it_retires(qgis_app, fake_client):

@@ -22,9 +22,10 @@
  ***************************************************************************/
 """
 import os.path
+import sys
 
 from qgis.core import Qgis, QgsApplication
-from qgis.PyQt.QtCore import QCoreApplication, QSettings, QTranslator
+from qgis.PyQt.QtCore import QCoreApplication, QSettings, Qt, QTranslator
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
@@ -282,9 +283,15 @@ class InfraredCityGIS:
 
         # See _finalize_arrow_s3: pyarrow's own atexit hook never runs under
         # QGIS, so the one chance to shut its S3 stack down cleanly is this
-        # signal.
+        # signal. UniqueConnection because `unload` deliberately does NOT
+        # disconnect it any more (2026-10-16: QGIS unloads plugins BEFORE
+        # aboutToQuit, so the disconnect was taking the slot off the signal
+        # before it could ever fire).
         try:
-            QgsApplication.instance().aboutToQuit.connect(self._finalize_arrow_s3)
+            QgsApplication.instance().aboutToQuit.connect(
+                self._finalize_arrow_s3, Qt.ConnectionType.UniqueConnection
+            )
+            logger.info("Arrow S3 finalization hooked to aboutToQuit")
         except Exception as e:  # noqa: BLE001 - never block initGui
             logger.warning("could not hook Arrow S3 finalization: %s", e)
 
@@ -360,13 +367,25 @@ class InfraredCityGIS:
         which would leave ground materials broken for the rest of the session;
         ``aboutToQuit`` fires only on a real exit.
         """
+        # Every branch below logs, including the ones that do nothing. A quit
+        # that crashes in Arrow's AWS cleanup leaves no Python traceback, so
+        # the log is the only evidence of whether this ran at all — and in the
+        # 2026-10-16 crash it was silent, which told us nothing (#55 follow-up).
+        if "pyarrow" not in sys.modules:
+            logger.info("aboutToQuit: pyarrow never imported, nothing to finalize")
+            return
+        logger.info(
+            "aboutToQuit: finalizing Arrow S3 (pyarrow._s3fs imported=%s)",
+            "pyarrow._s3fs" in sys.modules,
+        )
         try:
             from pyarrow.fs import ensure_s3_finalized
-        except Exception:  # noqa: BLE001 - no pyarrow, nothing to finalize
+        except Exception as e:  # noqa: BLE001 - nothing to finalize, but say so
+            logger.warning("could not import Arrow's S3 finalizer: %s", e)
             return
         try:
             ensure_s3_finalized()
-            logger.debug("Arrow S3 finalized before quit")
+            logger.info("Arrow S3 finalized before quit")
         except Exception as e:  # noqa: BLE001 - teardown must not raise
             logger.warning("could not finalize Arrow S3: %s", e)
 
@@ -393,15 +412,16 @@ class InfraredCityGIS:
         # Module-level state outlives the plugin object on a reload.
         single_tile_selection.clear()
 
-        # A reload would otherwise connect a second time, and the old plugin
-        # object would be kept alive by the connection.
-        try:
-            QgsApplication.instance().aboutToQuit.disconnect(self._finalize_arrow_s3)
-        except Exception as e:  # noqa: BLE001 - not connected, or already gone
-            # Expected on a first unload or a torn-down application; logged
-            # rather than swallowed, so a teardown that fails for some OTHER
-            # reason leaves a trace instead of vanishing.
-            logger.debug("aboutToQuit was not connected: %s", e)
+        # The Arrow S3 hook is deliberately LEFT CONNECTED. It used to be
+        # disconnected here so that a plugin reload could not connect twice —
+        # but QGIS unloads its plugins BEFORE `aboutToQuit` is emitted, so on
+        # a real quit the disconnect ran first and the finalizer never fired
+        # at all. Measured on 2026-10-16: "unload: ..." in the log, no
+        # "aboutToQuit: ...", then a SIGSEGV in Arrow's AWS cleanup.
+        # The connection keeps this plugin object alive until the application
+        # goes; a reload is covered by UniqueConnection in `initGui`, and a
+        # second `ensure_s3_finalized()` would be a no-op anyway.
+        logger.info("unload: leaving the Arrow S3 hook connected for quit")
 
         for action in self.actions:
             self.iface.removePluginMenu(

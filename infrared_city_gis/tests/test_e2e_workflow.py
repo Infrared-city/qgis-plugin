@@ -200,7 +200,7 @@ UNSTABLE_MATERIAL_TOL = {"vegetation": 0.5}
 
 def test_ground_materials_fetch(live_ground_materials):
     """Per-layer feature counts, and the materials stay within the canon."""
-    from infrared_city_gis.services.ground_materials import MATERIAL_Z_ORDER
+    from infrared_city_gis.services.ground_zorder import MATERIAL_Z_ORDER
 
     for material in live_ground_materials:
         assert material in MATERIAL_Z_ORDER, (

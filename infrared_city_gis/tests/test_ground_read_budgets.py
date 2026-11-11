@@ -9,6 +9,7 @@ with ``ast``: a call is a call, wherever it is.
 """
 
 import ast
+import os
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).parent.parent
@@ -52,3 +53,34 @@ def test_every_ground_read_has_an_explicit_budget():
 def test_the_scan_still_sees_the_call_site():
     """If this drops, the scan stopped matching, not the code getting safer."""
     assert len(_all_reads()) == 1
+
+
+def test_the_reader_reads_overture_over_https_by_default(monkeypatch):
+    """S3 is what kills QGIS on quit; HTTPS returns the same bytes.
+
+    pyarrow's S3 filesystem starts an AWS event loop whose shutdown is
+    asynchronous, and QGIS's exit does not wait for it: the cleanup thread
+    calls a logger C++ has already destroyed, and the process dies with
+    SIGSEGV after a download that had succeeded (2026-09-29, 2026-10-16).
+    Not starting S3 at all is the only way to take that race away.
+    """
+    from infrared_city_gis.services.ground_material_reader import (
+        _TRANSPORT_ENV,
+        prefer_https_transport,
+    )
+
+    monkeypatch.delenv(_TRANSPORT_ENV, raising=False)
+    prefer_https_transport()
+    assert os.environ[_TRANSPORT_ENV] == "https"
+
+
+def test_an_explicitly_chosen_transport_wins(monkeypatch):
+    """`setdefault`: whoever exported the variable meant it."""
+    from infrared_city_gis.services.ground_material_reader import (
+        _TRANSPORT_ENV,
+        prefer_https_transport,
+    )
+
+    monkeypatch.setenv(_TRANSPORT_ENV, "s3")
+    prefer_https_transport()
+    assert os.environ[_TRANSPORT_ENV] == "s3"

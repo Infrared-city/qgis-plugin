@@ -54,6 +54,19 @@ else, and the run dialog offers nothing else.
 > needs a dataset-free read in the SDK (Infrared-city/infrared-core#1000).
 > Tracked in #55.
 
+> **The download covers more than you select.** Every simulation tile reads
+> ground material up to 544 m beyond its own centre, and where that ground is
+> missing the server composes its default asphalt — which is why the edge of a
+> result used to look as if the surfaces had been ignored. The tile grid does
+> not stop at your selection either: it is laid out from the selection's
+> south-west corner in fixed 512 m steps, so the last row and column can sit
+> up to 256 m outside it. The plugin therefore asks for your selection's
+> bounding box grown by **800 m** (544 + 256), so the band those edge tiles
+> read is really there. It downloads more data and takes longer than the
+> selection alone would (on a 1.1 x 1.2 km site, 1.3 km² of selection becomes
+> 7.6 km² of read), and the `ground-*` layers you get back are correspondingly
+> larger than the area you picked.
+
 Use the **Download ground materials** toolbar action:
 
 1. Select features on your **building layer** first — the selection defines
@@ -110,9 +123,12 @@ tick exactly the ones you want.
   company proxy or firewall, `overturemaps-us-west-2.s3.us-west-2.amazonaws.com`
   must be reachable.
 - Neither message is about your API key: this read never sends one.
-- **Windows:** QGIS's own Arrow library is built without S3 support, so the
-  SDK (1.0 and later) reads the same public files over plain HTTPS instead —
-  same result, one warning line in the log (infrared-core #645).
+- **Every platform reads over plain HTTPS**, not S3. It began as a Windows
+  workaround — QGIS's own Arrow library there is built without S3 support
+  (infrared-core #645) — and is now the default everywhere, because pyarrow's
+  S3 filesystem starts an AWS event loop whose shutdown raced QGIS's exit and
+  segfaulted it after a download. Same files, same result, one warning line in
+  the log. Export `INFRARED_OVERTURE_TRANSPORT` yourself to override it.
 
 ## Editing / drawing your own
 
@@ -164,10 +180,13 @@ At submission each ticked layer is read into its material's
 FeatureCollection. Features are never merged across materials — the
 material identity is the dict key the server's emissivity lookup uses, and
 it comes from the layer name. Surfaces outside the selection are sent too,
-as far as the download itself reaches: a circle around the selection's centre,
-half its bounding-box diagonal and at least 544 m (on a 1 km square, ~210 m
-past each side). The thermal model of the edge tiles uses that band, and the
-SDK still crops per tile. Buildings and trees use a 100 m band.
+as far as the download itself reaches: the selection's bounding box grown by
+800 m (`ground_context_margin_m()` — 544 m of tile read distance plus 256 m
+of tile-grid overhang, see "The download covers more than you select" above).
+`ground_envelope()` keeps the wider of that box and the SDK's own crop circle,
+so nothing the download brought is clipped off before the run. The thermal
+model of the edge tiles uses that band, and the SDK still crops per tile.
+Buildings and trees use a 100 m band.
 
 ## Overlaps and stacking
 
