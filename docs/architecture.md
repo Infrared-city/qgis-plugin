@@ -70,7 +70,7 @@ infrared_city_gis/
 
 - **Infrared City API** (`api.infrared.city/v2`) — simulation backend and building geometry source (`/v2/buildings`, Mapbox-backed core-geometries-service; subscription required)
 - **Registry mirror** (`registry.infrared.city`) — the public models / vegetation / materials documents, served without credentials. Read on startup; these used to come from the utilities service (`/v2/utils/registry/*`), which is being retired.
-- **Overture Maps** (public bucket `overturemaps-us-west-2`) — ground-material source, read in-process by the SDK with no API key; over S3, or over plain HTTPS where QGIS's Arrow has no S3 support (Windows). See [`ground-materials.md`](ground-materials.md).
+- **Overture Maps** (public bucket `overturemaps-us-west-2`) — ground-material source, read in-process by the SDK with no API key, over plain HTTPS range requests on every platform (`INFRARED_OVERTURE_TRANSPORT=https`, set with `setdefault` so an exported value still wins). The S3 transport is not used: pyarrow's `S3FileSystem` starts an AWS event loop whose asynchronous shutdown segfaulted QGIS on quit, and Windows' bundled Arrow has no S3 support at all. See [`ground-materials.md`](ground-materials.md).
 - **QGIS / PyQGIS** — host application
 - **`infrared-sdk`** (==1.0.0, `[geodata]` extra) — Python SDK; pinned EXACTLY in `requirements.txt`, so a new SDK reaches users only through a new plugin release (a `>=` floor let fresh installs of v1.1.3 pull 1.0.0, which it cannot load). `scripts/preflight.sh` refuses a non-exact pin. The extra brings pyarrow + shapely, which `ground_materials.get_area` needs to read Overture parquet in-process.
 - **shapely**, **pyproj**, **mapbox_earcut**, **numpy**, **structlog**, **requests**

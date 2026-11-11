@@ -32,8 +32,8 @@ from qgis.PyQt.QtWidgets import (
 from .exceptions import IncompleteGroundDownload
 from .infrared_logger import logger
 from .services import single_tile_selection
+from .services.ground_extent import ground_context_margin_m
 from .services.ground_material_reader import GroundMaterialReader, read_in_progress
-from .services.ground_materials import ground_read_margin_m
 from .services.polygon_from_selection import (
     active_layer_note,
     create_wgs84_geojson_polygon_from_selection,
@@ -47,10 +47,12 @@ from .visualization.layers import display_ground_materials
 # MAX_NON_EMPTY_TILES, so the plugin-side gate always fires first.
 _MAX_TILES = 100
 
-#: How far past the selection the download reaches, for the dialog text. The
-#: tile count and the cap above stay on the user's OWN selection: that is the
-#: size of the simulation, and the context band is not theirs to budget for.
-_CONTEXT_M = ground_read_margin_m()
+#: How far past the selection the download reaches, for the dialog text — the
+#: tile's own read distance PLUS how far outside the selection a tile centre
+#: can sit. The tile count and the cap above stay on the user's OWN selection:
+#: that is the size of the simulation, and the context band is not theirs to
+#: budget for.
+_CONTEXT_M = ground_context_margin_m()
 
 
 class InfraredCityFetchGroundMaterialsDialog(QtWidgets.QDialog):

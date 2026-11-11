@@ -55,13 +55,16 @@ else, and the run dialog offers nothing else.
 > Tracked in #55.
 
 > **The download covers more than you select.** Every simulation tile reads
-> ground material up to 544 m beyond itself, and where that ground is missing
-> the server composes its default asphalt — which is why the edge of a result
-> used to look as if the surfaces had been ignored. The plugin therefore asks
-> for your selection's bounding box grown by that 544 m, so the band the edge
-> tiles read is really there. It downloads more data and takes longer than the
+> ground material up to 544 m beyond its own centre, and where that ground is
+> missing the server composes its default asphalt — which is why the edge of a
+> result used to look as if the surfaces had been ignored. The tile grid does
+> not stop at your selection either: it is laid out from the selection's
+> south-west corner in fixed 512 m steps, so the last row and column can sit
+> up to 256 m outside it. The plugin therefore asks for your selection's
+> bounding box grown by **800 m** (544 + 256), so the band those edge tiles
+> read is really there. It downloads more data and takes longer than the
 > selection alone would (on a 1.1 x 1.2 km site, 1.3 km² of selection becomes
-> 5.0 km² of read), and the `ground-*` layers you get back are correspondingly
+> 7.6 km² of read), and the `ground-*` layers you get back are correspondingly
 > larger than the area you picked.
 
 Use the **Download ground materials** toolbar action:
@@ -120,9 +123,12 @@ tick exactly the ones you want.
   company proxy or firewall, `overturemaps-us-west-2.s3.us-west-2.amazonaws.com`
   must be reachable.
 - Neither message is about your API key: this read never sends one.
-- **Windows:** QGIS's own Arrow library is built without S3 support, so the
-  SDK (1.0 and later) reads the same public files over plain HTTPS instead —
-  same result, one warning line in the log (infrared-core #645).
+- **Every platform reads over plain HTTPS**, not S3. It began as a Windows
+  workaround — QGIS's own Arrow library there is built without S3 support
+  (infrared-core #645) — and is now the default everywhere, because pyarrow's
+  S3 filesystem starts an AWS event loop whose shutdown raced QGIS's exit and
+  segfaulted it after a download. Same files, same result, one warning line in
+  the log. Export `INFRARED_OVERTURE_TRANSPORT` yourself to override it.
 
 ## Editing / drawing your own
 

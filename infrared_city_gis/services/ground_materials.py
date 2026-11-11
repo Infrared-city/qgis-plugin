@@ -30,7 +30,6 @@ layers.
 from __future__ import annotations
 
 import json
-import math
 import os
 import re
 from typing import Dict, List, Optional, Tuple
@@ -48,92 +47,10 @@ from qgis.core import (
 
 from ..infrared_logger import logger
 from .geotiff import _to_json_primitive
-from .qgis_area_vegetation import (
-    _DEFAULT_CONTEXT_MARGIN_M,
-    _polygon_wgs84_bbox_with_margin,
-)
+from .ground_extent import ground_envelope
+from .ground_zorder import _in_z_order, _material_z_offsets, _with_z
 
 GROUND_LAYER_PREFIX = "ground-"
-
-# Z-stacking, mirroring utilities-service clean-v3: each material layer sits
-# at its own tiny Z offset and the UTCI Lambda raycasts DOWNWARD with
-# multiple_hits=False — the highest surface wins where layers overlap. The
-# fetched GeoJSON carries these Z values, but QGIS 2D memory layers drop
-# them, so the collector re-stamps Z.
-#
-# Order is the server's own ``_CANONICAL_Z_ORDER`` (utilities-service
-# ``ground_material/fgb_sources.py``), which ``merge_fgb_layers`` already
-# applies when collecting: asphalt lowest (the bbox-covering gap-fill
-# background), vegetation on top. Verified 2026-07-28 (arcgis-plugin
-# ``GroundMaterialNaming.cs``) by diffing an auto-fetch payload straight
-# from clean-v3 against a manual one on the same tile: asphalt=1e-5,
-# concrete=2e-5, water=3e-5, soil=4e-5, vegetation=5e-5.
-#
-# These five are the whole set. The pre-fgb order this constant used to carry
-# (asphalt, building, concrete, vegetation, soil, water) came from the Mapbox
-# ``regroup_layers`` enum walk, which pre-created a key per ``MaterialCategory``
-# — including ``building``, whose feature loop was already commented out, so it
-# only ever shipped empty. No source emits it now, the live materials registry
-# does not carry it, and the model has no props row for it. Buildings are 3D
-# volumes in the ``buildings`` payload, not a ground surface.
-#
-# Z is assigned by FIXED index (not rank among the materials present) so a
-# manual run with a subset — vegetation without soil, say — still puts
-# vegetation at 5e-5 exactly as the server does, instead of collapsing it
-# to a lower slot and letting water override it.
-MATERIAL_Z_ORDER: Tuple[str, ...] = (
-    "asphalt", "concrete", "water", "soil", "vegetation",
-)
-_Z_STEP_M = 0.00001  # clean-v3's _Z_STEP_M
-
-
-def _material_z_offsets(materials) -> Dict[str, float]:
-    """Fixed-slot Z offset per material — see :data:`MATERIAL_Z_ORDER`.
-
-    Materials outside the known canon stack above all known ones,
-    alphabetically, so a hand-drawn future material still beats the
-    asphalt background.
-    """
-    unknown = sorted(m for m in materials if m not in MATERIAL_Z_ORDER)
-    offsets: Dict[str, float] = {}
-    for material in materials:
-        if material in MATERIAL_Z_ORDER:
-            idx = MATERIAL_Z_ORDER.index(material)
-        else:
-            idx = len(MATERIAL_Z_ORDER) + unknown.index(material)
-        offsets[material] = (idx + 1) * _Z_STEP_M
-    return offsets
-
-
-def _in_z_order(layers: Dict[str, dict]) -> Dict[str, dict]:
-    """Re-key ``layers`` into :data:`MATERIAL_Z_ORDER` stacking order.
-
-    The stamped Z is not the only thing that carries the stack: both
-    clean-v3 and infrared-core's ``ground_clean`` (which the TCI/TCS
-    scheduler runs in-process on the per-tile payload) re-stamp
-    ``z = (i + 1) * z_step`` by dict INSERTION order, and insert the
-    full-bbox default backdrop at asphalt's index. So the key order of the
-    dict we send decides the stack — asphalt must come first or the
-    backdrop lands on top of everything. Emitting in canonical order also
-    makes a manual payload byte-order-identical to an auto-fetched one.
-    """
-    known = [m for m in MATERIAL_Z_ORDER if m in layers]
-    unknown = sorted(m for m in layers if m not in MATERIAL_Z_ORDER)
-    return {m: layers[m] for m in known + unknown}
-
-
-def _with_z(coords, z):
-    """Return ``coords`` with every position rewritten to ``[x, y, z]``.
-
-    Works for any GeoJSON nesting depth; an existing third element is
-    replaced.
-    """
-    if not isinstance(coords, (list, tuple)) or not coords:
-        return coords
-    if isinstance(coords[0], (int, float)):
-        return [float(coords[0]), float(coords[1]), z]
-    return [_with_z(c, z) for c in coords]
-
 
 # Canonical fallback catalog — the five materials the live registry carries and
 # the only five the model has props for. Colors mirror the SDK demo palette.
@@ -325,111 +242,6 @@ def validate_ground_material_layers(
             "layer's CRS", skipped, layer_name,
         )
     return counts
-
-
-#: Metres per degree of latitude on the SDK's spherical earth (radius 6 371 000 m,
-#: ``cleaning_extent``), so the envelope converts the SDK's metres the same way.
-_M_PER_DEG = 6_371_000.0 * math.pi / 180.0
-
-
-def ground_read_margin_m() -> float:
-    """How far beyond itself one simulation tile reads ground material.
-
-    ``ground_read_distance_m(None)`` — the widest preset, 544 m today (363 m on
-    the wind one). Ground that far outside a tile still decides that tile's
-    result, and where it is missing the server falls back to its default
-    asphalt.
-    """
-    from infrared_sdk.tiling.read_margin import ground_read_distance_m
-
-    return float(ground_read_distance_m(None))
-
-
-def fetch_polygon_with_context(polygon: dict) -> dict:
-    """The area to DOWNLOAD for a run over *polygon*: its bbox plus the margin.
-
-    ``get_area`` crops its read to a circle around the polygon's bbox centre,
-    radius ``max(half the bbox diagonal, the read margin)``
-    (``cleaning_extent``). That circle circumscribes the bbox, so it touches
-    the corners: on the 1113 x 1185 m site measured on 2026-10-16 the download
-    reached 257 m past the east and west edges, 220 m past north and south,
-    and **0 m past the corners** — while every tile reads ground 544 m around
-    itself. The border band of the run was therefore composed with up to 544 m
-    of context missing, and ran as default asphalt: "at the edges it is as if
-    the ground materials were not there".
-
-    Asking for the bbox grown by the margin makes the circle cover the
-    selection plus the full read distance everywhere, corners included. It
-    downloads more than the user selected — on that site 1.32 km2 -> 5.0 km2 —
-    which is why the dialog says so.
-
-    The right long-term home for this is the SDK, where the same formula is
-    duplicated for every client (``cleaning_extent`` in Python,
-    ``cleaningExtent`` in ``public/typescript/src/internal/ground-merge.ts``):
-    ``half_diagonal + fetch_distance`` instead of ``max`` of the two.
-    """
-    ring = (polygon or {}).get("coordinates") or [[]]
-    if not ring[0]:
-        # Nothing to grow. The SDK's own validation is the right place to
-        # refuse this, so pass it through rather than raising here.
-        logger.warning(
-            "ground context margin skipped: the polygon has no outer ring"
-        )
-        return polygon
-    margin_m = ground_read_margin_m()
-    west, south, east, north = _polygon_wgs84_bbox_with_margin(polygon, margin_m)
-    logger.info(
-        "Ground-material download area: selection + %.0f m of context "
-        "(bbox %.6f, %.6f -> %.6f, %.6f)",
-        margin_m, west, south, east, north,
-    )
-    return {
-        "type": "Polygon",
-        "coordinates": [[
-            [west, south], [east, south], [east, north], [west, north],
-            [west, south],
-        ]],
-    }
-
-
-def ground_envelope(polygon: dict) -> Tuple[float, float, float, float]:
-    """``(west, south, east, north)`` that holds everything a run can use.
-
-    Two reaches, whichever is wider:
-
-    * The SDK's ground read crops to a CIRCLE around the polygon's bbox centre,
-      radius half the bbox diagonal and never less than the widest read
-      distance (``cleaning_extent``, 544 m today; ground materials only feed
-      UTCI/TCS, the widest preset). On a 1 km square that reaches ~210 m past
-      the selection. Filtering to anything narrower dropped context the SDK had
-      fetched for the edge tiles: those surfaces ran as the default asphalt
-      instead.
-    * The selection's bbox plus :func:`ground_read_margin_m` — what
-      :func:`fetch_polygon_with_context` now downloads, and what the edge tiles
-      actually read. Without this the collector would clip the extra context
-      straight back off before the run.
-
-    Plus 1 m, so a downloaded layer passes whole and run_area still crops per
-    tile.
-    """
-    from infrared_sdk.ground_materials.cleaning import cleaning_extent
-
-    margin_box = _polygon_wgs84_bbox_with_margin(
-        polygon, ground_read_margin_m() + 1.0
-    )
-    extent = cleaning_extent(polygon, fetch_distance=ground_read_margin_m())
-    if extent is None:
-        # Empty outer ring: fall back to the old envelope rather than nothing.
-        return _polygon_wgs84_bbox_with_margin(polygon, _DEFAULT_CONTEXT_MARGIN_M)
-    lat, lon, distance = extent
-    reach = distance + 1.0
-    dlat = reach / _M_PER_DEG
-    dlon = reach / (_M_PER_DEG * max(math.cos(math.radians(lat)), 1e-6))
-    circle_box = (lon - dlon, lat - dlat, lon + dlon, lat + dlat)
-    return (
-        min(circle_box[0], margin_box[0]), min(circle_box[1], margin_box[1]),
-        max(circle_box[2], margin_box[2]), max(circle_box[3], margin_box[3]),
-    )
 
 
 def collect_ground_materials(

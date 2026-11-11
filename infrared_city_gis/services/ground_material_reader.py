@@ -33,7 +33,7 @@ from qgis.PyQt.QtCore import QObject, QThread, pyqtSignal
 from ..constants import GROUND_FETCH_TIMEOUT_S, GROUND_FETCH_TOTAL_TIMEOUT_S
 from ..infrared_logger import logger
 from ..utils.client_identity import make_client
-from .ground_materials import fetch_polygon_with_context
+from .ground_extent import fetch_polygon_with_context
 from .user_errors import UserError, describe_error
 
 #: Read Overture over HTTPS instead of S3.
