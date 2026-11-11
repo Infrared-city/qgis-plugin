@@ -52,9 +52,12 @@ EXTRAS = metadata.txt icon.png
 
 EXTRA_DIRS =
 
-COMPILED_RESOURCE_FILES = resources.py
+# No compiled Qt resources: icons are loaded from disk by path (see _icon() in
+# infrared_city_gis.py). PyQt6 ships no resource compiler, so a resources.py
+# cannot be produced for QGIS 4.
+COMPILED_RESOURCE_FILES =
 
-PEP8EXCLUDE=pydev,resources.py,conf.py,third_party,ui
+PEP8EXCLUDE=pydev,conf.py,third_party,ui
 
 # QGISDIR points to the location where your plugin should be installed.
 # This varies by platform, relative to your HOME directory:
@@ -75,7 +78,7 @@ HELP = help/build/html
 
 PLUGIN_UPLOAD = $(c)/plugin_upload.py
 
-RESOURCE_SRC=$(shell grep '^ *<file' resources.qrc | sed 's@</file>@@g;s/.*>//g' | tr '\n' ' ')
+# RESOURCE_SRC intentionally unset — see COMPILED_RESOURCE_FILES above.
 
 .PHONY: default
 default:
@@ -87,9 +90,6 @@ default:
 	@echo See https://g-sherman.github.io/plugin_build_tool/ for info. 
 
 compile: $(COMPILED_RESOURCE_FILES)
-
-%.py : %.qrc $(RESOURCES_SRC)
-	pyrcc5 -o $*.py  $<
 
 %.qm : %.ts
 	$(LRELEASE) $<

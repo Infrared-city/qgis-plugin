@@ -2,9 +2,44 @@
 Custom exceptions for the Infrared City GIS plugin.
 """
 
+from .constants import SUPPORT_EMAIL
+
+
+class IncompleteGroundDownload(Exception):
+    """Some ground-material layers of a download could not be saved.
+
+    Raised AFTER the layers that did save were added, so a caller that does
+    nothing still cannot present the set as complete: a missing material runs
+    as the default surface and changes a thermal result without a word.
+    """
+
+    def __init__(self, created, failed, path):
+        #: ``{layer_name: feature_count}`` — saved and added to the project.
+        self.created = dict(created)
+        #: ``{layer_name: reason}`` — not saved, so not in the project.
+        self.failed = dict(failed)
+        self.path = path
+        super().__init__(
+            f"{len(self.failed)} ground-material layer(s) could not be saved to "
+            f"{path}: " + "; ".join(f"{n}: {r}" for n, r in sorted(self.failed.items()))
+        )
+
+
+class NothingToRunError(Exception):
+    """An area submission that scheduled no jobs: nothing ran, nothing was charged."""
+
+    title = "Nothing to Simulate"
+    detail = (
+        "The selected area produced no simulation tiles.\n\n"
+        "Check that the area contains buildings and that the buildings layer "
+        "is active, then try again."
+    )
+    #: Read by ``services.user_errors``: no request reached the paid step.
+    pre_accept = True
+
 
 class InfraredAPIError(Exception):
-    """Raised when the Infrared API returns a non-2xx HTTP response or is unreachable.
+    """Raised when the Infrared City API returns a non-2xx HTTP response or is unreachable.
 
     Attributes
     ----------
@@ -21,7 +56,7 @@ class InfraredAPIError(Exception):
     _STATUS_MAP = {
         401: (
             "Authentication Failed (401)",
-            "Your API key was not recognised by the Infrared server.\n\n"
+            "Your API key was not recognised by the Infrared City server.\n\n"
             "Please check that the key is entered correctly in the plugin settings.",
         ),
         403: (
@@ -29,7 +64,7 @@ class InfraredAPIError(Exception):
             "Your API key does not have permission to perform this action.\n\n"
             "Your subscription plan may not include this analysis type. "
             "Visit infrared.city to review your plan or contact "
-            "support@infrared.city for help.",
+            f"{SUPPORT_EMAIL} for help.",
         ),
         429: (
             "Too Many Requests (429)",
@@ -38,23 +73,23 @@ class InfraredAPIError(Exception):
         ),
         500: (
             "Server Error (500)",
-            "The Infrared server encountered an unexpected error.\n\n"
+            "The Infrared City server encountered an unexpected error.\n\n"
             "Please try again in a few minutes. If the problem persists, "
-            "contact support@infrared.city.",
+            f"contact {SUPPORT_EMAIL}.",
         ),
         502: (
             "Server Unavailable (502)",
-            "The Infrared server is temporarily unavailable.\n\n"
+            "The Infrared City server is temporarily unavailable.\n\n"
             "Please try again in a few minutes.",
         ),
         503: (
             "Service Unavailable (503)",
-            "The Infrared service is temporarily unavailable.\n\n"
+            "The Infrared City service is temporarily unavailable.\n\n"
             "Please try again in a few minutes.",
         ),
         504: (
             "Gateway Timeout (504)",
-            "The request timed out waiting for the Infrared server.\n\n"
+            "The request timed out waiting for the Infrared City server.\n\n"
             "Please try again in a few minutes.",
         ),
     }
@@ -68,9 +103,9 @@ class InfraredAPIError(Exception):
         elif status_code is not None and status_code >= 500:
             self.title = f"Server Error ({status_code})"
             self.detail = (
-                f"The Infrared server returned an unexpected error (HTTP {status_code}).\n\n"
+                f"The Infrared City server returned an unexpected error (HTTP {status_code}).\n\n"
                 "Please try again in a few minutes. If the problem persists, "
-                "contact support@infrared.city."
+                f"contact {SUPPORT_EMAIL}."
             )
         elif status_code is not None:
             self.title = f"Request Failed ({status_code})"
@@ -81,7 +116,7 @@ class InfraredAPIError(Exception):
         else:
             self.title = "Connection Error"
             self.detail = (
-                "Could not reach the Infrared server.\n\n"
+                "Could not reach the Infrared City server.\n\n"
                 "Please check your internet connection and try again."
             )
 
@@ -90,3 +125,36 @@ class InfraredAPIError(Exception):
             self.detail += f"\n\nServer message: {server_message}"
 
         super().__init__(f"[HTTP {status_code}] {self.title}")
+
+
+class ApiKeyCheckRefused(InfraredAPIError):
+    """The key check was answered with HTTP 403, which proves nothing about the key.
+
+    Raised by the key check for ANY 403, whatever its body: the refusal may come
+    from a proxy or firewall, and problem-details JSON is a generic format that
+    anything can send, so it cannot show that the server recognised the key.
+    Callers must therefore NOT save the key, and the startup gate must not lock
+    a saved key on it either (#53). Show :attr:`title` / :attr:`detail` as an
+    error.
+    """
+
+    #: Dialog title for the refused key check.
+    KEY_CHECK_TITLE = "API Key Not Saved (403)"
+    #: Body of that error; deliberately not the simulation 403 text in ``_STATUS_MAP``.
+    KEY_CHECK_DETAIL = (
+        "The Infrared City server refused the key check (HTTP 403), "
+        "so this key could not be verified.\n\n"
+        "Any API key you saved earlier is unchanged."
+    )
+
+    def __init__(self, status_code=403, server_message=None):
+        # No server_message to the base: it would append it to the simulation
+        # wording this class replaces. It is appended once, below.
+        super().__init__(status_code=status_code)
+        self.server_message = server_message
+        self.title = self.KEY_CHECK_TITLE
+        self.detail = self.KEY_CHECK_DETAIL
+        if server_message:
+            self.detail += f"\n\nServer message: {server_message}"
+        # Re-run so str(exc) reflects the final title.
+        Exception.__init__(self, f"[HTTP {status_code}] {self.title}")

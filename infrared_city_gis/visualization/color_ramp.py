@@ -1,5 +1,5 @@
-from PyQt5.QtGui import QColor
 from qgis.core import QgsColorRampShader
+from qgis.PyQt.QtGui import QColor
 
 from ..infrared_logger import logger
 from ..services.fetch_from_registry import (
@@ -57,14 +57,14 @@ def get_visual_config(analysis_type, sub_analysis_type=None):
     analysis type.
 
     Source of truth is ``settings/model_registry.json``. If the file does not
-    exist yet, triggers a fetch from the production registry
-    (``GET /v2/utils/registry/models``) which persists the response to disk.
-    Returns ``None`` if the registry is unavailable or the analysis type is
-    not present.
+    exist yet, triggers a fetch from the public registry mirror
+    (``registry.infrared.city/models/latest.json``) which persists the response
+    to disk. Returns ``None`` if the registry is unavailable or the analysis
+    type is not present.
     """
     registry_configs = load_registry_visual_configs()
     if registry_configs is None:
-        logger.info("model_registry.json not found on disk — fetching from API")
+        logger.info("model_registry.json not found on disk — fetching from the mirror")
         try:
             registry_configs = fetch_registry_visual_configs()
         except Exception as e:
@@ -94,10 +94,58 @@ def get_visual_config(analysis_type, sub_analysis_type=None):
     return None
 
 
+#: Analyses coloured on their registry's FIXED scale rather than the run's own
+#: range, so separate runs read on one scale: wind speed's 0-20 m/s, the
+#: long-standing default (user decision, 2026-10-08). The others follow the run
+#: — UTCI's registry scale is -40..46 °C, far too wide to read one run on.
+FIXED_SCALE_ANALYSES = frozenset({"wind-speed"})
+
+
+def registry_scale(analysis_type, sub_analysis_type=None):
+    """``(min, max)`` of the registry's numeric ``steps``, or None."""
+    config = get_visual_config(analysis_type, sub_analysis_type) or {}
+    steps = config.get("steps") or []
+    numeric = all(isinstance(s, (int, float)) and not isinstance(s, bool) for s in steps)
+    if len(steps) >= 2 and numeric:
+        return float(steps[0]), float(steps[-1])
+    return None
+
+
+def resolve_legend(analysis_type, sub_analysis_type, run_range, grid_range, overrides):
+    """The legend range of a result, each bound picked on its own.
+
+    In order: the dialog's manual value; the registry's fixed scale for
+    :data:`FIXED_SCALE_ANALYSES`; the range the run reported (the backend's
+    recommendation on a single tile, the SDK's measured range on an area —
+    SDK 1.0, DEVIATIONS D214); the grid's own min/max. Shared by the area and
+    single-tile paths so the same scenario legends the same in both.
+    """
+    fixed = None
+    if str(analysis_type) in FIXED_SCALE_ANALYSES:
+        fixed = registry_scale(str(analysis_type), sub_analysis_type)
+
+    def pick(i):
+        for candidate in (overrides[i], fixed[i] if fixed else None, run_range[i], grid_range[i]):
+            if candidate is not None:
+                return candidate
+        return None
+
+    applied = (pick(0), pick(1))
+    logger.info(
+        "Legend %s: run=%s grid=%s fixed=%s override=%s -> applied=%s",
+        analysis_type, run_range, grid_range, fixed, overrides, applied,
+    )
+    return applied
+
+
 def _build_color_ramp_items(visual_config, analysis_type, vmin=None, vmax=None):
     colors = visual_config.get("colors", [])
-    steps = visual_config.get("steps", [])
-    steps_names = visual_config.get("stepsNames", [])
+    # `or []`, not a `.get` default: the registry carries these as explicit
+    # JSON nulls for several analysis types (thermal-comfort-index has both),
+    # and a default only fires when the KEY is absent. Reading them as None
+    # reaches `len(None)` further down.
+    steps = visual_config.get("steps") or []
+    steps_names = visual_config.get("stepsNames") or []
     interpolation = visual_config.get("colorInterpolation", "linear")
 
     shader = QgsColorRampShader()
@@ -122,14 +170,22 @@ def _build_color_ramp_items(visual_config, analysis_type, vmin=None, vmax=None):
         return shader, color_items, cat_vmin, cat_vmax
 
     # ---- numerical values ----
-    if steps and len(steps) >= 2:
-        vmin, vmax = float(steps[0]), float(steps[-1])
-    else:
-        if vmin is None or vmax is None:
-            vmin, vmax = 0.0, float(len(colors) - 1)
+    # The caller's range (backend legend > grid range, with the dialog's manual
+    # values over both) wins. The registry's numeric `steps` is the analysis'
+    # full scale — UTCI's is [-40, 46] since registry 1.6 — and is only a
+    # fallback: letting it win painted a 23-31 C grid in a single band of an
+    # 86-degree ramp and ignored the manual min/max.
+    num_colors = len(colors)
+    if vmin is None or vmax is None:
+        if steps and len(steps) >= 2:
+            vmin, vmax = float(steps[0]), float(steps[-1])
+        else:
+            vmin, vmax = 0.0, float(num_colors - 1)
 
     step_range = vmax - vmin if vmax != vmin else 1.0
-    num_colors = len(colors)
+    # A step can label a colour only when there is one step per colour; a
+    # two-value [min, max] range labelled the first two bands "min" and "max".
+    step_labels = steps if len(steps) == num_colors else []
 
     for i, color in enumerate(colors):
         value = vmin + (i / max(1, num_colors - 1)) * step_range
@@ -137,13 +193,32 @@ def _build_color_ramp_items(visual_config, analysis_type, vmin=None, vmax=None):
         label = (
             steps_names[i]
             if i < len(steps_names)
-            else (str(steps[i]) if i < len(steps) else f"{value:.2f}")
+            else (str(step_labels[i]) if i < len(step_labels) else f"{value:.2f}")
         )
         color_items.append(QgsColorRampShader.ColorRampItem(value, color_qt, label))
 
     if interpolation == "binned":
         shader.setColorRampType(QgsColorRampShader.Discrete)
+        # A Discrete ramp colours a pixel with the FIRST item whose value is
+        # >= the pixel's. Nothing matches above the last item, so QGIS draws
+        # those pixels as nothing at all — transparent, which reads as white
+        # over the canvas. That is not a rounding artefact: the legend the
+        # backend recommends is a display range, not the data range, so a UTCI
+        # run legended 21-30 over a grid reaching 31 silently dropped 15% of
+        # its valid pixels, and they were the hottest ones — open sun and the
+        # river, exactly what the map is read for.
+        #
+        # Open the top band upwards so everything above it takes the top
+        # colour. The label is computed before the substitution, so the legend
+        # still reads the real bound rather than "inf".
+        if color_items:
+            top = color_items[-1]
+            color_items[-1] = QgsColorRampShader.ColorRampItem(
+                float("inf"), top.color, top.label,
+            )
     else:
+        # Interpolated already clamps to the end colours; only Discrete drops
+        # what falls off the top.
         shader.setColorRampType(QgsColorRampShader.Interpolated)
 
     shader.setColorRampItemList(color_items)

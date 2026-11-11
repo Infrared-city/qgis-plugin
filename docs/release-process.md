@@ -12,9 +12,36 @@ This is a **two-PR process**:
    - Example title: `fix: weather file upload and code quality improvements`
 2. Release Please detects the new commits on `main` and opens (or updates) a release PR titled `chore(main): release X.Y.Z`
    - This PR bumps `version.txt` (primary version source for Release Please)
-   - This PR bumps `version=` in `infrared_city_gis/metadata.txt` via the `generic` pattern in `release-please-config.json`
    - This PR updates `CHANGELOG.md` based on conventional commit messages
    - Merging `staging → main` alone does **not** create a release
+
+**Step 1b — Bump `metadata.txt` by hand on the release branch** ⚠️
+
+Release Please does **not** touch `infrared_city_gis/metadata.txt`. The `generic`
+extra-file entry in `release-please-config.json` carries a `pattern` key, which
+that updater does not support — the updater is annotation-driven, so the entry is
+a no-op and the release PR only ever contains three files. **This is a deliberate
+manual step, not a bug to fix.** Before merging the release PR, commit to its
+branch (`release-please--branches--main--components--infrared-city-qgis`):
+
+- `version=X.Y.Z` — **QGIS packages and distributes the plugin from this field**.
+  Miss it and the ZIP ships under the previous version, so nobody receives the update.
+- `changelog=X.Y.Z` plus the new entry's bullets — user-facing text, shown in the
+  QGIS Plugin Manager. Release Please cannot generate it (it substitutes version
+  strings only); keep it free of internal detail.
+
+Verify all three version sources agree before merging:
+
+```bash
+python3 -c "
+import configparser, json
+c = configparser.ConfigParser(); c.read('infrared_city_gis/metadata.txt', encoding='utf-8')
+print('metadata.txt', c['general']['version'], '| version.txt', open('version.txt').read().strip(),
+      '| manifest', json.load(open('.release-please-manifest.json'))['.'])"
+```
+
+> Re-running the Release Please workflow **force-pushes** that branch and wipes the
+> manual commit. Do the bump last, and don't trigger the workflow afterwards.
 
 **Step 2 — Merge the Release Please PR**
 3. Review and merge the Release Please PR on `main`
@@ -43,12 +70,13 @@ Release Please reads conventional commits to determine the version bump and gene
 
 ## Version sources
 
-There are two version files — both must stay in sync:
+There are three version sources — all must stay in sync:
 
-| File | Purpose |
-|------|---------|
-| `version.txt` | Primary version source for Release Please — updated automatically |
-| `infrared_city_gis/metadata.txt` (`version=`) | QGIS plugin version — updated automatically via `release-please-config.json` `generic` pattern |
+| File | Purpose | Updated by |
+|------|---------|-----------|
+| `version.txt` | Primary version source for Release Please | Release Please |
+| `.release-please-manifest.json` | Release Please's own state | Release Please |
+| `infrared_city_gis/metadata.txt` (`version=`) | **The version QGIS ships and users see** | **You, by hand** — see Step 1b |
 
 ## Manual release (fallback)
 

@@ -1,5 +1,5 @@
 """Polygon-from-selection helpers split out of ``services/tiles.py`` to keep
-that module under the 400-line Infrared convention.
+that module under the 400-line Infrared City convention.
 
 Public entry points (re-exported by ``services.tiles`` and
 ``services.geometry`` for backward compatibility):
@@ -8,9 +8,12 @@ Public entry points (re-exported by ``services.tiles`` and
   layer's current selection in the layer CRS, with three modes (convex /
   bbox / concave) approximating the user's drawn region.
 * :func:`create_wgs84_geojson_polygon_from_selection` — same in WGS84
-  GeoJSON Polygon format ready for the Infrared SDK.
+  GeoJSON Polygon format ready for the Infrared City SDK.
 * :func:`plot_selected_polygon` — debug visualiser that drops the polygon
   back onto the canvas as a temporary memory layer.
+* :func:`active_selection_layer` / :func:`active_layer_note` — the one place
+  that decides whether the active layer can carry a feature selection at all,
+  and says so in the log and to the user in the same words.
 """
 
 from __future__ import annotations
@@ -26,10 +29,58 @@ from qgis.core import (
     QgsProject,
     QgsVectorLayer,
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType
 from qgis.utils import iface
 
 from ..infrared_logger import logger
+
+
+def active_selection_layer(caller: str):
+    """The active layer when features *can* be selected on it, else ``None``.
+
+    Every selection helper reads ``iface.activeLayer()``, and that layer is
+    not always a vector layer. QGIS makes a newly added layer the current one,
+    so right after a simulation the active layer is the result raster — and
+    the user can click any layer in the Layers panel besides. A
+    ``QgsRasterLayer`` has no ``selectedFeatures()``, and calling it raised an
+    ``AttributeError`` that reached the user as a QGIS Python error box, in
+    the one place the dialog meant to say "select a building area first".
+    """
+    layer = iface.activeLayer() if iface is not None else None
+    if layer is None:
+        logger.warning("%s: no active layer", caller)
+        return None
+    if not isinstance(layer, QgsVectorLayer):
+        logger.warning(
+            "%s: the active layer '%s' is a %s, which carries no feature "
+            "selection",
+            caller, layer.name(), type(layer).__name__,
+        )
+        return None
+    return layer
+
+
+def active_layer_note() -> str:
+    """One sentence naming the active layer when it cannot carry a selection.
+
+    Empty when the active layer *is* a vector layer — then the user really
+    has selected nothing, and the caller's own message says it. Kept beside
+    :func:`active_selection_layer` so a dialog and the log never disagree
+    about what went wrong.
+    """
+    layer = iface.activeLayer() if iface is not None else None
+    if layer is None:
+        return (
+            "No layer is active in the Layers panel. Click your building "
+            "layer there to make it active."
+        )
+    if not isinstance(layer, QgsVectorLayer):
+        return (
+            f"The active layer is '{layer.name()}', which is not a vector "
+            f"layer and cannot hold a feature selection. Click your building "
+            f"layer in the Layers panel to make it active."
+        )
+    return ""
 
 
 def create_polygon_from_selection(mode: str = "convex"):
@@ -65,9 +116,8 @@ def create_polygon_from_selection(mode: str = "convex"):
     Returns a single closed ring (first == last). Returns ``[]`` if no
     selection or no valid geometry.
     """
-    layer = iface.activeLayer()
-    if not layer:
-        logger.warning("create_polygon_from_selection: no active layer")
+    layer = active_selection_layer("create_polygon_from_selection")
+    if layer is None:
         return []
 
     selected = layer.selectedFeatures()
@@ -147,7 +197,7 @@ def create_wgs84_geojson_polygon_from_selection(
 
     Wraps :func:`create_polygon_from_selection`, reprojects the ring to
     WGS84 lon/lat (if needed), ensures the ring is closed, and returns a
-    dict shaped for the Infrared SDK::
+    dict shaped for the Infrared City SDK::
 
         {"type": "Polygon", "coordinates": [[[lon, lat], ..., [lon, lat]]]}
 
@@ -218,7 +268,7 @@ def plot_selected_polygon(polygon):
 
     pr = vlayer.dataProvider()
     fields = QgsFields()
-    fields.append(QgsField("id", QVariant.Int))
+    fields.append(QgsField("id", QMetaType.Type.Int))
     pr.addAttributes(fields)
     vlayer.updateFields()
 

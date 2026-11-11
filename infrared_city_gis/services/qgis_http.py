@@ -86,7 +86,7 @@ class Response:
     def __init__(self, reply):
         self._content: bytes = bytes(reply.content())
         self.status_code: int = (
-            reply.attribute(QNetworkRequest.HttpStatusCodeAttribute) or 0
+            reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute) or 0
         )
         self.headers: dict = {
             bytes(k).decode(): bytes(reply.rawHeader(k)).decode()
@@ -102,9 +102,27 @@ class Response:
         return self._content.decode("utf-8", errors="replace")
 
     def json(self):
+        if not self._content.strip():
+            # Without this the caller gets "Expecting value: line 1 column 1
+            # (char 0)" from the JSON decoder, which reads like malformed
+            # server data rather than an empty body. Keep it a ValueError so
+            # existing `except ValueError` handlers still catch it.
+            raise ValueError(
+                f"empty response body (HTTP {self.status_code}) — nothing to decode"
+            )
         return _json.loads(self._content)
 
     def raise_for_status(self):
+        if self.status_code == 0:
+            # No HTTP status ever arrived (DNS failure, refused connection,
+            # TLS error, proxy interception). The reply object still exists,
+            # so this is NOT a 2xx — without an explicit check it sails past
+            # the `>= 400` guard and surfaces downstream as a JSON decode
+            # error on the empty body.
+            raise RequestException(
+                "no HTTP status in reply — request did not reach the server",
+                response=self,
+            )
         if self.status_code >= 400:
             raise HTTPError(
                 f"HTTP {self.status_code}",
@@ -148,6 +166,15 @@ def _check(err_code: int, blocker: QgsBlockingNetworkRequest) -> Response:
     """Map QgsBlockingNetworkRequest error codes to exceptions or Response."""
     if err_code == QgsBlockingNetworkRequest.NoError:
         resp = Response(blocker.reply())
+        if resp.status_code == 0:
+            # NoError but no HTTP status attribute: the reply never carried a
+            # response line. Returning it would hand the caller an empty body
+            # that only fails later, at .json(), as a decode error.
+            detail = blocker.errorMessage()
+            raise RequestException(
+                detail or "no HTTP status in reply — request did not reach the server",
+                response=resp,
+            )
         if resp.status_code >= 400:
             raise HTTPError(f"HTTP {resp.status_code}", response=resp)
         return resp
@@ -199,12 +226,12 @@ def post(url: str, data=None, json=None, headers: dict | None = None,
 
     if json is not None:
         body = QByteArray(_json.dumps(json).encode("utf-8"))
-        req.setHeader(QNetworkRequest.ContentTypeHeader, "application/json")
+        req.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, "application/json")
     elif data is not None:
         if isinstance(data, dict):
             body = QByteArray(urlencode(data).encode("utf-8"))
             req.setHeader(
-                QNetworkRequest.ContentTypeHeader,
+                QNetworkRequest.KnownHeaders.ContentTypeHeader,
                 "application/x-www-form-urlencoded",
             )
         elif isinstance(data, str):

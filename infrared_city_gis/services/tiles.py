@@ -15,10 +15,15 @@ from qgis.core import (
     QgsRectangle,
     QgsVectorLayer,
 )
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import QMetaType
 from qgis.utils import iface
 
 from ..infrared_logger import logger
+
+# Used by the selection readers below, so it has to be imported here rather
+# than in the re-export block at the end of the file. No cycle:
+# polygon_from_selection imports nothing from this package but the logger.
+from .polygon_from_selection import active_selection_layer
 
 
 def get_bbox(center_lon, center_lat, box_size_meters=512):
@@ -44,9 +49,8 @@ def get_selected_crs():
 
 
 def get_selected_bbox():
-    layer = iface.activeLayer()
+    layer = active_selection_layer("get_selected_bbox")
     if layer is None:
-        logger.warning("No active layer found")
         return None
 
     selected = layer.selectedFeatures()
@@ -96,8 +100,8 @@ def generate_tile_centers(west, south, east, north, tile_size=256):
 
 
 def collect_tile_centers_from_selection():
-    layer = iface.activeLayer()
-    if not layer:
+    layer = active_selection_layer("collect_tile_centers_from_selection")
+    if layer is None:
         return []
 
     bbox = get_selected_bbox()
@@ -175,7 +179,7 @@ def plot_tile_centers(tile_centers):
     pr = vlayer.dataProvider()
 
     fields = QgsFields()
-    fields.append(QgsField("id", QVariant.Int))
+    fields.append(QgsField("id", QMetaType.Type.Int))
     pr.addAttributes(fields)
     vlayer.updateFields()
 
@@ -199,7 +203,7 @@ def plot_tile_centers(tile_centers):
 
 # Polygon-from-selection helpers were extracted into
 # ``services/polygon_from_selection.py`` to keep this module under the
-# 400-line Infrared convention. Re-exported here so callers that import
+# 400-line Infrared City convention. Re-exported here so callers that import
 # from ``services.tiles`` (and ``services.geometry``, which wildcards
 # from this file) keep working without changes.
 from .polygon_from_selection import (  # noqa: F401, E402

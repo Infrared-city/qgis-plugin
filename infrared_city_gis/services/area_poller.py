@@ -1,4 +1,4 @@
-"""Non-blocking poller for an Infrared SDK area analysis run.
+"""Non-blocking poller for an Infrared City SDK area analysis run.
 
 The synchronous ``client.run_area_and_wait`` blocks the QGIS UI thread for
 the entire duration of a simulation (submission, polling and merge).  This
@@ -11,7 +11,7 @@ Usage::
 
     state = AreaRenderState.from_dialog(dlg)   # snapshot before closing
     poller = AreaPoller(
-        client=InfraredClient(api_key=dlg.api_key),
+        client=make_client(dlg.api_key),
         polygon=polygon,
         area=area,
         payload=payload,
@@ -22,8 +22,10 @@ Usage::
     poller.start()
     super().accept()  # close dialog right away
 
-The poller emits ``finished`` (with the AreaResult) on success, ``failed``
-(with a string message) on submission, polling, merge or render error.
+``start`` raises when submission fails — the dialog is still open then, so
+the caller shows the error there and keeps it open. After that the poller
+emits ``finished`` (with the AreaResult) on success, ``failed`` (with a string
+message) on a polling, merge or render error.
 ``deleteLater`` is called on completion either way so the QObject is
 properly cleaned up.
 """
@@ -31,7 +33,6 @@ properly cleaned up.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from infrared_sdk.analyses.jobs import JobStatus
@@ -40,8 +41,10 @@ from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import QApplication
 from qgis.utils import iface
 
+from ..exceptions import NothingToRunError
 from ..infrared_logger import logger
-from ..models.analysis import AnalysisType
+from .render_state import AreaRenderState
+from .user_errors import UserError, describe_error, push_error, run_timed_out
 
 # Cap how many failed-job error messages we fetch per tick. ``check_area_state``
 # only returns the status enum (no error string), so to log the cause of a
@@ -70,45 +73,6 @@ def _status(msg: str, level=Qgis.Info, duration: int = 0) -> None:
     bar.clearWidgets()
     bar.pushMessage("InfraredCity", msg, level=level, duration=duration)
     QApplication.processEvents()
-
-
-@dataclass(frozen=True)
-class AreaRenderState:
-    """Snapshot of dialog state needed to render an AreaResult.
-
-    Captured *before* the dialog closes so the renderer is decoupled from
-    the QWidget lifecycle. Holds primitive Python values only — no QWidget
-    references — to be safe across the dialog's destruction.
-    """
-
-    analysis_type: AnalysisType
-    sub_analysis_type: Any  # an Enum or None — kept generic to avoid a circular import
-    legend_min_override: Optional[float]
-    legend_max_override: Optional[float]
-
-    @classmethod
-    def from_dialog(cls, dlg) -> "AreaRenderState":
-        """Build a snapshot from the run-multiple-simulation dialog.
-
-        Reads ``analysis_type`` and ``sub_analysis_type`` directly. For UTCI
-        / TCI also captures the dialog's manual legend overrides if the
-        user enabled them.
-        """
-        leg_min: Optional[float] = None
-        leg_max: Optional[float] = None
-        if dlg.analysis_type == AnalysisType.THERMAL_COMFORT_INDEX:
-            min_w = getattr(dlg, "legend_min_enable_tci", None)
-            if min_w is not None and min_w.isChecked():
-                leg_min = float(dlg.min_legend_value)
-            max_w = getattr(dlg, "legend_max_enable_tci", None)
-            if max_w is not None and max_w.isChecked():
-                leg_max = float(dlg.max_legend_value)
-        return cls(
-            analysis_type=dlg.analysis_type,
-            sub_analysis_type=getattr(dlg, "sub_analysis_type", None),
-            legend_min_override=leg_min,
-            legend_max_override=leg_max,
-        )
 
 
 class AreaPoller(QObject):
@@ -142,7 +106,7 @@ class AreaPoller(QObject):
         render_state: AreaRenderState,
         on_render: Callable[[AreaRenderState, dict, Any, Any], None],
         vegetation: Optional[dict] = None,
-        ground_materials: Optional[dict] = None,
+        ground_materials: Optional[Any] = None,   # AreaGroundMaterials or a bare map
         poll_interval_ms: int = _DEFAULT_POLL_INTERVAL_MS,
         area_timeout_s: int = _DEFAULT_AREA_TIMEOUT_S,
         parent: Optional[QObject] = None,
@@ -185,32 +149,26 @@ class AreaPoller(QObject):
         Submission itself is synchronous and brief (parallel HTTP POSTs
         inside the SDK) — there's no benefit to backgrounding it, and
         callers want to know up front if the submission failed.
+
+        Raises the submission error instead of reporting it: the dialog is
+        still open at this point, and it must stay open with the error shown
+        in it — not close as if the run had started (it used to).
         """
         _status("InfraredCity: submitting area jobs…")
-        try:
-            self._schedule = self._client.run_area(
-                self._payload,
-                self._polygon,
-                buildings=self._area.buildings,
-                vegetation=self._vegetation,
-                ground_materials=self._ground_materials,
-            )
-        except Exception as e:
-            self._fail(f"submit failed: {e}", exc=e)
-            return
+        self._schedule = self._client.run_area(
+            self._payload,
+            self._polygon,
+            buildings=self._area.buildings,
+            vegetation=self._vegetation,
+            ground_materials=self._ground_materials,
+        )
 
         n_jobs = len(self._schedule.jobs) if self._schedule is not None else 0
         if n_jobs == 0:
             # Submission scheduled 0 jobs — e.g. the selected area contained
             # no buildings / no valid tiles. There is nothing to poll for, so
-            # fail fast with a clear message instead of spinning the timer
-            # until area_timeout_s elapses.
-            self._fail(
-                "submission scheduled 0 jobs — nothing to run "
-                "(check that the selected area contains buildings)",
-                exc=None,
-            )
-            return
+            # fail fast instead of spinning the timer until area_timeout_s.
+            raise NothingToRunError("submission scheduled 0 jobs")
         logger.info(
             "AreaPoller: submitted, %d jobs scheduled, polling every %d ms "
             "(timeout=%ds)",
@@ -226,6 +184,16 @@ class AreaPoller(QObject):
         self._timer.stop()
         _status("InfraredCity: area run cancelled (jobs remain on server)",
                 level=Qgis.Warning, duration=10)
+        self.deleteLater()
+
+    def shutdown(self) -> None:
+        """Stop polling silently — for plugin unload / QGIS quit.
+
+        Same effect as :meth:`cancel` minus the message-bar notification:
+        during teardown the bar may already be gone, and the user did not ask
+        for anything. Jobs continue server-side either way.
+        """
+        self._timer.stop()
         self.deleteLater()
 
     # -- internal ------------------------------------------------------
@@ -270,10 +238,8 @@ class AreaPoller(QObject):
 
         if self._deadline is not None and time.monotonic() > self._deadline:
             self._timer.stop()
-            self._fail(
-                f"timed out after {self._area_timeout_s}s (last status={state.status})",
-                exc=None,
-            )
+            msg = f"timed out after {self._area_timeout_s}s (last status={state.status})"
+            self._fail(msg, user=run_timed_out(msg))
             return
 
     def _log_new_failures(self, state) -> None:
@@ -341,23 +307,23 @@ class AreaPoller(QObject):
             # valid — surface the error and emit finished with the result
             # so callers can do something with it.
             logger.error("AreaPoller: render failed: %s", e, exc_info=True)
-            _status(
-                f"InfraredCity: render failed — {str(e)[:120]}",
-                level=Qgis.Critical, duration=15,
-            )
+            push_error("Displaying the area result", describe_error(e))
 
         self.finished.emit(result)
         self.deleteLater()
 
-    def _fail(self, msg: str, *, exc: Optional[Exception]) -> None:
+    def _fail(
+        self, msg: str, *, exc: Optional[Exception] = None,
+        user: Optional[UserError] = None,
+    ) -> None:
+        """Log *msg* (developer text); show *user*, or *exc* translated."""
         if exc is not None:
             logger.error("AreaPoller: %s", msg, exc_info=True)
         else:
             logger.error("AreaPoller: %s", msg)
-        _status(
-            f"InfraredCity: area run failed — {msg[:120]}",
-            level=Qgis.Critical, duration=15,
-        )
+        if user is None:
+            user = describe_error(exc if exc is not None else RuntimeError(msg))
+        push_error("Area simulation", user)
         self._timer.stop()
         self.failed.emit(msg)
         self.deleteLater()

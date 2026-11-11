@@ -1,4 +1,4 @@
-"""End-to-end orchestration of an Infrared SDK area analysis from QGIS.
+"""End-to-end orchestration of an Infrared City SDK area analysis from QGIS.
 
 Two run flavours, sharing the same payload-build + result-render code:
 
@@ -23,22 +23,25 @@ import tempfile
 from typing import Any, Optional, Tuple
 
 import numpy as np
-from infrared_sdk import InfraredClient
 from qgis.core import Qgis
-from qgis.PyQt.QtWidgets import QApplication, QMessageBox
+from qgis.PyQt.QtWidgets import QApplication
 from qgis.utils import iface
 
 from ..infrared_logger import logger
-from ..services.area_poller import AreaPoller, AreaRenderState
+from ..services.area_poller import AreaPoller
 from ..services.geotiff import generate_geotiff
 from ..services.ground_materials import (
     collect_ground_materials,
     has_ground_material_support,
 )
 from ..services.qgis_area_vegetation import collect_qgis_area_vegetation
+from ..services.render_state import AreaRenderState
 from ..services.sdk_payloads import build_sdk_payload
 from ..services.tree_layer_picker import has_tree_support, selected_tree_layer
-from ..visualization.display import add_geojson_then_raster
+from ..services.user_errors import show_error_dialog
+from ..utils.client_identity import make_client
+from ..visualization.color_ramp import resolve_legend
+from ..visualization.display import add_result_raster
 
 
 def _status(msg: str, level=Qgis.Info, duration: int = 0) -> None:
@@ -111,46 +114,6 @@ def _make_progress_cb(total_hint: Optional[int] = None):
     return _cb
 
 
-def _write_buildings_outline_geojson(area_buildings, out_path: str) -> Optional[str]:
-    """Write a minimal GeoJSON FeatureCollection with one polygon per building.
-
-    The visualization helper ``add_geojson_then_raster`` always overlays a
-    GeoJSON outline on top of the raster. For the SDK area path we don't
-    have per-tile outlines but we do have the merged ``AreaBuildings`` from
-    ``client.buildings.get_area``. We project each building's footprint
-    (xy of every vertex, ignoring z) to a flat polygon for display.
-    Returns ``out_path`` if it managed to write at least one feature, else None.
-    """
-    import json
-
-    features = []
-    for bid, mesh in (area_buildings.buildings or {}).items():
-        coords = list(getattr(mesh, "coordinates", []) or [])
-        if len(coords) < 9:  # need >= 3 vertices (x,y,z each)
-            continue
-        # Project vertices to ground plane and take the convex hull-ish ring
-        # via simple xy dedup. For visualisation only, so this can be coarse.
-        xy = []
-        for i in range(0, len(coords), 3):
-            xy.append((float(coords[i]), float(coords[i + 1])))
-        if len(xy) < 3:
-            continue
-        # Close the ring
-        if xy[0] != xy[-1]:
-            xy.append(xy[0])
-        features.append({
-            "type": "Feature",
-            "geometry": {"type": "Polygon", "coordinates": [[[x, y] for (x, y) in xy]]},
-            "properties": {"building_id": str(bid)},
-        })
-    if not features:
-        return None
-    fc = {"type": "FeatureCollection", "features": features}
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(fc, f)
-    return out_path
-
-
 def _prepare_run(dlg) -> "Optional[Any]":
     """Snapshot dialog state and build the SDK payload.
 
@@ -204,9 +167,17 @@ def render_area_result(
     dialog has been destroyed, so ``render_state`` carries primitive
     Python values only (no QWidget references).
     """
-    grid = result.merged_grid
+    # From SDK 1.0 merged_grid keeps the wire type (UTCI is int16 ×10 with a
+    # validity bitmap), so render the physical values; older SDKs have no
+    # physical_grid and their float64 merged_grid already is physical.
+    if result.merged_grid is not None and hasattr(result, "physical_grid"):
+        grid = result.physical_grid(np.float32)
+    else:
+        grid = result.merged_grid
     if grid is None or grid.size == 0:
-        _status("InfraredCity: empty result grid", level=Qgis.Warning, duration=10)
+        logger.warning("render_area_result: merged grid is empty — nothing to render")
+        _status("InfraredCity: the simulation returned an empty result — "
+                "nothing to display", level=Qgis.Warning, duration=10)
         return
     if not isinstance(grid, np.ndarray):
         grid = np.asarray(grid, dtype=np.float32)
@@ -237,51 +208,24 @@ def render_area_result(
         simulation_type=str(render_state.analysis_type), criteria=sub,
     )
 
-    geojson_path = os.path.join(tmp_dir, "buildings_outline.geojson")
-    if _write_buildings_outline_geojson(area, geojson_path) is None:
-        # add_geojson_then_raster requires a vector layer; fall back to a
-        # one-feature collection holding the polygon itself.
-        import json
-        with open(geojson_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "type": "FeatureCollection",
-                "features": [{
-                    "type": "Feature",
-                    "geometry": polygon,
-                    "properties": {"role": "area"},
-                }],
-            }, f)
-
-    # Legend bounds — per SDK README: prefer result.min_legend / max_legend
-    # when the API supplies them; otherwise fall back to np.nanmin/nanmax.
-    grid_min = float(np.nanmin(grid)) if np.any(~np.isnan(grid)) else None
-    grid_max = float(np.nanmax(grid)) if np.any(~np.isnan(grid)) else None
-    leg_min: Optional[float] = (
-        result.min_legend if result.min_legend is not None else grid_min
-    )
-    leg_max: Optional[float] = (
-        result.max_legend if result.max_legend is not None else grid_max
-    )
-    if render_state.legend_min_override is not None:
-        leg_min = render_state.legend_min_override
-    if render_state.legend_max_override is not None:
-        leg_max = render_state.legend_max_override
-    logger.info(
-        "Legend bounds: api=(%s, %s) grid=(%s, %s) override=(%s, %s) -> "
-        "applied=(%s, %s)",
-        result.min_legend, result.max_legend, grid_min, grid_max,
-        render_state.legend_min_override, render_state.legend_max_override,
-        leg_min, leg_max,
+    # Since SDK 1.0 (D214) min_legend/max_legend are measured over the merged
+    # grid, not folded from the backend's per-tile estimates.
+    finite = np.any(~np.isnan(grid))
+    leg_min, leg_max = resolve_legend(
+        render_state.analysis_type, sub,
+        run_range=(result.min_legend, result.max_legend),
+        grid_range=(float(np.nanmin(grid)), float(np.nanmax(grid))) if finite else (None, None),
+        overrides=(render_state.legend_min_override, render_state.legend_max_override),
     )
 
-    add_geojson_then_raster(
-        geojson_path=geojson_path,
+    add_result_raster(
         geotiff_path=geotiff_path,
         analysis_type=str(render_state.analysis_type),
         sub_analysis_type=sub,
         min_legend_value=leg_min,
         max_legend_value=leg_max,
         tile_id=None,
+        label=render_state.label,
     )
     # Drop the selection highlight now the result raster is on the canvas.
     clear_layer_selections()
@@ -310,7 +254,7 @@ def run_sdk_area(dlg, polygon: dict, area) -> None:
     if payload is None:
         return
 
-    client = InfraredClient(api_key=dlg.api_key)
+    client = make_client(dlg.api_key)
     _status("InfraredCity: submitting area jobs…")
     try:
         result = client.run_area_and_wait(
@@ -320,12 +264,9 @@ def run_sdk_area(dlg, polygon: dict, area) -> None:
         )
     except Exception as e:
         logger.error("run_area_and_wait failed: %s", e, exc_info=True)
-        _status(f"InfraredCity: area run failed — {str(e)[:120]}",
+        _status("InfraredCity: area run failed",
                 level=Qgis.Critical, duration=15)
-        QMessageBox.critical(
-            dlg, "Simulation Error",
-            f"Area run failed.\n\n{e}\n\nCheck the plugin log for details.",
-        )
+        show_error_dialog(dlg, "Area simulation", e)
         return
 
     logger.info(
@@ -371,9 +312,10 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
     :data:`_ACTIVE_POLLERS` so neither Qt nor Python's GC can prematurely
     drop it.
 
-    Returns ``None`` if payload validation failed (a QMessageBox was
-    already shown). On submission failure the poller's ``failed`` signal
-    fires; the caller doesn't need to handle that synchronously.
+    Returns ``None`` if payload validation or submission failed (a
+    QMessageBox was already shown), so the caller keeps the dialog open.
+    Later failures (polling, merge, render) arrive on the poller's
+    ``failed`` signal and are shown in the message bar.
     """
     payload = _prepare_run(dlg)
     if payload is None:
@@ -408,55 +350,36 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
             )
             vegetation = None
 
-    # Ground materials — only for analyses that use surface materials.
-    # Auto-fetch mode pulls Infrared's own layers for the polygon at submit
-    # time (ignoring ground-* layers); otherwise the ticked ground-* layers
-    # are collected into the SDK's {material_name: FeatureCollection}
+    # Ground materials — only for analyses that use surface materials: the
+    # ticked ground-* layers (fetched with the Ground Materials dialog, or drawn
+    # by hand), collected into the SDK's {material_name: FeatureCollection}
     # mapping. Empty/failed → None → the run carries no ground materials
     # (server default emissivity). No properties.material stamping here:
     # run_area stamps it per feature from the dict key while assigning
     # tiles (SDK assign_ground_materials_to_tiles) — only the single-tile
     # path, which bypasses that orchestration, stamps in the plugin.
-    ground_materials: Optional[dict] = None
+    # Nothing is fetched at submit: that read froze QGIS for its whole
+    # duration and downloaded the same area again on every run (#47).
+    ground_materials: Optional[Any] = None
     if has_ground_material_support(dlg.analysis_type):
-        if getattr(dlg, "use_infrared_ground_materials", False):
-            _status("InfraredCity: fetching ground materials for the area…")
+        try:
+            gm_layers = dlg.selected_ground_material_layers()
+        except AttributeError:
+            gm_layers = {}
+        if gm_layers:
             try:
-                with InfraredClient(api_key=dlg.api_key) as gm_client:
-                    area_gm = gm_client.ground_materials.get_area(polygon)
-                ground_materials = area_gm.layers or None
-                logger.info(
-                    "Auto-fetched ground materials: %d features, %d layer(s)",
-                    area_gm.total_features, len(area_gm.layers),
+                ground_materials = (
+                    collect_ground_materials(polygon, gm_layers) or None
                 )
             except Exception as e:
                 logger.warning(
-                    "Ground materials auto-fetch failed — running without: %s",
-                    e, exc_info=True,
+                    "Failed to collect ground materials: %s", e,
+                    exc_info=True,
                 )
-                _status(
-                    "InfraredCity: ground materials fetch failed — running "
-                    "without them", level=Qgis.Warning, duration=10,
-                )
-        else:
-            try:
-                gm_layers = dlg.selected_ground_material_layers()
-            except AttributeError:
-                gm_layers = {}
-            if gm_layers:
-                try:
-                    ground_materials = (
-                        collect_ground_materials(polygon, gm_layers) or None
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "Failed to collect ground materials: %s", e,
-                        exc_info=True,
-                    )
-                    ground_materials = None
+                ground_materials = None
 
     poller = AreaPoller(
-        client=InfraredClient(api_key=dlg.api_key),
+        client=make_client(dlg.api_key),
         polygon=polygon,
         area=area,
         payload=payload,
@@ -470,5 +393,16 @@ def run_sdk_area_async(dlg, polygon: dict, area) -> Optional[AreaPoller]:
     # Use partial-style closures so the lambda captures `poller` by value.
     poller.finished.connect(lambda _result, p=poller: _retire_poller(p))
     poller.failed.connect(lambda _msg, p=poller: _retire_poller(p))
-    poller.start()
+    try:
+        poller.start()
+    except Exception as e:
+        # The dialog is still open: show the error there and keep it open
+        # (None tells the caller so), exactly like the single-tile path.
+        logger.error("AreaPoller: submit failed: %s", e, exc_info=True)
+        _retire_poller(poller)
+        poller.deleteLater()
+        _status("InfraredCity: area submission failed",
+                level=Qgis.Critical, duration=15)
+        show_error_dialog(dlg, "Area submission", e)
+        return None
     return poller

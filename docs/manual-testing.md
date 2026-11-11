@@ -11,10 +11,11 @@ key is set and building geometry exists.
 
 ## Prerequisites
 
-- QGIS 3.44 – 3.x with the plugin installed (from ZIP or the repo folder). QGIS 4 is not supported (`qgisMaximumVersion=3.99`).
+- **QGIS 3.44 – 3.x** with the plugin installed (from ZIP or the repo folder). This is the range `metadata.txt` declares (`qgisMaximumVersion=3.99`), and the Plugin Manager offers the plugin on that promise alone — so this round is the release gate.
+- **QGIS 4.x** as well, whenever you can. The plugin's Qt6 support is finished and maintained, and this round is what lets the declared cap go back up once infrared-sdk-installer works on QGIS 4.x Windows. Until then a failure here is a bug to file, not a release blocker. Note the dependency install itself is the known broken step on Windows.
 - An Infrared City API key with an active subscription.
 - Test data:
-  - A **building** layer or coordinates to fetch one.
+  - A **building** layer or coordinates to download one.
   - A **tree** layer — use [`examples/osm-trees-sample.geojson`](examples/osm-trees-sample.geojson) (rename the loaded layer to contain `tree-`), or a real OSM export.
 - Network access to `api.infrared.city`.
 
@@ -25,9 +26,9 @@ The plugin adds these actions (left to right):
 | # | Action | Opens |
 |---|--------|-------|
 | 1 | Save API Key | Auth dialog |
-| 2 | Fetch building geometry | Fetch-geometry dialog |
-| 3 | Fetch ground materials | Ground-materials fetch dialog |
-| 4 | Select tile | Map tool (one-shot tile pick) |
+| 2 | Download building geometry | Download building geometry dialog |
+| 3 | Download ground materials | Ground-materials download dialog |
+| 4 | Select tile | Toggle: arms one 512 × 512 m tile; the next run is one job (§3) |
 | 5 | Tree catalog | Tree-catalog dialog |
 | 6 | Run simulation | Run-simulation dialog |
 
@@ -36,43 +37,72 @@ The plugin adds these actions (left to right):
 ## 1. API key
 
 - ☐ **Save a valid key** — Save API Key → paste key → save. Expect "verified and saved" success message, dialog closes, all toolbar icons enabled.
-- ☐ **Change the key** — reopen Save API Key, paste a different valid key, save. Expect the new key to take effect (subsequent fetches/simulations use it; registries re-fetch).
-- ☐ **Invalid key** — save a bogus key. Expect a rejection dialog referencing connectors@infrared.city, the key is NOT saved, and (if no valid key was stored before) the other toolbar icons stay greyed out.
+- ☐ **Change the key** — reopen Save API Key, paste a different valid key, save. Expect the new key to take effect (subsequent downloads/simulations use it). The registries are not re-fetched — they refresh at plugin start and need no key.
+- ☐ **Invalid key** — save a bogus key (the API answers 401). Expect a rejection dialog referencing connectors@infrared.city, the key is NOT saved, and (if no valid key was stored before) the other toolbar icons stay greyed out.
+- ☐ **Trial-plan key** — save a valid Trial-plan key. Expect the plain "verified and saved" success box (the key check answers 200 for any valid key) and all toolbar icons enabled. Restart QGIS: the toolbar stays enabled.
+- ☐ **403 from the key check** — expect "API Key Not Saved (403)", the key is NOT saved, and a previously saved key still works (toolbar enabled, also after a restart). Hard to trigger on demand; check it only if you can get such a response.
+- ☐ **Captive portal / proxy** — behind a captive portal or proxy that returns its own page or JSON (e.g. `{"message": "Blocked by policy"}`) instead of the API's answer. A proxy 403 shows "API Key Not Saved (403)"; a proxy 200 or any other page shows "Could Not Verify". Either way the key is NOT saved and the existing one is kept; the page's markup is never shown as the reason.
 - ☐ **No key** — with no key saved, all toolbar icons except Save API Key are greyed out.
-- ☐ **Offline save** — disconnect network, save a plausible key. Expect a "could not verify / NOT saved" warning distinct from the invalid-key rejection; the key is not stored.
-- ☐ **Startup with revoked saved key** — a bad stored key can no longer be *saved* (save validates first); it arises when a key is revoked/expires *after* saving. Setup: save a valid key, then revoke that key (delete it in the infrared.city dashboard) — or overwrite it unvalidated from the QGIS Python console: `QSettings().setValue("infrared_city/api_key", "bogus")`. Restart QGIS. Expect a message-bar warning, icons greyed out except Save API Key, and a hover tooltip on the greyed icons explaining a valid key is required.
+- ☐ **Offline save** — disconnect network, save a plausible key. Expect a "Could Not Verify" / NOT saved warning distinct from the invalid-key rejection; the key is not stored. A 5xx or a timeout behaves the same.
+- ☐ **Startup with revoked saved key** — a bad stored key can no longer be *saved* (save validates first); it arises when a key is revoked/expires *after* saving, and only a 401 from the API locks the plugin. Setup: save a valid key, then revoke that key (delete it in the infrared.city dashboard) — or overwrite it unvalidated from the QGIS Python console: `QSettings().setValue("infrared_city/api_key", "bogus")`. Restart QGIS. Expect a message-bar warning, icons greyed out except Save API Key, and a hover tooltip on the greyed icons explaining a valid key is required.
 - ☐ **Startup offline with good saved key** — restart QGIS with a valid key stored but no network. Expect icons to stay ENABLED (an outage must not lock the plugin); calls fail later with connection errors.
 
-## 2. Fetch building geometry
+## 2. Download building geometry
 
-- ☐ **Fetch by coordinates** — Fetch building geometry → enter coordinates → fetch. Expect a buildings layer loaded over a ~1 km × 1 km area, with heights.
-- ☐ **Empty area** — fetch over an area with no buildings. Expect a clear "nothing found" message (after the single-request + tile-fallback attempts), not a crash.
+- ☐ **Download by coordinates** — Download building geometry → enter coordinates → OK. Expect a buildings layer loaded over a ~1 km × 1 km area, with heights.
+- ☐ **Empty area** — download over an area with no buildings. Expect a clear "nothing found" message (after the single-request + tile-fallback attempts), not a crash.
 - ☐ **Rendering** — the buildings layer is styled and visible on the map.
 
 ## 3. Select tile (single-tile mode)
 
-- ☐ **Pick a tile** — Select tile → click on the map. Expect a single 512×512 m tile selection to be stored.
-- ☐ **Feeds Run Simulation** — open Run Simulation immediately after: it runs in **single-tile mode** (see §5).
-- ☐ **Feeds Fetch ground materials** — with a pending tile pick, Fetch ground materials covers that one tile (the pick is *peeked*, so Run Simulation still gets it).
-- ☐ **Persists across close/reopen** — after a tile pick, open Run Simulation, close it *without running*, then reopen. Expect it to still be in single-tile mode. The pick is only cleared once a simulation is actually submitted — or you pick a new tile / restart QGIS. (Consequence: a stale pending pick keeps Run Simulation in single-tile mode; to run an *area* simulation instead, submit or clear the pending single-tile pick first.)
+The toolbar button is a **toggle**. Pressed means a 512×512 m box is armed and
+the next run is ONE job (~10 tokens) instead of the four the area tiler would
+charge. Submitting a simulation ends the mode; a ground-material download does not.
 
-## 4. Fetch ground materials
+- ☐ **Pick a tile** — Select tile → click on the map. Expect the buildings in the box highlighted **and the toolbar button pressed**.
+- ☐ **Empty tile is refused** — pick a tile with no buildings. Expect a warning, nothing armed, and the button **not** pressed.
+- ☐ **Cancelling leaves it off** — press Select tile, close the dialog without picking. Expect the button released.
+- ☐ **Run Simulation reads 1 tile** — with the button pressed, expect the title **1 tile · ~10 tokens**. This is the regression to watch: it must not say 4 or 9. The run is the picked BOX, not the hull of the highlighted buildings, which extends past it.
+- ☐ **Download ground materials keeps the mode** — download with the button pressed, then reopen Run Simulation. Expect it **still** armed, so you can run on the materials you just downloaded without re-picking.
+- ☐ **A run ends the mode** — submit a simulation. Expect the highlight gone **and** the button released, together. Reopening Run Simulation is back to area mode.
+- ☐ **Release returns to area mode** — click the pressed button. Expect a message-bar confirmation, the highlight cleared, and the button released.
+- ☐ **Release does not re-open the pick dialog** — clicking a pressed button only releases.
+- ☐ **A hand-cleared selection is reconciled** — with the button pressed, clear the QGIS selection yourself, then open Run Simulation. Expect it to have dropped back to area mode rather than running an invisible tile.
+- ☐ **Saving an API key releases it** — a tile picked under one account must not carry into another.
 
-- ☐ **Requires a building selection** — with no building features selected, open Fetch ground materials. Expect *"Please select a building area first"*.
+## 4. Download ground materials
+
+- ☐ **Requires a building selection** — release the **Select tile** toolbar button first (an armed tile takes precedence over the feature selection, and then the dialog does not ask for one), click your building layer in the Layers panel, and with nothing selected open Download ground materials. Expect *"Please select a building area first"*.
+- ☐ **Active layer that cannot hold a selection** — click a result raster (or any non-vector layer) in the Layers panel, then open Download ground materials. Expect the same message plus a line naming that layer, **not** a QGIS Python error box. Worth doing right after a simulation: QGIS makes the result raster the active layer when it is added.
 - ☐ **Tile-count preview** — select building features, open the dialog. Expect the selection size shown in tiles.
-- ☐ **>100 tiles rejected** — select a large area (> 100 tiles). Expect a "select a smaller area" message and the fetch **blocked**.
-- ☐ **Fetch succeeds** — select a reasonable area → Fetch. Expect one editable `ground-<material>` layer **per material** (asphalt, concrete, vegetation, soil, water, building), added to the project.
+- ☐ **>100 tiles rejected** — select a large area (> 100 tiles). Expect a "select a smaller area" message and the download **blocked**.
+- ☐ **Download succeeds** — select a reasonable area → Download. Expect one editable `ground-<material>` layer **per material** (asphalt, concrete, vegetation, soil, water — no building layer; buildings come from the Download building geometry dialog), added to the project.
+- ☐ **The layers are BIGGER than the selection, on purpose** — the dialog says the layers will cover about **800 m more** than your selection, and they do: zoom out and check a `ground-*` layer's extent against the selection on all four sides, **corners included**. 800 m = 544 m (how far a tile reads ground beyond its centre) + 256 m (how far outside the selection a tile centre can sit). It is not cosmetic: where that band is missing the server composes its default asphalt and the edge of the result comes out as if the surfaces had been ignored (#55, and the ground/edges entry in `battle-scars.md`). It also means the download reads several times the selection's area and takes correspondingly longer.
 - ☐ **Result dialog** — a summary lists the created layers **by layer name** with feature counts.
-- ☐ **Repeated fetch numbers layers** — fetch again (different/overlapping area). Expect `ground-asphalt-2`, etc. — no overwrite, both sets present.
-- ☐ **No data** — fetch over an area with no ground-material data. Expect *"No ground material data was found"*, not a crash.
-- ☐ **Editable** — the `ground-*` layers are memory layers you can edit before a run.
+- ☐ **Repeated download numbers layers** — download again (different/overlapping area). Expect `ground-asphalt-2`, etc. — no overwrite, both sets present.
+- ☐ **No data** — download over an area with no ground-material data. Expect *"No ground material data was found"*, not a crash.
+- ☐ **Editable and saved to disk** — the `ground-*` layers have no "Temporary scratch layer only!" icon, their source is `…/infrared_city_gis/data/infrared_city_ground_materials_<date-time>.gpkg`, and an edit (move a vertex, save) is kept after a QGIS restart and reopening the project.
+- ☐ **Downloads are never auto-deleted** — the files in `…/infrared_city_gis/data/` (buildings GeoJSON, ground-material GeoPackages) stay after a restart, however old; only the plugin's logs are pruned (30 days).
+- ☐ **Nothing dropped** — the result dialog's per-layer counts match the download (no "unreadable coordinates" warning in the plugin log), and a polygon with a hole (e.g. a courtyard) keeps it.
+
+- ☐ **The dialog stays alive during the read** — start a download and watch: the clock keeps ticking and the window repaints. It must be possible to close the dialog mid-read. (The dialog is modal, so QGIS itself is out of reach until it closes — what is being checked is that nothing is frozen, not that you can work meanwhile.)
+- ☐ **The status line counts up** — expect `Reading ground materials from Overture… m:ss`, ticking once a second, with a note that it can take minutes on a slow connection.
+- ☐ **A timeout says what to do** — if the read times out (limit: 5 min per read, 10 min in total), expect a "Download Timed Out" dialog naming the connection, NOT the API key (this read sends no key).
+- ☐ **A failed download is named** — block `overturemaps-us-west-2.s3.us-west-2.amazonaws.com` (hosts file or firewall) and download. Expect *Ground Materials Could Not Be Read* with "No tokens were charged" and a proxy/firewall hint — NOT *Unexpected Error*, and NOT an API-key message.
+- ☐ **Closing mid-read is safe** — close the dialog while a read is running. Expect no crash and no result appearing later; the download finishes in the background and its result is dropped (it cannot be cancelled).
+- ☐ **A second download waits for the first** — close the dialog mid-read, reopen it and press Download straight away. Expect *Previous Download Still Running* and no second download. Once the first read has finished, a download works again.
+- ☐ **QGIS quits cleanly after a download** — this is the one that keeps coming back (SIGSEGV in Arrow's AWS cleanup, 2026-09-29 and again 2026-10-16). Do a real ground-material download, then **quit QGIS normally** and check the OS did not report a crash. Then open the plugin log for that session and confirm it contains `Arrow S3 finalization hooked to aboutToQuit` (from startup) and an `aboutToQuit: …` line (from the quit) — the hook silently not running is exactly how this bug hid before. Reads go over HTTPS on every platform now, so `S3FileSystem` should never be constructed; a log line mentioning S3 transport is itself a finding.
+- ☐ **After a plugin reload** — reload the plugin (Plugin Reloader), then download and quit again. The startup log line may read *"could not hook Arrow S3 finalization: connection is not unique"* — that is the **success** case on a reload (the hook from the first load is still connected), not a failure.
 
 ## 5. Run simulation
 
+- ☐ **No selection** — with nothing selected and no tile picked, open Run Simulation. Expect a *No Selection* notice saying what to select, and no error traceback in the plugin log.
+
 ### 5a. Single tile
 
-- ☐ Make a **Select tile** pick, then Run Simulation. Expect the title to indicate single-tile mode (**1 tile · ~10 tokens**), no area tiling.
+- ☐ Arm a tile with **Select tile**, then Run Simulation. Expect the title to read **1 tile · ~10 tokens**, and no area tiling.
 - ☐ Run it through: expect a result raster loaded and styled.
+
 
 ### 5b. Area (multiple tiles)
 
@@ -81,7 +111,7 @@ The plugin adds these actions (left to right):
 
 ### 5c. Area too large
 
-- ☐ Select an area **> 100 tiles**. Expect a clear error / "select a smaller area" and the run **blocked** (same 100-tile cap as ground fetch).
+- ☐ Select an area **> 100 tiles**. Expect a clear error / "select a smaller area" and the run **blocked** (same 100-tile cap as the ground-material download).
 
 ### 5d. Analysis-type option visibility (important)
 
@@ -129,8 +159,8 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 - ☐ **Opt-in list** — the Ground materials list opens with **nothing ticked**; one row per `ground-*` layer (`material — layer name`).
 - ☐ **One per material** — ticking a second `asphalt` layer unticks the first (radio-like).
 - ☐ **Validation (ticked only)** — a ticked layer with no features in the selection is reported (*"Not found on the selected area: …"*); silence otherwise.
-- ☐ **Auto-fetch** — tick *"Use Infrared ground materials"*: the list disables; Infrared's own layers are fetched at submit.
-- ☐ **No layers** — with no `ground-*` layers, the list is hidden but the auto-fetch option remains.
+- ☐ **No download at submit** — the section has no checkbox to download ground materials at submit; a run never downloads ground materials itself.
+- ☐ **No layers** — with no `ground-*` layers, the list is hidden and the section says to download them with the *Download ground materials* dialog first.
 
 ### 5g. Combined / negative runs
 
@@ -140,7 +170,7 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 
 ## 6. Tree catalog
 
-- ☐ **Lists species** — Tree catalog shows the registry species with default height / crown (fetched on API-key save).
+- ☐ **Lists species** — Tree catalog shows the registry species with default height / crown (refreshed at plugin start).
 - ☐ **Info label** — selecting a species shows its Latin name + dimensions (Small/Medium/Large changes the dimensions).
 - ☐ **Override wiring** — a selection here is applied only when *"Use tree catalog tree type"* is ticked in Run Simulation (see §5e).
 - ☐ **Doc link** — the "vegetation input guide" link opens.
@@ -148,6 +178,12 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 ## 7. Results
 
 - ☐ Each completed simulation loads a **result raster** styled for its analysis type.
+- ☐ **The layer name says what the run was** — `IC result - <analysis> · <inputs>`, e.g. `IC result - thermal-comfort-index · July, Afternoon`. Run the same analysis twice with different inputs and expect two distinguishable names. Sky-view-factors has no inputs, so it keeps the bare name.
+- ☐ **A run adds only its raster** — no extra building-outline layer appears after a single-tile or area run; the only buildings layer is the one the Download building geometry dialog created.
+- ☐ **Nothing falls off the top of the legend** — on a UTCI run, check the hottest areas (open sun, water) are coloured rather than white/transparent. The backend legend can be narrower than the data.
+- ☐ **Wind speed keeps 0-20 m/s** — run wind speed twice (single tile and area). Both legend 0-20 m/s, and faster cells take the top colour. A manual min/max set in the dialog wins.
+- ☐ **The legend follows the run, not the full scale** — a UTCI run is coloured over the backend's legend range (e.g. 21–30 °C), not the registry's full −40…46 °C scale, and each band is labelled with its own value. Set a manual min/max in the dialog and expect it to win over both.
+- ☐ **The same scenario legends the same in both modes** — run one tile, then the same ground as an area, and expect comparable colour scales.
 - ☐ Area runs merge tiles into one coherent raster (no gaps/seams beyond expected tile edges).
 - ☐ Re-running overwrites/adds results without corrupting existing layers.
 
@@ -158,8 +194,8 @@ On a ground-supporting analysis (e.g. UTCI), with `ground-*` layers present:
 A fast smoke test after a change:
 
 1. ☐ Save API key.
-2. ☐ Fetch buildings for a small area.
+2. ☐ Download buildings for a small area.
 3. ☐ Single-tile UTCI run with the OSM tree sample → result raster + correct tree breakdown.
-4. ☐ Fetch ground materials for the same area → `ground-*` layers.
+4. ☐ Download ground materials for the same area → `ground-*` layers.
 5. ☐ Area UTCI run with trees + one ground layer ticked → result raster.
 6. ☐ Switch analysis to Wind Speed → tree + ground sections disappear.

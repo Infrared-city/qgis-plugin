@@ -44,7 +44,7 @@ the full scheme. Any other attributes (ids, notes, `taxon`, `leaf_cycle`,
 `circumference`, …) are passed through untouched and don't affect the
 simulation.
 
-> There is no Infrared-specific attribute to add — the plugin reads the trees'
+> There is no Infrared City-specific attribute to add — the plugin reads the trees'
 > own OSM tags.
 
 ## How a tree's type is resolved
@@ -87,7 +87,7 @@ Provide `height` / `crownDiameter` per tree to override any default.
 
 The registry species — each is an **exact mesh**, not required for a run but
 available when you want a specific tree. Also listed live in the plugin's
-**Tree Catalog** dialog (fetched when you save your API key):
+**Tree Catalog** dialog (refreshed each time the plugin starts):
 
 | Species (Latin name) | Default height | Default crown diameter |
 |---|---|---|

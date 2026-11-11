@@ -1,4 +1,4 @@
-"""Build typed Infrared SDK analysis payloads from the dialog's UI state.
+"""Build typed Infrared City SDK analysis payloads from the dialog's UI state.
 
 All helpers read fields directly from the dialog (``dlg``) so this stays
 de-coupled from the dialog class itself. Each ``build_sdk_payload`` exit
@@ -180,6 +180,14 @@ def _weather_data(dlg, analysis_type, weather_file: str, tf) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _refuse(dlg, title: str, text: str) -> None:
+    """Show a validation refusal and log it, so the log says why nothing ran."""
+    from qgis.PyQt.QtWidgets import QMessageBox
+
+    logger.warning("Payload validation refused: %s — %s", title, text)
+    QMessageBox.warning(dlg, title, text)
+
+
 def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
     """Build a typed SDK analysis payload from the dialog's current UI state.
 
@@ -189,15 +197,13 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
 
     Returns ``None`` and shows a QMessageBox if validation fails.
     """
-    from qgis.PyQt.QtWidgets import QMessageBox
-
     at = dlg.analysis_type
 
     if at == AnalysisType.WIND_SPEED:
         ws = int(dlg.wind_speed_input.value())
         wd = int(dlg.wind_direction_input.value())
         if ws <= 0 or wd < 0 or wd > 360:
-            QMessageBox.warning(
+            _refuse(
                 dlg, "Invalid Parameters",
                 "Wind speed must be > 0 and direction 0–360°.",
             )
@@ -215,7 +221,7 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
         weather_file = dlg.weather_file_input_pwc.currentText().strip()
         epw_path = getattr(dlg, "_epw_paths", {}).get(at)
         if not (pwc_type and season and hours and (weather_file or epw_path)):
-            QMessageBox.warning(
+            _refuse(
                 dlg, "Missing Input",
                 "Please fill in all PWC fields (pick a weather file or upload an EPW).",
             )
@@ -266,7 +272,7 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
         weather_file = dlg.weather_file_input_sr.currentText().strip()
         epw_path = getattr(dlg, "_epw_paths", {}).get(at)
         if not (weather_file or epw_path):
-            QMessageBox.warning(dlg, "Missing Input", "Weather file or uploaded EPW is required.")
+            _refuse(dlg, "Missing Input", "Weather file or uploaded EPW is required.")
             return None
         tf = makeTimeFrameObjWithMonth(month=month, hourly=hours.value)
         wd = _weather_data(dlg, at, weather_file, tf)
@@ -285,7 +291,7 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
         weather_file = dlg.weather_file_input_tci.currentText().strip()
         epw_path = getattr(dlg, "_epw_paths", {}).get(at)
         if not (weather_file or epw_path):
-            QMessageBox.warning(dlg, "Missing Input", "Weather file or uploaded EPW is required.")
+            _refuse(dlg, "Missing Input", "Weather file or uploaded EPW is required.")
             return None
         tf = makeTimeFrameObjWithMonth(month=month, hourly=hours.value)
         wd = _weather_data(dlg, at, weather_file, tf)
@@ -314,7 +320,7 @@ def build_sdk_payload(dlg) -> Optional[AnalysesUnion]:
         weather_file = dlg.weather_file_input_tcs.currentText().strip()
         epw_path = getattr(dlg, "_epw_paths", {}).get(at)
         if not (season and hours and tcs_type and (weather_file or epw_path)):
-            QMessageBox.warning(
+            _refuse(
                 dlg, "Missing Input",
                 "Please fill in all TCS fields (pick a weather file or upload an EPW).",
             )

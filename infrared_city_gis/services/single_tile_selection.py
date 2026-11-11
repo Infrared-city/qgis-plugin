@@ -1,30 +1,42 @@
-"""One-shot holder for an ArcGIS-style single-tile selection.
+"""The armed single-tile pick: the 512 m box a run will be submitted as.
 
-Mirrors the .NET plugin's ``SingleTileSelection`` static state. The
-"Select tile" map tool stores the picked 512×512 m tile here; the Run
-Simulation dialog :func:`peek`s at it on open to enter *single-tile mode*.
+The "Select tile" toolbar action is a TOGGLE, and this module is what it
+reflects: pressed means a box is armed here. Both the simulation and the
+ground-material dialogs read it, and a run submitted from an armed box goes
+through ``analyses.execute`` as ONE job instead of the area tiler, which steps
+every 256 m and would turn a 512 m box into four.
 
-The dialog only :func:`peek`s on open and :func:`clear`s after a
-simulation is actually submitted — so closing the dialog without running
-keeps the selection pending, and re-opening (while the tile selection is
-still active) stays in *single-tile mode*. Once a simulation runs, the
-state is cleared and the next open falls back to *area mode*. Single-tile
-mode submits **one** tile via ``client.analyses.execute`` (≈10 tokens)
-instead of routing the 512 m box through the area tiler, which would split
-it into multiple overlapping 256 m-step tiles and multiply the token cost.
+**The BOX is stored, not the buildings.** The pick also selects the buildings
+inside it, but their convex hull is not the box: ``selectByRect`` takes whole
+features, so a building straddling an edge pulls the hull past it — measured at
+617 x 586 m for a 512 m pick, which the tiler charges nine jobs for. Deriving
+the run polygon from the selection instead of storing the box is exactly that
+bug, so the box is what lives here.
+
+**The mode ends when a simulation is submitted**, releasing the toggle and the
+map selection together. That pairing is the point: clearing one and not the
+other is what made an armed tile invisible, and then a forgotten pick silently
+shrank a later ground-material fetch. A fetch does NOT end it — a fetch is
+preparation for a run on the same tile, and ending it there would make the user
+re-pick to use what they just fetched.
+
+Anything that changes the armed state notifies :func:`subscribe` listeners, so
+the toolbar toggle stays in step without every caller having to know it exists.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Callable, List, Optional, Tuple
+
+from ..infrared_logger import logger
 
 
 @dataclass(frozen=True)
 class SingleTileSelection:
-    """An immutable snapshot of a picked 512×512 m tile (WGS84)."""
+    """An immutable snapshot of a picked 512x512 m tile (WGS84)."""
 
-    polygon: dict          # GeoJSON Polygon for the 512×512 m tile (WGS84)
+    polygon: dict          # GeoJSON Polygon for the 512x512 m tile (WGS84)
     center_lon: float      # clicked centre longitude (WGS84)
     center_lat: float      # clicked centre latitude (WGS84)
     bbox: Tuple[float, float, float, float]  # (west, south, east, north) WGS84
@@ -33,6 +45,30 @@ class SingleTileSelection:
 
 
 _PENDING: Optional[SingleTileSelection] = None
+_LISTENERS: List[Callable[[], None]] = []
+
+
+def subscribe(listener: Callable[[], None]) -> None:
+    """Call *listener* whenever the armed selection appears or disappears.
+
+    Lets the toolbar toggle mirror this state without the dialogs that clear it
+    needing a reference to the action — the two stayed out of step exactly
+    because keeping them in step was every caller's job.
+    """
+    if listener not in _LISTENERS:
+        _LISTENERS.append(listener)
+
+
+def _notify() -> None:
+    for listener in list(_LISTENERS):
+        try:
+            listener()
+        except Exception as e:  # noqa: BLE001 - a stale listener must not break a pick
+            # Typically a QAction whose C++ half is already gone. Logged
+            # rather than swallowed: a listener failing for any other reason
+            # means the toolbar has stopped mirroring this state, and that is
+            # exactly the drift this module exists to prevent.
+            logger.debug("single-tile listener failed: %s", e)
 
 
 def set_selection(
@@ -44,7 +80,7 @@ def set_selection(
     crs: str = "EPSG:4326",
     building_count: int = 0,
 ) -> None:
-    """Store a freshly picked tile, replacing any previous pending selection."""
+    """Arm a freshly picked tile, replacing any previous one."""
     global _PENDING
     _PENDING = SingleTileSelection(
         polygon=polygon,
@@ -54,22 +90,22 @@ def set_selection(
         crs=crs,
         building_count=int(building_count),
     )
-
-
-def consume() -> Optional[SingleTileSelection]:
-    """Return the pending selection and clear it (one-shot)."""
-    global _PENDING
-    sel = _PENDING
-    _PENDING = None
-    return sel
+    _notify()
 
 
 def peek() -> Optional[SingleTileSelection]:
-    """Return the pending selection without clearing it."""
+    """The armed selection, or ``None``. Does not change anything."""
     return _PENDING
 
 
+def is_armed() -> bool:
+    return _PENDING is not None
+
+
 def clear() -> None:
-    """Discard any pending selection."""
+    """Disarm. Safe to call when nothing is armed."""
     global _PENDING
+    was_armed = _PENDING is not None
     _PENDING = None
+    if was_armed:
+        _notify()
