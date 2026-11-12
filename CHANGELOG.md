@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0](https://github.com/Infrared-city/qgis-plugin/compare/v1.1.4...v1.2.0) (2026-11-12)
+
+
+### Bug Fixes
+
+* make the release-PR title rule impossible to miss, and restart 1.2.0 ([#67](https://github.com/Infrared-city/qgis-plugin/issues/67)) ([e1182b3](https://github.com/Infrared-city/qgis-plugin/commit/e1182b3d66217dc338d431ee3c01a0d10e4d97b1))
+* the Release-As footer must reach main's commit message ([516699b](https://github.com/Infrared-city/qgis-plugin/commit/516699bf8bd486b7ebde4f66d672cdf8565d8af7))
+* the Release-As footer must reach main's commit message (INF-666) ([4bde570](https://github.com/Infrared-city/qgis-plugin/commit/4bde57013d3f08228bfa813aad082e94933ad6c3))
+
 ## [1.1.4](https://github.com/Infrared-city/qgis-plugin/compare/v1.1.3...v1.1.4) (2026-10-07)
 
 

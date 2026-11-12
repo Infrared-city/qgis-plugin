@@ -20,7 +20,7 @@ qgisMinimumVersion=3.44
 # docs/manual-testing.md round has passed there. See CLAUDE.md, Stack.
 qgisMaximumVersion=3.99
 description=Run urban climate simulations (wind, thermal comfort, solar) directly from QGIS using the infrared.city platform.
-version=1.1.4
+version=1.2.0
 author=infrared.city
 email=connectors@infrared.city
 
@@ -33,7 +33,17 @@ repository=https://github.com/Infrared-city/qgis-plugin
 # Recommended items:
 
 hasProcessingProvider=no
-changelog=1.1.4
+changelog=1.2.0
+    - Important: this release moves the plugin off a server the platform is retiring. Earlier versions will stop being able to download ground materials, weather data and material registries once that happens — please update.
+    - Ground materials now cover the edges of your simulation. The download reaches about 800 m beyond your selection, because every simulation tile reads surfaces well outside itself; without that band the edge of a result was computed as if the ground materials were not there. The ground-* layers you get back are correspondingly larger than the area you picked, and the download takes longer.
+    - Fix: QGIS could crash on exit after downloading ground materials
+    - Fix: ground-material downloads failed on every machine after a third-party library update (pyarrow is now pinned to a tested version)
+    - Fix: valid API keys on the Trial plan were rejected when saving
+    - Fix: clicking Run twice could submit — and charge for — the same simulation twice
+    - Fix: "Please select a building area first" is shown instead of a Python error when the active layer cannot hold a selection (for example a result raster)
+    - Fix: downloaded ground materials are never deleted, a partial download is reported instead of silently dropping layers, and two downloads can no longer overwrite each other
+    - QGIS 4 (Qt6) is supported in code and the plugin is tested on it, but the declared compatibility stops at QGIS 3.x for now: the dependency installer does not yet work on QGIS 4 on Windows. Use QGIS 3.44 LTR.
+    1.1.4
     - Fix: new installations failed to load the plugin after infrared-sdk 1.0.0 was published; the plugin now installs the SDK version it was tested with (infrared-sdk 0.5.3)
     1.1.3
     - Fix: automated qgis code test fixes
