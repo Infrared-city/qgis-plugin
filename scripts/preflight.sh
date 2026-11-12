@@ -184,8 +184,12 @@ fi
 cat <<'NOTE'
 
   Still yours to do:
-    - The QGIS 4 manual round (docs/manual-testing.md). The suite covers logic,
-      not what a dialog looks like or whether the toolbar behaves.
+    - The QGIS 3 manual round (docs/manual-testing.md) — that is the range we
+      declare (qgisMaximumVersion=3.99), so it is the release gate. The suite
+      covers logic, not what a dialog looks like or whether the toolbar behaves.
+      Run the QGIS 4 round too where you can: the Qt6 code is maintained and
+      keeping it green is what lets the cap go back up, but a failure there is
+      a bug to file, not a release blocker.
     - /ir-dev:audit-branch — conventions, reinvention and doc sync on the diff.
     - If you develop from a QGIS profile, remember the installed plugin is a
       COPY, not a symlink: re-sync it or you are testing stale code.

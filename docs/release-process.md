@@ -10,6 +10,16 @@ This is a **two-PR process**:
 1. When staging is ready to ship, open a PR from `staging → main` and merge it
    - **The PR title must start with `fix:` or `feat:` if the release contains user-facing changes** — Release Please reads the merge commit message to determine whether to open a release PR. A title starting with `chore:` or `docs:` will not trigger a version bump.
    - Example title: `fix: weather file upload and code quality improvements`
+   - **It fails SILENTLY if you get this wrong.** Release Please still runs on the
+     push, still reports "completed success", and simply opens no PR and cuts no
+     tag — there is no error anywhere to notice. 1.2.0 stalled exactly this way
+     (#64, titled "Release 1.2.0 → prod: …"). After merging `staging → main`,
+     check that a `chore(main): release X.Y.Z` PR actually appeared before you
+     walk away.
+   - To name the version outright — a batch whose `feat:` work was squashed away,
+     or a stalled release being restarted — put `Release-As: X.Y.Z` in the PR
+     **body**. Squash carries the body into the commit message, and that footer
+     overrides the computed bump.
 2. Release Please detects the new commits on `main` and opens (or updates) a release PR titled `chore(main): release X.Y.Z`
    - This PR bumps `version.txt` (primary version source for Release Please)
    - This PR updates `CHANGELOG.md` based on conventional commit messages
