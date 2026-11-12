@@ -17,9 +17,24 @@ This is a **two-PR process**:
      check that a `chore(main): release X.Y.Z` PR actually appeared before you
      walk away.
    - To name the version outright — a batch whose `feat:` work was squashed away,
-     or a stalled release being restarted — put `Release-As: X.Y.Z` in the PR
-     **body**. Squash carries the body into the commit message, and that footer
-     overrides the computed bump.
+     or a stalled release being restarted — use a `Release-As: X.Y.Z` footer. It
+     overrides the computed bump, but **only if it reaches the commit message
+     that lands on `main`**. Putting it in the PR body is NOT enough:
+
+     ```
+     squash_merge_commit_message: COMMIT_MESSAGES   # not PR_BODY
+     allow_merge_commit:          true
+     ```
+
+     The footer therefore has to be in a *commit* on the branch, and the squash
+     dialog pre-fills an editable message that can drop it. Merge that PR with
+     **Create a merge commit** instead, which keeps the message whole.
+
+     This cost us a second round: #67 carried `Release-As: 1.2.0` in both its
+     body and its commit, the squashed commit on `main` came out as the title
+     line alone, and Release Please computed 1.1.5 from the bare `fix:`.
+     After the merge, check the version on the release PR, not just that one
+     appeared.
 2. Release Please detects the new commits on `main` and opens (or updates) a release PR titled `chore(main): release X.Y.Z`
    - This PR bumps `version.txt` (primary version source for Release Please)
    - This PR updates `CHANGELOG.md` based on conventional commit messages
